@@ -12,7 +12,23 @@ Most readers will not need `git`.
 2. Click `Code`.
 3. Click `Download ZIP`.
 4. Unzip the downloaded archive.
-5. Open a terminal in the unzipped `era_pl_templates` folder.
+5. Open a terminal and change into the unzipped `era_pl_templates` folder.
+
+On macOS:
+
+1. Open Terminal.
+2. Run `cd ` and then drag the unzipped `era_pl_templates` folder into the Terminal window.
+3. Press Enter.
+
+On Linux:
+
+1. Open your terminal application.
+2. Use `cd` to move into the unzipped `era_pl_templates` folder.
+
+On Windows:
+
+1. Open PowerShell.
+2. Use `cd` to move into the unzipped `era_pl_templates` folder.
 
 If you prefer, you can also clone the repository with `git clone`.
 
@@ -45,6 +61,8 @@ Install Quarto CLI from <https://quarto.org/docs/get-started/>.
 
 ## Project setup
 
+Run the following commands from a terminal, in the project root directory (the `era_pl_templates` folder that contains this `README.md`).
+
 Create the project virtual environment and install the Python dependencies:
 
 ```bash
@@ -61,7 +79,7 @@ uv sync --python 3.13
 
 ## Environment variables
 
-Create a `.env` file in the project root. Do not commit this file.
+Still in the project root, create a `.env` file. Do not commit this file.
 
 You can start from the checked-in example:
 
@@ -80,13 +98,13 @@ DATA_DIR=/absolute/path/to/pq_data
 
 The template expects local Parquet versions of a small set of WRDS tables. Those files can be created with [`db2pq`](https://pypi.org/project/db2pq/), which is installed as part of the project environment.
 
-After creating `.env`, run:
+After creating `.env`, run the following command from a terminal in the project root:
 
 ```bash
 uv run python
 ```
 
-Then, at the Python prompt:
+Then, at the Python prompt, run:
 
 ```python
 from db2pq import wrds_update_pq
