@@ -1,0 +1,525 @@
+---
+title: "Ball and Brown (1968) template"
+subtitle: "A runnable code-focused replication"
+engine: jupyter
+---
+
+# Overview
+
+This template extracts the visible Python code used to produce an analogue of Figure 1 from Ball and Brown (1968). The focus is on a runnable workflow rather than on the fuller book chapter discussion.
+
+:::{.callout-tip}
+This document assumes that you have:
+
+1. created a local `.venv` with `uv sync`
+2. created a local `.env` file with `WRDS_ID` and `DATA_DIR`
+3. downloaded the required WRDS tables as Parquet files using `db2pq`
+:::
+
+```{python}
+import io
+import re
+import zipfile
+
+import polars as pl
+import requests
+
+from dotenv import load_dotenv
+from era_pl import load_parquet, NumberedLines, plotnine_star as p9
+
+load_dotenv()
+```
+
+:::{.callout-note}
+The package imported here as `era_pl` is installed from PyPI as `era-py`.
+:::
+
+## Load WRDS data
+
+The code below expects local Parquet versions of the following WRDS tables:
+
+- `crsp.msi`
+- `crsp.msf`
+- `crsp.stocknames`
+- `crsp.ccmxpf_lnkhist`
+- `comp.funda`
+- `comp.fundq`
+
+```{python}
+msi = load_parquet("msi", "crsp")
+msf = load_parquet("msf", "crsp")
+ccmxpf_lnkhist = load_parquet("ccmxpf_lnkhist", "crsp")
+stocknames = load_parquet("stocknames", "crsp")
+
+funda = load_parquet("funda", "comp")
+fundq = load_parquet("fundq", "comp")
+```
+
+:::{.callout-note}
+These objects are `pl.LazyFrame` objects, so Polars delays the actual work until a later step such as `.collect()`.
+:::
+
+## Announcement dates and return windows
+
+```{python}
+#| label: annc_events
+annc_events = (
+    fundq
+    .filter(
+        pl.col("indfmt") == "INDL",
+        pl.col("datafmt") == "STD",
+        pl.col("consol") == "C",
+        pl.col("popsrc") == "D",
+        pl.col("fqtr") == 4,
+        pl.col("fyr") == 12,
+        pl.col("rdq").is_not_null()
+    )
+    .select("gvkey", "datadate", "rdq")
+    .with_columns(annc_month=pl.col("rdq").dt.truncate("1mo"))
+)
+```
+
+```{python}
+#| label: crsp_dates
+crsp_dates = (
+    msi
+    .select("date")
+    .sort("date")
+    .with_row_index("td", offset=1)
+    .with_columns(
+        td=pl.col("td").cast(pl.Int32),
+        month=pl.col("date").dt.truncate("1mo"),
+    )
+)
+```
+
+```{python}
+#| label: annc_months
+annc_months = (
+    crsp_dates
+    .select(
+        pl.col("month").alias("annc_month"),
+        pl.col("td").alias("annc_td"),
+    )
+    .with_columns(
+        start_td=pl.col("annc_td") - 11,
+        end_td=pl.col("annc_td") + 6,
+    )
+)
+```
+
+```{python}
+#| label: td_link
+td_link = (
+    crsp_dates
+    .join(annc_months, how="cross")
+    .filter(pl.col("td").is_between(pl.col("start_td"),
+                                    pl.col("end_td")))
+    .with_columns(rel_td=pl.col("td") - pl.col("annc_td"))
+    .select("annc_month", "rel_td", "date")
+)
+```
+
+```{python}
+#| label: ccm_link
+ccm_link = (
+    ccmxpf_lnkhist
+    .filter(
+        pl.col("linktype").is_in(["LC", "LU", "LS"]),
+        pl.col("linkprim").is_in(["C", "P"])
+    )
+    .with_columns(
+        permno=pl.col("lpermno"),
+        linkenddt=pl.col("linkenddt").fill_null(pl.col("linkenddt").max()),
+    )
+    .select("gvkey", "permno", "linkdt", "linkenddt")
+)
+```
+
+```{python}
+events_linked = (
+    annc_events
+    .join(td_link, on="annc_month", how="inner")
+    .join(ccm_link, on=["gvkey"], how="inner")
+    .filter(pl.col("annc_month").is_between(pl.col("linkdt"),
+                                            pl.col("linkenddt")))
+)
+```
+
+```{python}
+#| label: rets_all
+#| cache: false
+rets_all = (
+    events_linked
+    .join(msf.select("permno", "date", "ret", "prc", "shrout"),
+          on=["permno", "date"], how="inner")
+    .join(
+        stocknames
+        .filter(pl.col("exchcd").is_in([1, 2, 3]))
+        .select("permno", "namedt", "nameenddt"),
+        on="permno",
+        how="inner",
+    )
+    .filter(pl.col("date").is_between(pl.col("namedt"),
+                                      pl.col("nameenddt")))
+    .select("gvkey", "datadate", "rel_td", "permno", "date", "ret")
+    .filter(pl.col("datadate").dt.year().is_between(1987, 2002))
+)
+```
+
+```{python}
+#| label: full_panel
+#| cache: false
+rets_counts = (
+    rets_all
+    .group_by("gvkey", "datadate")
+    .agg(n_obs=pl.col("ret").count())
+)
+
+full_panel = (
+    rets_counts
+    .with_columns(max_n_obs=pl.col("n_obs").max())
+    .filter(pl.col("n_obs") == pl.col("max_n_obs"))
+    .select("gvkey", "datadate")
+)
+```
+
+```{python}
+#| label: rets
+#| cache: false
+rets = (
+    rets_all
+    .join(full_panel, on=["gvkey", "datadate"], how="inner")
+)
+```
+
+## Size-adjusted benchmark returns
+
+The template uses size-adjusted returns based on files from Ken French's data library.
+
+:::{.callout-note}
+`NumberedLines()` is a convenience wrapper for locating sections of the downloaded text file without hard-coding line numbers.
+:::
+
+```{python}
+def zip_url_to_text(url):
+    resp = requests.get(url)
+    resp.raise_for_status()
+    zf = zipfile.ZipFile(io.BytesIO(resp.content))
+    inner_name = zf.namelist()[0]
+    raw = zf.read(inner_name).decode("latin1")
+    return NumberedLines(raw.splitlines())
+```
+
+```{python}
+url = ("https://mba.tuck.dartmouth.edu/pages/faculty/ken.french/ftp/"
+       "Portfolios_Formed_on_ME_CSV.zip")
+
+text = zip_url_to_text(url)
+```
+
+```{python}
+vw_start_regex = re.compile(r"Value Weight.*Monthly")
+vw_start = text.filter(vw_start_regex).index[0] + 1
+
+vw_end_regex = re.compile(r"Equal Weight.*Monthly")
+vw_end = text.filter(vw_end_regex).index[0]
+vw_lines = text[vw_start:vw_end].reset_index()
+
+ew_end_regex = re.compile(r"^\s+Value Weight.*Annual")
+ew_end = text.filter(ew_end_regex).index[0]
+ew_start = vw_end + 1
+ew_lines = text[ew_start:ew_end].reset_index()
+```
+
+```{python}
+def lines_to_df(lines, header="infer"):
+    block = "\n".join(lines)
+    has_header = header == "infer"
+
+    df_raw = pl.read_csv(
+        io.StringIO(block),
+        has_header=has_header,
+    )
+
+    value_cols = df_raw.columns[1:]
+
+    df_raw = df_raw.with_columns(
+        pl.col(value_cols)
+        .cast(pl.String)
+        .str.strip_chars()
+        .replace("-99.99", None)
+        .cast(pl.Float64)
+    )
+
+    return df_raw.rename({df_raw.columns[0]: "date"})
+```
+
+```{python}
+def read_data(lines):
+    return (
+        lines_to_df(lines)
+        .lazy()
+        .with_columns(
+            month=(pl.col("date").cast(pl.String) + "01")
+            .str.strptime(pl.Date, format="%Y%m%d", strict=False)
+        )
+        .drop("date")
+        .unpivot(index="month", variable_name="quantile", value_name="ret")
+        .with_columns(
+            ret=pl.col("ret") / 100.0,
+            decile=(
+                pl.when(pl.col("quantile") == "Hi 10").then(pl.lit(10))
+                .when(pl.col("quantile") == "Lo 10").then(pl.lit(1))
+                .when(pl.col("quantile").str.contains("-Dec"))
+                .then(
+                    pl.col("quantile")
+                    .str.replace("-Dec", "")
+                    .cast(pl.Int32, strict=False)
+                )
+                .otherwise(None)
+            ),
+        )
+        .filter(pl.col("decile").is_not_null())
+        .select("month", "ret", "decile")
+        .sort(["month", "decile"])
+    )
+```
+
+```{python}
+ew_rets = read_data(ew_lines)
+vw_rets = read_data(vw_lines)
+```
+
+```{python}
+size_rets = (
+    ew_rets
+    .select("month", "decile", pl.col("ret").alias("ew_ret"))
+    .join(
+        vw_rets
+        .select("month", "decile", pl.col("ret").alias("vw_ret")),
+        on=["month", "decile"],
+        how="inner",
+    )
+    .sort(["month", "decile"])
+)
+```
+
+```{python}
+url_bp = ("https://mba.tuck.dartmouth.edu/pages/faculty/ken.french/ftp/"
+          "ME_Breakpoints_CSV.zip")
+
+text = zip_url_to_text(url_bp)
+```
+
+```{python}
+#| label: me_breakpoints
+#| cache: false
+me_last = text.filter(re.compile(r"^Copyright")).index[0]
+
+df_raw = lines_to_df(text[1:me_last], header=None)
+df_raw.columns = ["month", "n"] + [f"p{i}" for i in range(5, 101, 5)]
+```
+
+```{python}
+me_breakpoints_raw = (
+    df_raw
+    .with_columns(
+        month=(pl.col("month").cast(pl.String) + "01")
+        .str.strptime(pl.Date, format="%Y%m%d", strict=False)
+    )
+    .select(["month"] + [f"p{i}" for i in range(10, 101, 10)])
+    .unpivot(index="month", variable_name="decile", value_name="cutoff")
+    .with_columns(
+        decile=(
+            pl.col("decile")
+            .str.slice(1)
+            .cast(pl.Int32, strict=False) / 10
+        ).cast(pl.Int32)
+    )
+    .select("month", "decile", "cutoff")
+    .sort("month", "decile")
+    .lazy()
+)
+```
+
+```{python}
+me_breakpoints = (
+    me_breakpoints_raw
+    .sort(["month", "decile"])
+    .with_columns(
+        me_min=pl.col("cutoff").shift(1).over("month").fill_null(0),
+        me_max=pl.when(pl.col("decile") == 10)
+        .then(float("inf"))
+        .otherwise(pl.col("cutoff")),
+    )
+    .drop("cutoff")
+    .sort(["month", "decile"])
+)
+```
+
+```{python}
+#| label: me_values
+me_values = (
+    msf
+    .with_columns(
+        mktcap=pl.col("prc").abs() * pl.col("shrout") / 1000,
+        month=pl.col("date").dt.truncate("1mo"),
+    )
+    .select("permno", "date", "mktcap", "month")
+    .filter(pl.col("month").dt.month() == 12)
+)
+```
+
+```{python}
+#| label: me_deciles
+me_decile_assignments = (
+    me_values
+    .join(me_breakpoints, on=["month"], how="inner")
+    .filter(
+        pl.col("mktcap").is_between("me_min",
+                                    "me_max", closed="left")
+    )
+    .with_columns(
+        year=(pl.col("date").dt.year() + 1).cast(pl.Int32)
+    )
+    .select("permno", "year", "decile")
+)
+```
+
+## Earnings news variables
+
+:::{.callout-note}
+The expressions `pl.col("earn", "cfo")`, `.era.div_if_pos("lag_at")`, and `.era.ntile(10)` keep the transformation pipeline concise while still working on lazy data.
+:::
+
+```{python}
+#| label: news
+#| cache: false
+news = (
+    funda
+    .filter(
+        pl.col("indfmt") == "INDL",
+        pl.col("datafmt") == "STD",
+        pl.col("consol") == "C",
+        pl.col("popsrc") == "D",
+        pl.col("fyr") == 12
+    )
+    .select(
+        "gvkey",
+        "datadate",
+        "fyear",
+        "at",
+        pl.col("ibc").alias("earn"),
+        pl.col("oancf").alias("cfo"),
+    )
+    .sort(["gvkey", "datadate"])
+    .with_columns(
+        lag_at=pl.col("at").shift(1).over("gvkey"),
+        lag_fyear=pl.col("fyear").shift(1).over("gvkey"),
+    )
+    .with_columns(
+        pl.col("earn", "cfo")
+        .diff()
+        .over("gvkey")
+        .era.div_if_pos("lag_at")
+        .name.suffix("_chg")
+    )
+    .filter(
+        pl.col("fyear").is_between(1987, 2002),
+        pl.col("lag_fyear") + 1 == pl.col("fyear")
+    )
+    .select("gvkey", "datadate", "earn_chg", "cfo_chg")
+    .with_columns(
+        (pl.col("earn_chg", "cfo_chg") > 0)
+        .name.replace(r"_chg$", "_gn")
+    )
+    .filter(
+        pl.all_horizontal(
+            pl.col("cfo_gn", "earn_gn").is_not_null()
+        )
+    )
+    .with_columns(
+        pl.col("earn_chg", "cfo_chg")
+        .era.ntile(10)
+        .over("datadate")
+        .name.replace(r"_chg$", "_decile")
+    )
+)
+```
+
+## Merge and plot
+
+```{python}
+#| label: merged
+#| cache: false
+merged = (
+    news
+    .with_columns(year=pl.col("datadate").dt.year())
+    .join(rets, on=["gvkey", "datadate"], how="inner")
+    .join(me_decile_assignments, on=["permno", "year"], how="inner")
+    .with_columns(month=pl.col("date").dt.truncate("1mo"))
+    .join(size_rets, on=["decile", "month"], how="inner")
+    .drop(["permno", "month"])
+)
+```
+
+:::{.callout-note}
+The next step is where the lazy pipeline is finally materialized via `.collect()`.
+:::
+
+```{python}
+#| label: plot_data
+ret_cols = [
+    c for c in merged.collect_schema().names()
+    if c.endswith("ret")
+]
+
+plot_data = (
+    merged
+    .filter(pl.col("ret").is_not_null())
+    .sort(["gvkey", "datadate", "rel_td"])
+    .with_columns(
+        **{
+            c: pl.col(c).add(1).cum_prod().over(["gvkey", "datadate"])
+            for c in ret_cols
+        }
+    )
+    .group_by(["rel_td", "earn_gn"])
+    .agg(**{c: pl.col(c).mean() for c in ret_cols})
+    .with_columns(
+        aret_ew=pl.col("ret") - pl.col("ew_ret"),
+        aret_vw=pl.col("ret") - pl.col("vw_ret"),
+        **{
+            "Earnings news": pl.when(pl.col("earn_gn"))
+            .then(pl.lit("Good"))
+            .otherwise(pl.lit("Bad"))
+        },
+    )
+    .sort(["earn_gn", "rel_td"])
+    .collect()
+)
+```
+
+:::{.callout-note}
+The `p9()` context manager temporarily imports the `plotnine` names used in the plotting code.
+:::
+
+```{python}
+#| label: fig-bb-1
+#| fig-cap: "Replication of Figure 1 of Ball and Brown (1968)."
+#| fig-alt: "Cumulative abnormal returns for good versus bad earnings news around annual earnings announcements."
+with p9():
+    fig = (
+        ggplot(
+            plot_data,
+            aes("rel_td", "aret_ew",
+                linetype="Earnings news", group="Earnings news"),
+        )
+        + geom_line()
+        + theme_bw()
+        + theme(legend_position="bottom")
+    )
+
+fig
+```

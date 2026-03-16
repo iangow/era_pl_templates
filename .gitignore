@@ -1,0 +1,13 @@
+.DS_Store
+.env
+.ipynb_checkpoints
+.quarto
+.venv
+uv.lock
+__pycache__
+*_cache
+*_files
+**/*.quarto_ipynb
+**/*.quarto_ipynb_*
+_freeze
+site_libs

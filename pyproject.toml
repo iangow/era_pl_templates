@@ -1,0 +1,15 @@
+[project]
+name = "era-pl-templates"
+version = "0.1.0"
+description = "Runnable Quarto templates for Empirical Research in Accounting"
+requires-python = ">=3.11,<3.14"
+dependencies = [
+    "db2pq>=0.2.2",
+    "era-py[polars,tables]>=0.0.18",
+    "ipykernel",
+    "jupyter",
+    "plotnine",
+    "polars",
+    "python-dotenv",
+    "requests",
+]

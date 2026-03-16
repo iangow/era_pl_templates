@@ -1,0 +1,13 @@
+project:
+  type: default
+
+format:
+  html:
+    toc: true
+    number-sections: true
+    code-fold: false
+
+execute:
+  echo: true
+  warning: false
+  message: false
