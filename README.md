@@ -104,6 +104,8 @@ After creating `.env`, run the following command from a terminal in the project 
 uv run python
 ```
 
+If you already use either `db2pq` or `wrds2pg`, you may already have `DATA_DIR` set in your shell environment. If you want this repository to use a different `DATA_DIR` from `.env`, run `unset DATA_DIR` before running `uv run python`.
+
 Then, at the Python prompt, run:
 
 ```python
@@ -125,6 +127,22 @@ If you prefer a one-liner instead of entering Python interactively, run:
 
 ```bash
 uv run python -c 'from db2pq import wrds_update_pq; wrds_update_pq("msi", "crsp"); wrds_update_pq("msf", "crsp"); wrds_update_pq("stocknames", "crsp"); wrds_update_pq("ccmxpf_lnkhist", "crsp", col_types={"lpermno": "int32", "lpermco": "int32"}); wrds_update_pq("funda", "comp"); wrds_update_pq("fundq", "comp")'
+```
+
+## Working with Jupyter
+
+If you prefer to work with a notebook instead of editing the Quarto source directly, run the following command from a terminal in the project root:
+
+```bash
+quarto convert bb68.qmd
+```
+
+This creates `bb68.ipynb` in the project root.
+
+You can then open the notebook in JupyterLab with:
+
+```bash
+uv run jupyter lab bb68.ipynb
 ```
 
 ## Rendering the template
