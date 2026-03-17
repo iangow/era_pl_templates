@@ -104,7 +104,7 @@ After creating `.env`, run the following command from a terminal in the project 
 uv run python
 ```
 
-If you already use either `db2pq` or `wrds2pg`, you may already have `DATA_DIR` set in your shell environment. If you want this repository to use a different `DATA_DIR` from `.env`, run `unset DATA_DIR` before running `uv run python`.
+If you already use either `db2pq` or `wrds2pg`, you may already have `DATA_DIR` set in your shell environment. If you want this repository to use a different `DATA_DIR` from `.env`, run `unset DATA_DIR` before launching Python or running the helper script below.
 
 Then, at the Python prompt, run:
 
@@ -112,21 +112,42 @@ Then, at the Python prompt, run:
 from db2pq import wrds_update_pq
 
 # CRSP
-wrds_update_pq("msi", "crsp")
-wrds_update_pq("msf", "crsp")
-wrds_update_pq("stocknames", "crsp")
-wrds_update_pq("ccmxpf_lnkhist", "crsp",
-               col_types={"lpermno": "int32", "lpermco": "int32"})
+wrds_update_pq('ccmxpf_lnkhist', 'crsp', 
+               col_types={'lpermno': 'int32',
+                          'lpermco': 'int32'})
+wrds_update_pq('stocknames', 'crsp')
+wrds_update_pq('dsi', 'crsp')
+wrds_update_pq('comphist', 'crsp')
+wrds_update_pq('dsedelist', 'crsp') 
+wrds_update_pq('dseexchdates', 'crsp')
+wrds_update_pq('dsedist', 'crsp')
+wrds_update_pq('msi', 'crsp')
+wrds_update_pq('mse', 'crsp')
+wrds_update_pq('msf', 'crsp')
+wrds_update_pq('erdport1', 'crsp')
+wrds_update_pq('dsf', 'crsp')
+
+# Fama-French library
+wrds_update_pq('factors_daily', 'ff')
 
 # Compustat
-wrds_update_pq("funda", "comp")
-wrds_update_pq("fundq", "comp")
+wrds_update_pq('company', 'comp')
+wrds_update_pq('funda', 'comp')
+wrds_update_pq('funda_fncd', 'comp')
+wrds_update_pq('fundq', 'comp')
+wrds_update_pq('r_auditors', 'comp')
+wrds_update_pq('idx_daily', 'comp')
+wrds_update_pq('aco_pnfnda', 'comp')
+
+# compseg
+wrds_update_pq('seg_customer', 'compseg')
+wrds_update_pq('names_seg', 'compseg')
 ```
 
-If you prefer a one-liner instead of entering Python interactively, run:
+If you prefer a script instead of entering Python interactively, run:
 
 ```bash
-uv run python -c 'from db2pq import wrds_update_pq; wrds_update_pq("msi", "crsp"); wrds_update_pq("msf", "crsp"); wrds_update_pq("stocknames", "crsp"); wrds_update_pq("ccmxpf_lnkhist", "crsp", col_types={"lpermno": "int32", "lpermco": "int32"}); wrds_update_pq("funda", "comp"); wrds_update_pq("fundq", "comp")'
+uv run scripts/download_wrds_tables.py
 ```
 
 ## Working with Jupyter
