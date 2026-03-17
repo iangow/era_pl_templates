@@ -1,6 +1,6 @@
 [project]
 name = "era-pl-templates"
-version = "0.1.0"
+version = "0.1.1"
 description = "Runnable Quarto templates for Empirical Research in Accounting"
 requires-python = ">=3.11,<3.14"
 dependencies = [
@@ -10,6 +10,7 @@ dependencies = [
     "jupyter",
     "plotnine",
     "polars",
+    "pyfixest>=0.40.1",
     "python-dotenv",
     "requests",
 ]
