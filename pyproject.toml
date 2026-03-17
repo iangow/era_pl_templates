@@ -6,7 +6,7 @@ requires-python = ">=3.11,<3.14"
 dependencies = [
     "causalml>=0.15.5",
     "db2pq>=0.2.2",
-    "era-py[polars,tables]>=0.0.19",
+    "era-py[polars,tables]>=0.0.20",
     "gdown",
     "great-tables",
     "imbalanced-learn>=0.14.1",
