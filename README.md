@@ -70,12 +70,21 @@ uv sync
 ```
 
 This command creates a local `.venv` directory and installs the dependencies listed in [`pyproject.toml`](pyproject.toml).
+It also installs the bundled `psycopg` PostgreSQL client so macOS users do not need a separate `libpq` installation just to download WRDS tables.
 
 If you want to be explicit about the interpreter version, you can use:
 
 ```bash
 uv sync --python 3.13
 ```
+
+If you already ran `uv sync` before this dependency was added and see an error like `ImportError: no pq wrapper available`, run:
+
+```bash
+uv sync --reinstall
+```
+
+That refreshes the virtual environment and installs the bundled PostgreSQL client library used by `psycopg`.
 
 ## Environment variables
 
