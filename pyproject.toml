@@ -22,6 +22,7 @@ dependencies = [
     "pdfplumber",
     "plotnine",
     "polars",
+    "psycopg[binary]>=3.3.3",
     "pyfixest>=0.40.1",
     "python-dotenv",
     "quarto",
