@@ -36,8 +36,6 @@ Make sure the project folder now contains at least:
 - [`pyproject.toml`](pyproject.toml)
 - [`py-intro.qmd`](py-intro.qmd)
 
-If you copied the full repository contents, [`uv.lock`](uv.lock) should also be present already. If not, `uv sync` will create it.
-
 Once those files are present, run `uv sync` in that project folder.
 
 If you already created a `.venv` in the empty folder, that is not a problem.
