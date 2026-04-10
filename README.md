@@ -19,6 +19,9 @@ Current templates include:
 
 After unzipping, you should have a folder named something like `era_pl_templates-main`.
 
+You may rename this folder to something more meaningful for your own work, such as `era_homework`.
+You may also move the folder to any convenient location on your computer before opening it in Positron.
+
 ## Step 2: Install the prerequisites
 
 Install the following tools before working with the template:
@@ -52,12 +55,12 @@ Open the project folder in Positron:
 
 1. Start Positron.
 2. Choose `File` > `Open Folder...` (or the similar option shown on the welcome screen).
-3. Select the unzipped repository folder, usually named `era_pl_templates-main`.
+3. Select the unzipped repository folder.
 4. Open the folder.
 
 You should now see files such as [`README.md`](README.md), [`pyproject.toml`](pyproject.toml), and the `.qmd` template files in the Positron file browser.
 
-Then run the following commands from a terminal, in the project root directory (the folder you opened in Positron, usually `era_pl_templates-main`, and containing this `README.md`).
+Then run the following commands from a terminal, in the project root directory (the folder you opened in Positron and containing this `README.md`).
 
 In Positron, you can open a terminal using `Terminal` > `New Terminal`.
 
