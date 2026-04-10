@@ -21,22 +21,7 @@ You may also move the folder to any convenient location on your computer before 
 
 ### If you already created an empty project in Positron
 
-If you used Positron's `New Folder` interface first, that is fine, but the folder is still empty until you copy the repository files into it.
-
-To turn that empty project into a working copy of this template repository:
-
-1. Download this repository from GitHub as a ZIP file.
-2. Unzip it.
-3. Open the unzipped repository folder in one file browser window.
-4. Open your empty Positron project folder in another file browser window.
-5. Copy the repository contents into your empty project folder.
-
-Make sure the project folder now contains at least:
-
-- [`pyproject.toml`](pyproject.toml)
-- [`py-intro.qmd`](py-intro.qmd)
-
-Once those files are present, run `uv sync` in that project folder.
+If you already created an empty project in Positron, copy the contents of this repository into that project folder, then run `uv sync` from the project root.
 
 If you already created a `.venv` in the empty folder, that is not a problem.
 After copying the repository files in, run `uv sync` again from the project root so that the environment matches [`pyproject.toml`](pyproject.toml).
