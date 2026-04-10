@@ -2,6 +2,9 @@
 title: "Ball and Brown (1968) template"
 subtitle: "A runnable code-focused replication"
 engine: jupyter
+jupyter: python3
+format:
+  typst: default
 ---
 
 # Overview

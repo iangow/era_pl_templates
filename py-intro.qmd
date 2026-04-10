@@ -1,0 +1,955 @@
+---
+title: "The basics of data analysis"
+subtitle: "My responses to exercise questions"
+author: Put your name here
+engine: jupyter
+jupyter: python3
+format:
+  typst: default
+---
+
+:::{.content-visible when-format="markdown"}
+## Instructions
+
+This document assumes that you have completed the instructions [here](https://github.com/iangow/era_pl_templates/blob/main/README.md).
+As mentioned there, there is no need to complete **Step 5: Get data from WRDS** for this chapter.
+
+This template extracts the visible code and exercises from [Chapter 2](https://iangow.github.io/era_pl_book/py-intro.html) or the Python Polars edition of *Empirical Research in Accounting: Tools and Methods*.
+This template includes all the code from the book chapter.
+
+Within Positron, you can run the code below in two ways.
+
+In the first way, you can treat this file as a notebook of sorts and just run the code interactively.
+In Positron, you will see "Run Cell" and (for cells after the first cell) "Run Above".
+You might choose to go through the cells in order and click "Run Cell" on each one to see its output.
+Alternatively, you might jump ahead to a cell of interest, and click "Run Above" so that any prior code needed for your chosen cell has been executed, then "Run Cell" on the cell of interest.
+
+Note that some cells contain multiple lines and to the output from each, you may need to execute them one at a time.
+You can run code interactively from a .qmd file in Positron without rendering the whole document.
+On macOS, place the cursor in a code cell or highlight selected lines and press `Command+Enter`; on Windows and Linux, use `Ctrl+Enter` instead.
+
+In the second way, you have Quarto "render" the document as PDF.
+In Positron, you can accomplish this by clicking the "Preview" button at the top of the edit window.
+Note that many of the cells below will not appear in the created PDF.
+This document uses Quarto chunk options to control that behaviour.
+(Quarto seems to use the words "cell" and "chunk" interchangeably.)
+In particular, chunks with `#| include: false` are executed without either the code or the output being shown in the rendered document, while chunks with `#| eval: true` are run when the document is rendered.
+Other chunk options include `#| echo` to show or hide the code and `#| output` to hide or show the output.
+
+To answer the questions below, you are likely to play around with code interactively (the first way) until you are ready to render your answers (using the second way) and submit them to your course instructor.
+
+Note that you can type text outside code cells and these will be rendered as markdown.
+More details on using Quarto markdown are provided on the [Quarto website](https://quarto.org).
+
+:::
+
+```{python}
+#| include: false
+import math
+import numpy as np
+import polars as pl
+import polars.selectors as cs
+import seaborn as sns
+from era_pl import load_data
+```
+
+```{python}
+#| include: false
+#| eval: true
+math.exp(1)
+```
+
+```{python}
+#| include: false
+#| eval: true
+math.log(8)
+```
+
+```{python}
+#| include: false
+#| eval: true
+math.log(100, 10)
+```
+
+```{python}
+#| include: false
+#| eval: true
+def square(x):
+    return x ** 2
+```
+
+```{python}
+#| include: false
+#| eval: true
+square(2)
+```
+
+```{python}
+#| include: false
+#| eval: true
+square(64)
+```
+
+```{python}
+#| include: false
+#| eval: true
+2 + 2
+4 * 3
+5 / 2
+16**2
+```
+
+```{python}
+#| include: false
+#| eval: true
+10_000_000
+```
+
+```{python}
+#| include: false
+#| eval: true
+6 > 4
+6 < 4
+6 == 4
+6 != 4
+6 == 3 + 3
+```
+
+```{python}
+#| include: false
+#| eval: true
+not (6 == 4)
+not True
+True and False
+True or False
+```
+
+```{python}
+#| include: false
+#| eval: true
+v = 3
+```
+
+```{python}
+#| include: false
+#| eval: true
+v
+```
+
+```{python}
+#| include: false
+#| eval: true
+v + 3
+```
+
+```{python}
+#| include: false
+#| eval: true
+v
+```
+
+```{python}
+#| include: false
+#| eval: true
+v = v + 4
+v
+```
+
+```{python}
+#| include: false
+#| eval: true
+type(1)
+type(3.1415) 
+type("hello")
+type(True)
+```
+
+```{python}
+#| include: false
+#| eval: true
+l = [True, 1, 2.1, "frog"]
+```
+
+```{python}
+#| include: false
+#| eval: true
+l[0]
+```
+
+```{python}
+#| include: false
+#| eval: true
+l[3]
+```
+
+```{python}
+#| include: false
+#| eval: true
+type(l[0])
+```
+
+```{python}
+#| include: false
+#| eval: true
+type(l[3])
+```
+
+```{python}
+#| include: false
+#| eval: true
+l2 = [1, 2, 3, 4, 5, 6, 7, 8]
+l2[1:4]
+l2[:4]
+l2[4:]
+l2[6:7]
+l2[::2]
+```
+
+```{python}
+#| include: false
+#| eval: true
+a_string = "I adore data analysis!"
+a_string[0:4]
+a_string[4]
+a_string[::2]
+```
+
+```{python}
+#| include: false
+#| eval: true
+anne = {"name": "Anne", "weight": 51}
+bertha = {"name": "Bertha", "weight": 55, "height": 164}
+charlie = {"name": "Charlie", "height": 184}
+```
+
+```{python}
+#| include: false
+#| eval: true
+anne["name"]
+```
+
+```{python}
+#| include: false
+#| eval: true
+bertha["height"]
+```
+
+```{python}
+#| include: false
+#| eval: true
+anne_wgt = anne.get("height")
+print(anne_wgt)
+```
+
+```{python}
+#| include: false
+#| eval: true
+help(dict)
+```
+
+```{python}
+#| include: false
+#| eval: true
+
+```
+
+```{python}
+#| include: false
+#| eval: true
+x = np.array([0, 1, 4, 9, 16, 25])
+x
+```
+
+```{python}
+#| include: false
+#| eval: true
+x.sum()
+x.mean()
+x.max()
+x.min()
+```
+
+```{python}
+#| include: false
+#| eval: true
+x.size
+```
+
+```{python}
+#| include: false
+#| eval: true
+x.dtype
+```
+
+```{python}
+#| include: false
+#| eval: true
+x * 2.5
+```
+
+```{python}
+#| include: false
+#| eval: true
+x + 3
+```
+
+```{python}
+#| include: false
+#| eval: true
+w = np.array([1, 2, 3, 4, 5, 6])
+x + w
+```
+
+```{python}
+#| include: false
+#| eval: true
+x * w
+```
+
+```{python}
+#| include: false
+#| eval: true
+np.array([True, 2, 3.1])
+```
+
+```{python}
+#| include: false
+#| eval: true
+np.array([True])
+np.array([True, 2])
+np.array([True, 2, 3.1, "frog"])
+```
+
+```{python}
+#| include: false
+#| eval: true
+np.array([True, 2, 3.1]).dtype
+```
+
+```{python}
+#| include: false
+#| eval: true
+np.array([True]).dtype
+np.array([True, 2]).dtype
+np.array([True, 2, 3.1, "frog"]).dtype
+```
+
+```{python}
+#| include: false
+#| eval: true
+np.arange(1, 11).sum()
+```
+
+```{python}
+#| include: false
+#| eval: true
+v = np.array([True, True, False, False, False])
+```
+
+```{python}
+#| include: false
+#| eval: true
+v.sum()
+```
+
+```{python}
+#| include: false
+#| eval: true
+v.dtype
+```
+
+```{python}
+#| include: false
+#| eval: true
+v.sum().dtype
+```
+
+```{python}
+#| include: false
+#| eval: true
+v[0]
+```
+
+```{python}
+#| include: false
+#| eval: true
+v[3]  
+```
+
+
+
+```{python}
+#| include: false
+#| eval: true
+aus_bank_funds = load_data("aus_bank_funds")
+```
+
+```{python}
+#| include: false
+#| eval: true
+aus_bank_funds
+```
+
+```{python}
+#| include: false
+#| eval: true
+pl.Config.set_tbl_rows(6)
+```
+
+```{python}
+#| include: false
+#| eval: true
+aus_bank_funds.filter(pl.col("datadate") > pl.date(2020, 1, 1))
+```
+
+```{python}
+#| include: false
+#| eval: true
+aus_bank_funds.sort("datadate")
+```
+
+```{python}
+#| include: false
+#| eval: true
+aus_bank_funds.sort("gvkey", "datadate")
+```
+
+```{python}
+#| include: false
+#| eval: true
+aus_bank_funds.sort("gvkey", "datadate", 
+                    descending=[False, True])
+```
+
+```{python}
+#| include: false
+#| eval: true
+words = ["This", "is", "a", "sentence"]
+
+print(*words, end=".\n")
+```
+
+```{python}
+#| include: false
+#| eval: true
+aus_bank_funds.select("gvkey", "datadate", "ib", "ceq")
+```
+
+```{python}
+#| include: false
+#| eval: true
+aus_bank_funds.select("gvkey", "datadate", "ib", "ceq",
+                      roe = pl.col("ib") / pl.col("ceq"))
+```
+
+```{python}
+#| include: false
+#| eval: true
+aus_bank_funds.select(pl.all(),
+                      roe = pl.col("ib") / pl.col("ceq"))
+```
+
+```{python}
+#| include: false
+#| eval: true
+aus_bank_roes = (
+    aus_bank_funds
+    .with_columns((pl.col("ib") / pl.col("ceq")).alias("roe"))
+)
+```
+
+```{python}
+#| include: false
+#| eval: true
+(
+    aus_bank_funds
+    .with_columns(roe = pl.col("ib") / pl.col("ceq"))
+    .group_by("gvkey")
+    .agg(avg_roe = pl.col("roe").mean())
+    .sort("avg_roe")
+)
+```
+
+```{python}
+#| include: false
+#| eval: true
+aus_banks = load_data("aus_banks")
+aus_banks
+```
+
+```{python}
+#| eval: true
+#| include: false
+aus_bank_rets = load_data("aus_bank_rets")
+aus_bank_rets
+```
+
+```{python}
+#| include: false
+#| eval: true
+latest_date = aus_bank_rets.select("datadate").max().item()
+latest_date
+```
+
+```{python}
+#| include: false
+#| eval: true
+latest_mkt_cap = (
+    aus_bank_rets
+    .filter(pl.col("datadate") == pl.col("datadate").max())
+    .select("gvkey", "datadate", "mkt_cap")
+    .sort("mkt_cap", descending=True)
+    .rename({"mkt_cap": "Market capitalization"})
+)
+```
+
+```{python}
+#| include: false
+#| eval: true
+#| label: fig-bank-mkt-cap-raw
+#| fig-cap: Market capitalization of Australian banks (initial version)
+#| fig-alt: "Plot of market capitalization of Australian banks with poorly labelled axes and unhelpful legend. Purpose of plot is to illustrate problems with initial attempt."
+sns.barplot(
+    data=latest_mkt_cap,
+    x="gvkey",
+    y="Market capitalization",
+)
+```
+
+```{python}
+#| include: false
+#| eval: true
+aus_banks_merged = (
+    aus_banks
+    .join(aus_bank_rets, on="gvkey", how="inner")
+)
+
+aus_banks_merged
+```
+
+```{python}
+#| include: false
+#| eval: true
+latest_mkt_cap = (
+    aus_banks
+    .join(aus_bank_rets, on="gvkey", how="inner")
+    .filter(pl.col("datadate") == pl.col("datadate").max())
+    .select("ticker", "co_name", "mkt_cap")
+    .sort("mkt_cap", descending=True)
+)
+```
+
+```{python}
+#| include: true
+#| echo: false
+#| label: fig-bank-mkt-cap-clean
+#| fig-cap: Market capitalization of Australian banks
+#| fig-alt: "Plot of market capitalization of Australian banks with well-labelled axis and no legend. Purpose of plot is to illustrate improvements over initial attempt."
+ax = sns.barplot(
+    data=latest_mkt_cap,
+    x="ticker",
+    y="mkt_cap",
+    color="steelblue",
+)
+
+ax.set(
+    xlabel="Ticker",
+    ylabel="Market capitalization (A$ millions)",
+)
+```
+
+```{python}
+#| include: false
+#| eval: true
+aus_bank_funds.select(pl.col("ib").sum())
+```
+
+```{python}
+#| include: false
+#| eval: true
+(
+    aus_bank_funds
+    .select(pl.col("ib").sum() / pl.col("ib").len())
+)
+```
+
+```{python}
+#| include: false
+#| eval: true
+aus_bank_funds.select(pl.col("ib").mean())
+```
+
+```{python}
+#| include: false
+#| eval: true
+survey_data = pl.DataFrame([anne, bertha, charlie])
+survey_data
+```
+
+```{python}
+#| include: false
+#| eval: true
+(
+    survey_data
+    .select(pl.col("weight", "height").mean())
+)
+```
+
+```{python}
+#| include: false
+#| eval: true
+survey_data.select(
+    pl.col("weight", "height").mean()
+)
+```
+
+```{python}
+#| include: false
+#| eval: true
+float(np.median([1, 2, 3, 4, 5, 6, 7]))
+```
+
+```{python}
+#| include: false
+#| eval: true
+float(np.median([1, 2, 3, 4, 5, 6, 7, 8]))
+```
+
+```{python}
+#| include: false
+#| eval: true
+aus_bank_funds.select(pl.col("ib").median())
+```
+
+```{python}
+#| include: false
+#| eval: true
+aus_bank_funds.select(pl.col("ib").quantile(0.5))
+```
+
+```{python}
+#| include: false
+#| eval: true
+aus_bank_funds.select(
+    pl.col("ib").quantile(0.25).alias("q25"),
+    pl.col("ib").quantile(0.50).alias("q50"),
+    pl.col("ib").quantile(0.75).alias("q75"),
+)
+```
+
+```{python}
+#| include: false
+#| eval: true
+(
+    aus_bank_funds
+    .select("ib")
+    .describe()
+    .style
+    .fmt_number(columns="ib", decimals=3)
+)
+```
+
+```{python}
+#| include: false
+#| eval: true
+(
+    aus_bank_funds
+    .select(cs.numeric())
+    .describe()
+    .style
+    .fmt_number(columns=cs.numeric(), decimals=3)
+)
+```
+
+```{python}
+#| include: false
+#| eval: true
+sns.histplot(
+    data=aus_bank_roes,
+    x="roe",
+    bins=25,
+)
+```
+
+```{python}
+#| include: false
+#| eval: true
+x = aus_bank_funds["ib"].drop_nulls()
+((x - x.mean())**2).sum() / (len(x) - 1)
+```
+
+```{python}
+#| include: false
+#| eval: true
+type(aus_bank_funds["ib"])
+```
+
+```{python}
+#| include: false
+#| eval: true
+aus_bank_funds.select(pl.col("ib").var()).item()
+```
+
+```{python}
+#| include: false
+#| eval: true
+math.sqrt(((x - x.mean())**2).sum() / (len(x) - 1))
+```
+
+```{python}
+#| include: false
+#| eval: true
+aus_bank_funds.select(pl.col("ib").std()).item()
+```
+
+```{python}
+#| include: false
+#| eval: true
+aus_banks
+```
+
+```{python}
+#| include: false
+#| eval: true
+aus_bank_rets
+```
+
+```{python}
+#| include: false
+#| eval: true
+rets_nab_cba = (
+    aus_bank_rets
+      .join(aus_banks, on="gvkey", how="inner")
+      .filter(pl.col("ticker").is_in(["CBA", "NAB"]))
+      .select("ticker", "datadate", "ret")
+)
+
+rets_nab_cba.head()
+```
+
+```{python}
+#| include: false
+#| eval: true
+rets_nab_cba.select(pl.col("ret").var())
+```
+
+```{python}
+#| include: false
+#| eval: true
+rets_nab_cba.group_by("ticker").agg(pl.col("ret").var().alias("var_ret"))
+```
+
+```{python}
+#| include: false
+#| eval: true
+rets_nab_cba_wide = (
+    rets_nab_cba
+    .filter(pl.col("ticker").is_in(["NAB", "CBA"]))
+    .select("datadate", "ticker", "ret")
+    .pivot(on="ticker", index="datadate", values="ret")
+    .sort("datadate")
+    .drop_nulls()
+)
+
+rets_nab_cba_wide.head()
+```
+
+```{python}
+#| include: false
+#| eval: true
+def cov_alt(x, y):
+    return ((x - x.mean()) * (y - y.mean())).sum() / (pl.len() - 1)
+```
+
+```{python}
+#| include: false
+#| eval: true
+(
+    rets_nab_cba_wide
+    .select(cov_alt(pl.col("NAB"), pl.col("CBA")))
+    .item()
+)
+```
+
+```{python}
+#| include: false
+#| eval: true
+(
+    rets_nab_cba_wide
+    .select(
+        pl.cov("NAB", "CBA")
+    )
+    .item()
+)
+```
+
+```{python}
+#| include: false
+#| eval: true
+(
+    rets_nab_cba_wide.select(
+        pl.corr("NAB", "CBA").alias("corr_at_ceq")
+    )
+    .item()
+)
+```
+
+```{python}
+#| include: false
+#| eval: true
+aus_bank_rets_sample = (
+    aus_bank_rets
+    .join(aus_banks, on="gvkey", how="inner")
+    .filter(pl.col("ticker").is_in(latest_mkt_cap["ticker"].to_list()))
+)
+```
+
+```{python}
+#| include: false
+#| eval: true
+aus_bank_mb = (
+    aus_bank_rets_sample
+    .join(aus_bank_funds, on=["gvkey", "datadate"], how="inner")
+    .select("ticker", "datadate", "mkt_cap", "ceq")
+    .sort("ticker", "datadate")
+)
+
+aus_bank_mb
+```
+
+```{python}
+#| include: false
+#| eval: true
+aus_bank_mb = (
+    aus_bank_rets_sample
+    .join(aus_bank_funds, on=["gvkey", "datadate"], how="left")
+    .select("ticker", "datadate", "mkt_cap", "ceq")
+    .sort("ticker", "datadate")
+    .filter(pl.col("datadate") >= pl.date(1987, 9, 30))
+)
+
+aus_bank_mb
+```
+
+```{python}
+#| include: false
+#| eval: true
+aus_bank_mb = (
+    aus_bank_rets_sample
+    .join(aus_bank_funds, on=["gvkey", "datadate"], how="left")
+    .select("ticker", "datadate", "mkt_cap", "ceq")
+    .sort("ticker", "datadate")
+    .with_columns(pl.col("ceq").forward_fill().over("ticker"))
+    .with_columns(mb = pl.col("mkt_cap") / pl.col("ceq"))
+    .drop_nulls(subset=["mb"])
+)
+
+aus_bank_mb.filter(pl.col("datadate") >= pl.date(1987, 9, 30))
+```
+
+```{python}
+#| include: true
+#| echo: false
+#| eval: true
+#| label: fig-mb-ts
+#| fig-cap: Time-series of market-to-book for Australian banks
+#| fig-alt: "Plot of monthly market-to-book ratios for Australian banks from late 1980s to early 2020s. Most values between 1 and 2, with some spikes as high as 6."
+ax = sns.lineplot(
+    data=aus_bank_mb,
+    x="datadate",
+    y="mb",
+    hue="ticker",
+)
+ax.set(xlabel="Date", ylabel="Market-to-Book Ratio")
+```
+
+
+## Exercises
+
+We have created [Quarto](https://quarto.org) templates that we recommend you use to prepare your solutions to the exercises in the book. These templates are available on [the support page](https://github.com/iangow/era_pl_templates/) for this book. For this chapter, download and save `py-intro.qmd`.
+
+1.  Create a function `cor_alt(x, y)` that uses your `cov_alt()` and `var_alt()` functions to calculate the correlation between `x` and `y`.
+Check that it gives the same value as the built-in function in Polars for the correlation between `ret_nab` and `ret_cba` from `rets_nab_cba_wide` (for example, `rets_nab_cba_wide.select(pl.corr("NAB", "CBA")).item()`).
+
+```{python}
+#| include: true
+
+```
+
+2.  If you remove the `.drop_nulls()` line used when creating `rets_nab_cba_wide`, you will see missing values for `CBA`. 
+There are two reasons for these missing values.
+One reason is explained [here,](https://en.wikipedia.org/wiki/Commonwealth_Bank) but the other reason is more subtle and relates to how values are presented in `datadate`. What is the first reason? (*Hint:* What happened to CBA in 1991?) What is the second reason?
+How might you use Polars date tools to address the second reason (for example, truncating `datadate` to calendar month and then aligning dates consistently)? Does this second issue have implications for other plots?
+
+```{python}
+#| include: true
+
+```
+
+3.  Adapt the code used above to calculate the *correlation* matrix for the returns of Australian banks to instead calculate the *covariance* matrix. What is the calculated value of the variance of the returns for NAB?
+
+```{python}
+#| include: true
+
+```
+
+4.  From the output above, what is the value for the variance of NAB's returns given by the covariance matrix (i.e., the diagonal element for `NAB`) produced by `np.cov()` on the wide return table? Why does this value differ from that you calculated in the previous question?
+
+```{python}
+#| include: true
+
+```
+
+5.  In calculating ROE above, we used `ib` rather than a measure of "net income". According to [WRDS,](https://go.unimelb.edu.au/ocd8) `ni` (net income) only applies to Compustat North America; instead use: `ni = ib + xi + do`. Looking at the data in `aus_bank_funds`, does this advice seem correct? How would you check this claim? (*Hint:* Focus on cases where both `xi` and `do` are non-missing; checking more recent years may be easier if you decide to consult banks' financial statements.)
+
+```{python}
+#| include: true
+
+```
+
+6.  @fig-mb-ts is a plot of market-to-book ratios. Another measure linking stock prices to fundamentals is the **price-to-earnings ratio** (also known as the **PE ratio**). Typically, PE ratios are calculated as
+
+    $$ \textrm{PE} = \frac{\textrm{Stock price}}{\textrm{Earnings per share}} $$
+
+    where
+
+    $$ \textrm{Earnings per share} = \frac{\textrm{Net income}}{\textrm{Shares outstanding}} $$
+
+    so we might write
+
+    $$ \textrm{PE} = \frac{\textrm{Stock price} \times \textrm{Shares outstanding}}{\textrm{Net income}} $$
+
+    What critical assumption have we made in deriving the last equation? Is this likely to hold in practice?
+
+7.  Calculating the PE ratio using `pe = mkt_cap / ib`, create a plot similar to @fig-mb-ts, but for the PE ratios of Australian banks over time.
+
+```{python}
+#| include: true
+
+```
+
+8.  Suppose you wanted to produce the plots in this chapter (market capitalization; market-to-book ratios; histogram of ROE) using Excel starting from spreadsheet versions of the three data sets provided above. Which aspects of the task would be easier? Which would be more difficult? What benefits do you see in using Python code (as we did above) rather than point-and-click tools?
+
+9. Correlations can also be computed for an entire data frame.
+   Calculate the correlation matrix for the returns of all banks using the following steps (organize these as a method chain):
+
+   A. First apply `.filter()` to `aus_banks` to focus on the banks in `latest_mkt_cap`.
+
+   B. Join `aus_bank_rets` using `.join()`
+
+   C. Apply `.pivot()` to the resulting data frame to change it from a "long" form to a "wide" form.
+
+   D. Drop missing values using `.drop_nulls()`.
+
+   E. Drop `datadate` from the result by applying `.select(pl.exclude("datadate"))`.
+
+   F. Apply `.corr(label="ticker")` to the result.
+
+   G. Use `.style` and `.fmt_number(columns=cs.numeric(), ...)` to format all numbers to three decimal places.
+
+   (*Hint:* Use code fromabove as a guide for each step.)
+
+```{python}
+#| include: true
+
+```

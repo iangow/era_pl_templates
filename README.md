@@ -2,42 +2,42 @@
 
 Runnable Quarto templates for readers of *Empirical Research in Accounting*.
 
-This repository contains slimmed-down, self-contained versions of selected book chapters with the focus on code that readers can run locally. The initial template is [`bb68.qmd`](bb68.qmd), which reproduces an analogue of Figure 1 from Ball and Brown (1968).
+This repository contains slimmed-down, self-contained versions of selected book chapters with the focus on code that readers can run locally.
 
-## Downloading the project
+Current templates include:
 
-Most readers will not need `git`.
+- [`bb68.qmd`](bb68.qmd), which reproduces an analogue of Figure 1 from Ball and Brown (1968)
+- [`py-intro.qmd`](py-intro.qmd), a Python introduction template based on early material from the book
+
+## Step 1: Download the project
 
 1. Open the repository page on GitHub.
 2. Click `Code`.
 3. Click `Download ZIP`.
-4. Unzip the downloaded archive.
-5. Open a terminal and change into the unzipped `era_pl_templates` folder.
+4. Find the downloaded ZIP file on your computer.
+5. Unzip the downloaded archive.
 
-On macOS:
+After unzipping, you should have a folder named something like `era_pl_templates-main`.
 
-1. Open Terminal.
-2. Run `cd ` and then drag the unzipped `era_pl_templates` folder into the Terminal window.
-3. Press Enter.
-
-On Linux:
-
-1. Open your terminal application.
-2. Use `cd` to move into the unzipped `era_pl_templates` folder.
-
-On Windows:
-
-1. Open PowerShell.
-2. Use `cd` to move into the unzipped `era_pl_templates` folder.
-
-If you prefer, you can also clone the repository with `git clone`.
-
-## Prerequisites
+## Step 2: Install the prerequisites
 
 Install the following tools before working with the template:
 
-1. `uv`
-2. Quarto CLI
+1. Positron
+2. `uv`
+
+### Install Positron
+
+Download Positron from <https://positron.posit.co/download.html> and install it using the normal steps for your operating system.
+
+Then open the project folder in Positron:
+
+1. Start Positron.
+2. Choose `File` > `Open Folder...` (or the similar option shown on the welcome screen).
+3. Select the unzipped repository folder, usually named `era_pl_templates-main`.
+4. Open the folder.
+
+You should now see files such as [`README.md`](README.md), [`pyproject.toml`](pyproject.toml), and the `.qmd` template files in the Positron file browser.
 
 ### Install `uv`
 
@@ -55,13 +55,11 @@ powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | ie
 
 See the official installation instructions at <https://docs.astral.sh/uv/>.
 
-### Install Quarto
+## Step 3: Set up the project
 
-Install Quarto CLI from <https://quarto.org/docs/get-started/>.
+Run the following commands from a terminal, in the project root directory (the folder you opened in Positron, usually `era_pl_templates-main`, and containing this `README.md`).
 
-## Project setup
-
-Run the following commands from a terminal, in the project root directory (the `era_pl_templates` folder that contains this `README.md`).
+In Positron, you can open a terminal using `Terminal` > `New Terminal`.
 
 Create the project virtual environment and install the Python dependencies:
 
@@ -86,7 +84,7 @@ uv sync --reinstall
 
 That refreshes the virtual environment and installs the bundled PostgreSQL client library used by `psycopg`.
 
-## Environment variables
+## Step 4: Create environment variables
 
 Still in the project root, create a `.env` file. Do not commit this file.
 
@@ -103,7 +101,11 @@ WRDS_ID=your_wrds_username
 DATA_DIR=/absolute/path/to/pq_data
 ```
 
-## Getting the data from WRDS
+## Step 5: Get data from WRDS
+
+> [!NOTE]
+> You do not need this step for the early chapters.
+> Most readers can skip this section until they reach Chapter 6.
 
 The template expects local Parquet versions of a small set of WRDS tables. Those files can be created with [`db2pq`](https://pypi.org/project/db2pq/), which is installed as part of the project environment.
 
@@ -159,15 +161,58 @@ If you prefer a script instead of entering Python interactively, run:
 uv run scripts/download_wrds_tables.py
 ```
 
-## Working with Jupyter
+## Step 6: Render the template
 
-If you prefer to work with a notebook instead of editing the Quarto source directly, run the following command from a terminal in the project root:
+Choose the template you want to render, then run:
+
+```bash
+uv run quarto render bb68.qmd
+```
+
+For example, to render the Python introduction template:
+
+```bash
+uv run quarto render py-intro.qmd
+```
+
+For iterative work, preview a template with:
+
+```bash
+uv run quarto preview bb68.qmd
+```
+
+## Optional: Work in Positron
+
+To work on a template in Positron:
+
+1. Open the repository folder in Positron.
+2. Open the `.qmd` file you want to work on, such as [`bb68.qmd`](bb68.qmd) or [`py-intro.qmd`](py-intro.qmd).
+3. Open a terminal in Positron and run `uv sync` if you have not already done so.
+4. Render or preview the file from the terminal.
+
+For example:
+
+```bash
+uv run quarto preview py-intro.qmd
+```
+
+For readers who do not want to install Positron, see the optional Jupyter-based path below.
+
+## Optional: Work with Jupyter Instead of Positron
+
+If you do not want to install Positron, you will also need to install Quarto CLI separately. Install Quarto from <https://quarto.org/docs/get-started/>.
+
+If you prefer to work with a notebook instead of editing the Quarto source directly, first choose the template you want to work on. Then run the following command from a terminal in the project root:
 
 ```bash
 quarto convert bb68.qmd
 ```
 
-This creates `bb68.ipynb` in the project root.
+For example, the command above creates `bb68.ipynb` in the project root. You can do the same for other templates, such as:
+
+```bash
+quarto convert py-intro.qmd
+```
 
 You can then open the notebook in JupyterLab with:
 
@@ -175,16 +220,8 @@ You can then open the notebook in JupyterLab with:
 uv run jupyter lab bb68.ipynb
 ```
 
-## Rendering the template
+## Optional: Using Git
 
-Render the document with:
+Most readers do not need `git` for this repository.
 
-```bash
-uv run quarto render bb68.qmd
-```
-
-For iterative work, preview it with:
-
-```bash
-uv run quarto preview bb68.qmd
-```
+If you already use Git and prefer to clone the repository instead of downloading a ZIP file, you can do that as well.
