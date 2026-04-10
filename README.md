@@ -23,21 +23,8 @@ After unzipping, you should have a folder named something like `era_pl_templates
 
 Install the following tools before working with the template:
 
-1. Positron
-2. `uv`
-
-### Install Positron
-
-Download Positron from <https://positron.posit.co/download.html> and install it using the normal steps for your operating system.
-
-Then open the project folder in Positron:
-
-1. Start Positron.
-2. Choose `File` > `Open Folder...` (or the similar option shown on the welcome screen).
-3. Select the unzipped repository folder, usually named `era_pl_templates-main`.
-4. Open the folder.
-
-You should now see files such as [`README.md`](README.md), [`pyproject.toml`](pyproject.toml), and the `.qmd` template files in the Positron file browser.
+1. `uv`
+2. Positron
 
 ### Install `uv`
 
@@ -55,9 +42,22 @@ powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | ie
 
 See the official installation instructions at <https://docs.astral.sh/uv/>.
 
+### Install Positron
+
+Download Positron from <https://positron.posit.co/download.html> and install it using the normal steps for your operating system.
+
 ## Step 3: Set up the project
 
-Run the following commands from a terminal, in the project root directory (the folder you opened in Positron, usually `era_pl_templates-main`, and containing this `README.md`).
+Open the project folder in Positron:
+
+1. Start Positron.
+2. Choose `File` > `Open Folder...` (or the similar option shown on the welcome screen).
+3. Select the unzipped repository folder, usually named `era_pl_templates-main`.
+4. Open the folder.
+
+You should now see files such as [`README.md`](README.md), [`pyproject.toml`](pyproject.toml), and the `.qmd` template files in the Positron file browser.
+
+Then run the following commands from a terminal, in the project root directory (the folder you opened in Positron, usually `era_pl_templates-main`, and containing this `README.md`).
 
 In Positron, you can open a terminal using `Terminal` > `New Terminal`.
 
