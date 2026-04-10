@@ -89,6 +89,10 @@ That refreshes the virtual environment and installs the bundled PostgreSQL clien
 
 ## Step 4: Create environment variables
 
+> [!NOTE]
+> You do not need Steps 4 and 5 for Chapters 1 through 5.
+> Most readers can skip both sections until they reach Chapter 6.
+
 Still in the project root, create a `.env` file. Do not commit this file.
 
 You can start from the checked-in example:
@@ -105,10 +109,6 @@ DATA_DIR=/absolute/path/to/pq_data
 ```
 
 ## Step 5: Get data from WRDS
-
-> [!NOTE]
-> You do not need this step for the early chapters.
-> Most readers can skip this section until they reach Chapter 6.
 
 The template expects local Parquet versions of a small set of WRDS tables. Those files can be created with [`db2pq`](https://pypi.org/project/db2pq/), which is installed as part of the project environment.
 
