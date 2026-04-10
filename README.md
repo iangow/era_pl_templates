@@ -94,31 +94,10 @@ After `uv sync` finishes:
 
 You should now see files such as [`README.md`](README.md), [`pyproject.toml`](pyproject.toml), and [`py-intro.qmd`](py-intro.qmd) in the Positron file browser.
 
-Then tell Positron to use the Python interpreter from this project's `.venv`:
-
-1. Look for the Python interpreter indicator in Positron's status bar and click it.
-2. If the `.venv` interpreter is not shown clearly in the list, choose the option to browse for an interpreter.
-3. Select the Python executable inside this project's `.venv`.
-
-If you do not see the interpreter indicator, you can use the Command Palette instead:
-
-1. Open the Command Palette.
-2. Run `Python: Select Interpreter`.
-3. If needed, choose the option to browse for an interpreter.
-4. Select the Python executable inside this project's `.venv`.
-
+Positron should detect and use the Python interpreter from this project's `.venv`.
+If it does not, select it manually.
 On macOS and Linux, this is usually `.venv/bin/python`.
 On Windows, this is usually `.venv\Scripts\python.exe`.
-
-Positron may label the interpreter using the project name from [`pyproject.toml`](pyproject.toml), such as `era-pl-templates`, even when it is correctly using the `.venv` in your own folder.
-If you want to confirm, run the following in Positron's Python console:
-
-```python
-import sys
-sys.executable
-```
-
-You should see a path ending in `.venv/bin/python` on macOS or Linux, or `.venv\Scripts\python.exe` on Windows.
 
 ## Step 5: Work with `py-intro.qmd` in Positron
 
@@ -221,6 +200,19 @@ If you prefer a script instead of entering Python interactively, run:
 ```bash
 uv run scripts/download_wrds_tables.py
 ```
+
+## Troubleshooting
+
+If Positron does not appear to use the correct Python interpreter, run the following in Positron's Python console:
+
+```python
+import sys
+sys.executable
+```
+
+You should see a path ending in `.venv/bin/python` on macOS or Linux, or `.venv\Scripts\python.exe` on Windows.
+
+Positron may label the interpreter using the project name from [`pyproject.toml`](pyproject.toml), such as `era-pl-templates`, even when it is correctly using the `.venv` in your own folder.
 
 ## Optional: Work with Jupyter Instead of Positron
 
