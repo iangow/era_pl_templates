@@ -4,10 +4,7 @@ Runnable Quarto templates for readers of *Empirical Research in Accounting*.
 
 This repository contains slimmed-down, self-contained versions of selected book chapters with the focus on code that readers can run locally.
 
-Current templates include:
-
-- [`bb68.qmd`](bb68.qmd), which reproduces an analogue of Figure 1 from Ball and Brown (1968)
-- [`py-intro.qmd`](py-intro.qmd), a Python introduction template based on early material from the book
+For now, the recommended starting point is [`py-intro.qmd`](py-intro.qmd), a Python introduction template based on early material from the book.
 
 ## Step 1: Download the project
 
@@ -21,6 +18,29 @@ After unzipping, you should have a folder named something like `era_pl_templates
 
 You may rename this folder to something more meaningful for your own work, such as `era_homework`.
 You may also move the folder to any convenient location on your computer before opening it in Positron.
+
+### If you already created an empty project in Positron
+
+If you used Positron's `New Folder` interface first, that is fine, but the folder is still empty until you copy the repository files into it.
+
+To turn that empty project into a working copy of this template repository:
+
+1. Download this repository from GitHub as a ZIP file.
+2. Unzip it.
+3. Open the unzipped repository folder in one file browser window.
+4. Open your empty Positron project folder in another file browser window.
+5. Copy the repository contents into your empty project folder.
+
+Make sure the project folder now contains at least:
+
+- [`pyproject.toml`](pyproject.toml)
+- [`uv.lock`](uv.lock)
+- [`py-intro.qmd`](py-intro.qmd)
+
+Once those files are present, run `uv sync` in that project folder.
+
+If you already created a `.venv` in the empty folder, that is not a problem.
+After copying the repository files in, run `uv sync` again from the project root so that the environment matches [`pyproject.toml`](pyproject.toml).
 
 ## Step 2: Install the prerequisites
 
@@ -49,20 +69,10 @@ See the official installation instructions at <https://docs.astral.sh/uv/>.
 
 Download Positron from <https://positron.posit.co/download.html> and install it using the normal steps for your operating system.
 
-## Step 3: Set up the project
+## Step 3: Create the project environment
 
-Open the project folder in Positron:
-
-1. Start Positron.
-2. Choose `File` > `Open Folder...` (or the similar option shown on the welcome screen).
-3. Select the unzipped repository folder.
-4. Open the folder.
-
-You should now see files such as [`README.md`](README.md), [`pyproject.toml`](pyproject.toml), and the `.qmd` template files in the Positron file browser.
-
-Then run the following commands from a terminal, in the project root directory (the folder you opened in Positron and containing this `README.md`).
-
-In Positron, you can open a terminal using `Terminal` > `New Terminal`.
+Before opening the folder in Positron, open a terminal in the project root directory.
+This is the folder containing [`README.md`](README.md), [`pyproject.toml`](pyproject.toml), and [`py-intro.qmd`](py-intro.qmd).
 
 Create the project virtual environment and install the Python dependencies:
 
@@ -71,27 +81,74 @@ uv sync
 ```
 
 This command creates a local `.venv` directory and installs the dependencies listed in [`pyproject.toml`](pyproject.toml).
-It also installs the bundled `psycopg` PostgreSQL client so macOS users do not need a separate `libpq` installation just to download WRDS tables.
 
-If you want to be explicit about the interpreter version, you can use:
+## Step 4: Open the project in Positron
 
-```bash
-uv sync --python 3.13
+After `uv sync` finishes:
+
+1. Start Positron.
+2. Choose `File` > `Open Folder...` (or the similar option shown on the welcome screen).
+3. Select the project folder.
+4. Open the folder.
+5. Open [`py-intro.qmd`](py-intro.qmd).
+
+You should now see files such as [`README.md`](README.md), [`pyproject.toml`](pyproject.toml), and [`py-intro.qmd`](py-intro.qmd) in the Positron file browser.
+
+Then tell Positron to use the Python interpreter from this project's `.venv`:
+
+1. Look for the Python interpreter indicator in Positron's status bar and click it.
+2. If the `.venv` interpreter is not shown clearly in the list, choose the option to browse for an interpreter.
+3. Select the Python executable inside this project's `.venv`.
+
+If you do not see the interpreter indicator, you can use the Command Palette instead:
+
+1. Open the Command Palette.
+2. Run `Python: Select Interpreter`.
+3. If needed, choose the option to browse for an interpreter.
+4. Select the Python executable inside this project's `.venv`.
+
+On macOS and Linux, this is usually `.venv/bin/python`.
+On Windows, this is usually `.venv\Scripts\python.exe`.
+
+Positron may label the interpreter using the project name from [`pyproject.toml`](pyproject.toml), such as `era-pl-templates`, even when it is correctly using the `.venv` in your own folder.
+If you want to confirm, run the following in Positron's Python console:
+
+```python
+import sys
+sys.executable
 ```
 
-If you already ran `uv sync` before this dependency was added and see an error like `ImportError: no pq wrapper available`, run:
+You should see a path ending in `.venv/bin/python` on macOS or Linux, or `.venv\Scripts\python.exe` on Windows.
+
+## Step 5: Work with `py-intro.qmd` in Positron
+
+To work on [`py-intro.qmd`](py-intro.qmd) in Positron:
+
+1. Open [`py-intro.qmd`](py-intro.qmd).
+2. Use Positron's `Preview` button to render the document.
+3. To run code interactively without rendering the whole document, place the cursor in a code cell or highlight selected lines and run them from the editor.
+
+If Positron's preview does not use the Python interpreter in `.venv`, you can render from the terminal instead.
+For example, on macOS or Linux:
 
 ```bash
-uv sync --reinstall
+QUARTO_PYTHON=./.venv/bin/python uv run quarto preview py-intro.qmd
 ```
 
-That refreshes the virtual environment and installs the bundled PostgreSQL client library used by `psycopg`.
+On Windows PowerShell, use:
 
-## Step 4: Create environment variables
+```powershell
+$env:QUARTO_PYTHON = ".venv\Scripts\python.exe"
+uv run quarto preview py-intro.qmd
+```
+
+For readers who do not want to install Positron, see the optional Jupyter-based path below.
+
+## Step 6: Create environment variables
 
 > [!NOTE]
-> You do not need Steps 4 and 5 for Chapters 1 through 5.
-> Most readers can skip both sections until they reach Chapter 6.
+> You do not need Steps 6 and 7 for Chapters 1 through 5.
+> Most readers can skip both steps until they reach Chapter 6.
 
 Still in the project root, create a `.env` file. Do not commit this file.
 
@@ -108,9 +165,10 @@ WRDS_ID=your_wrds_username
 DATA_DIR=/absolute/path/to/pq_data
 ```
 
-## Step 5: Get data from WRDS
+## Step 7: Get data from WRDS
 
-The template expects local Parquet versions of a small set of WRDS tables. Those files can be created with [`db2pq`](https://pypi.org/project/db2pq/), which is installed as part of the project environment.
+The template expects local Parquet versions of a small set of WRDS tables.
+Those files can be created with [`db2pq`](https://pypi.org/project/db2pq/), which is installed as part of the project environment.
 
 After creating `.env`, run the following command from a terminal in the project root:
 
@@ -164,63 +222,22 @@ If you prefer a script instead of entering Python interactively, run:
 uv run scripts/download_wrds_tables.py
 ```
 
-## Step 6: Render the template
-
-Choose the template you want to render, then run:
-
-```bash
-uv run quarto render bb68.qmd
-```
-
-For example, to render the Python introduction template:
-
-```bash
-uv run quarto render py-intro.qmd
-```
-
-For iterative work, preview a template with:
-
-```bash
-uv run quarto preview bb68.qmd
-```
-
-## Optional: Work in Positron
-
-To work on a template in Positron:
-
-1. Open the repository folder in Positron.
-2. Open the `.qmd` file you want to work on, such as [`bb68.qmd`](bb68.qmd) or [`py-intro.qmd`](py-intro.qmd).
-3. Open a terminal in Positron and run `uv sync` if you have not already done so.
-4. Render or preview the file from the terminal.
-
-For example:
-
-```bash
-uv run quarto preview py-intro.qmd
-```
-
-For readers who do not want to install Positron, see the optional Jupyter-based path below.
-
 ## Optional: Work with Jupyter Instead of Positron
 
 If you do not want to install Positron, you will also need to install Quarto CLI separately. Install Quarto from <https://quarto.org/docs/get-started/>.
 
-If you prefer to work with a notebook instead of editing the Quarto source directly, first choose the template you want to work on. Then run the following command from a terminal in the project root:
-
-```bash
-quarto convert bb68.qmd
-```
-
-For example, the command above creates `bb68.ipynb` in the project root. You can do the same for other templates, such as:
+If you prefer to work with a notebook instead of editing the Quarto source directly, run the following command from a terminal in the project root:
 
 ```bash
 quarto convert py-intro.qmd
 ```
 
+This command creates `py-intro.ipynb` in the project root.
+
 You can then open the notebook in JupyterLab with:
 
 ```bash
-uv run jupyter lab bb68.ipynb
+uv run jupyter lab py-intro.ipynb
 ```
 
 ## Optional: Using Git
