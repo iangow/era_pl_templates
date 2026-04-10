@@ -86,22 +86,6 @@ To work on [`py-intro.qmd`](py-intro.qmd) in Positron:
 2. Use Positron's `Preview` button to render the document.
 3. To run code interactively without rendering the whole document, place the cursor in a code cell or highlight selected lines and run them from the editor.
 
-If Positron's preview does not use the Python interpreter in `.venv`, you can render from the terminal instead.
-For example, on macOS or Linux:
-
-```bash
-QUARTO_PYTHON=./.venv/bin/python uv run quarto preview py-intro.qmd
-```
-
-On Windows PowerShell, use:
-
-```powershell
-$env:QUARTO_PYTHON = ".venv\Scripts\python.exe"
-uv run quarto preview py-intro.qmd
-```
-
-For readers who do not want to install Positron, see the optional Jupyter-based path below.
-
 ## Step 6: Create environment variables
 
 > [!NOTE]
@@ -192,6 +176,20 @@ sys.executable
 You should see a path ending in `.venv/bin/python` on macOS or Linux, or `.venv\Scripts\python.exe` on Windows.
 
 Positron may label the interpreter using the project name from [`pyproject.toml`](pyproject.toml), such as `era-pl-templates`, even when it is correctly using the `.venv` in your own folder.
+
+If Positron's preview does not use the Python interpreter in `.venv`, you can render from the terminal instead.
+For example, on macOS or Linux:
+
+```bash
+QUARTO_PYTHON=./.venv/bin/python uv run quarto preview py-intro.qmd
+```
+
+On Windows PowerShell, use:
+
+```powershell
+$env:QUARTO_PYTHON = ".venv\Scripts\python.exe"
+uv run quarto preview py-intro.qmd
+```
 
 If you already created an empty project in Positron, copy the contents of this repository into that project folder, then run `uv sync` from the project root.
 
