@@ -72,9 +72,7 @@ After `uv sync` finishes:
 You should now see files such as [`README.md`](README.md), [`pyproject.toml`](pyproject.toml), and [`py-intro.qmd`](py-intro.qmd) in the Positron file browser.
 
 Positron should detect and use the Python interpreter from this project's `.venv`.
-If it does not, select it manually.
-On macOS and Linux, this is usually `.venv/bin/python`.
-On Windows, this is usually `.venv\Scripts\python.exe`.
+If it does not, see [Troubleshooting](#troubleshooting).
 
 ## Step 5: Work with `py-intro.qmd` in Positron
 
