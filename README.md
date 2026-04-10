@@ -19,13 +19,6 @@ After unzipping, you should have a folder named something like `era_pl_templates
 You may rename this folder to something more meaningful for your own work, such as `era_homework`.
 You may also move the folder to any convenient location on your computer before opening it in Positron.
 
-### If you already created an empty project in Positron
-
-If you already created an empty project in Positron, copy the contents of this repository into that project folder, then run `uv sync` from the project root.
-
-If you already created a `.venv` in the empty folder, that is not a problem.
-After copying the repository files in, run `uv sync` again from the project root so that the environment matches [`pyproject.toml`](pyproject.toml).
-
 ## Step 2: Install the prerequisites
 
 Install the following tools before working with the template:
@@ -84,6 +77,8 @@ On macOS and Linux, this is usually `.venv/bin/python`.
 On Windows, this is usually `.venv\Scripts\python.exe`.
 
 ## Step 5: Work with `py-intro.qmd` in Positron
+
+[`py-intro.qmd`](py-intro.qmd) includes detailed instructions for working through this step.
 
 To work on [`py-intro.qmd`](py-intro.qmd) in Positron:
 
@@ -197,6 +192,11 @@ sys.executable
 You should see a path ending in `.venv/bin/python` on macOS or Linux, or `.venv\Scripts\python.exe` on Windows.
 
 Positron may label the interpreter using the project name from [`pyproject.toml`](pyproject.toml), such as `era-pl-templates`, even when it is correctly using the `.venv` in your own folder.
+
+If you already created an empty project in Positron, copy the contents of this repository into that project folder, then run `uv sync` from the project root.
+
+If you already created a `.venv` in the empty folder, that is not a problem.
+After copying the repository files in, run `uv sync` again from the project root so that the environment matches [`pyproject.toml`](pyproject.toml).
 
 ## Optional: Work with Jupyter Instead of Positron
 
