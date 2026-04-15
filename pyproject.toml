@@ -20,6 +20,7 @@ dependencies = [
     "pandas",
     "pdfplumber",
     "plotnine",
+    "plotnine-polars>=0.0.1",
     "polars",
     "pyfixest>=0.40.1",
     "python-dotenv",
