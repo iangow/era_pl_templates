@@ -19,7 +19,7 @@ At a high level, the required set-up encompasses the following:
    Here I lead with Positron, but suggest alternatives at the end of the document.
 3. Downloading WRDS data.
    This is covered in Steps 6 and 7 below.
-   You only need WRDS data starting from Chapter 6 of the book, so you could stop at Step 5 below and still cover Chapters 1--5 of the book (and also Chapters 17 and 18).
+   **You only need WRDS data starting from Chapter 6** of the book, so you could pause at Step 5 below and still cover Chapters 1--5 of the book (and also Chapters 17 and 18).
    Note that you will need a WRDS ID to get the data from WRDS.
 
 ### Step 1: Download the project
