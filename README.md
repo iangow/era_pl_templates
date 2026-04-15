@@ -24,8 +24,9 @@ At a high level, the required set-up encompasses the following:
 
 ### Step 1: Download the project
 
-1. Open the repository page on GitHub.
-2. Click `Code`.
+1. If you're not already on the GitHub page for this repository, open the repository page on GitHub.
+2. Click the `Code` button that looks like this: ![`Code` button](images/github-code-button.svg).
+   This button should be somewhere toward the top-right part of this page.
 3. Click `Download ZIP`.
 4. Find the downloaded ZIP file on your computer.
 5. Unzip the downloaded archive.
