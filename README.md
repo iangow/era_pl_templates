@@ -128,7 +128,7 @@ DATA_DIR=/absolute/path/to/pq_data
 ### Step 7: Get data from WRDS
 
 The code in the book and the templates expect local Parquet versions of a small set of WRDS tables.
-Those files can be created with [`db2pq`](https://pypi.org/project/db2pq/), which is installed as part of the project environment.
+Those files can be created with [`db2pq`](https://iangow.github.io/db2pq/), which is installed as part of the project environment.
 
 > [!NOTE]
 > The time to download the data will depend a great deal on the speed of your internet connection and your "distance" from the WRDS server.
