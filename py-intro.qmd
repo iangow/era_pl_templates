@@ -868,46 +868,104 @@ ax.set(xlabel="Date", ylabel="Market-to-Book Ratio")
 
 We have created [Quarto](https://quarto.org) templates that we recommend you use to prepare your solutions to the exercises in the book. These templates are available on [the support page](https://github.com/iangow/era_pl_templates/) for this book. For this chapter, download and save `py-intro.qmd`.
 
-1.  Create a function `cor_alt(x, y)` that uses your `cov_alt()` and `var_alt()` functions to calculate the correlation between `x` and `y`.
-Check that it gives the same value as the built-in function in Polars for the correlation between `ret_nab` and `ret_cba` from `rets_nab_cba_wide` (for example, `rets_nab_cba_wide.select(pl.corr("NAB", "CBA")).item()`).
+## Exercises
+
+We have created [Quarto](https://quarto.org) templates that we recommend you use to prepare your solutions to the exercises in the book. These templates are available on [the support page](https://github.com/iangow/era_pl_templates/) for this book. 
+For this chapter, download and save `py-intro.qmd`.
+
+1. Create a function `var_alt(x)` that uses `cov_alt(x, y)` to calculate the variance of `x`.
+   Check that this function gives the same value as the built-in method `.var()` in Polars (for example, compare with `rets_nab_cba_wide.select(pl.exclude("datadate").var())`).
 
 ```{python}
 #| include: true
 
 ```
 
-2.  If you remove the `.drop_nulls()` line used when creating `rets_nab_cba_wide`, you will see missing values for `CBA`. 
-There are two reasons for these missing values.
-One reason is explained [here,](https://en.wikipedia.org/wiki/Commonwealth_Bank) but the other reason is more subtle and relates to how values are presented in `datadate`. What is the first reason? (*Hint:* What happened to CBA in 1991?) What is the second reason?
-How might you use Polars date tools to address the second reason (for example, truncating `datadate` to calendar month and then aligning dates consistently)? Does this second issue have implications for other plots?
+2. Create a function `corr_alt(x, y)` that uses `cov_alt()` and `var_alt()` to calculate the correlation between `x` and `y`.
+   Check that it gives the same value as the built-in function in Polars (for example, compare with `rets_nab_cba_wide.select(pl.corr("NAB", "CBA")).item()`).
 
 ```{python}
 #| include: true
 
 ```
 
-3.  Adapt the code used above to calculate the *correlation* matrix for the returns of Australian banks to instead calculate the *covariance* matrix. What is the calculated value of the variance of the returns for NAB?
+3. If you remove the `.drop_nulls()` line used when creating `rets_nab_cba_wide`, you will see missing values for `CBA`.
+   There are two reasons for these missing values.
+   One reason is explained [on the Wikipedia page for Commonwealth Bank,](https://en.wikipedia.org/wiki/Commonwealth_Bank) but the other reason is more subtle and relates to how values are presented in `datadate`.
+   What is the first reason? (*Hint:* What happened to CBA in 1991?)
+   What is the second reason?
+   How might you use Polars date tools to address the second reason?
+   Does this second issue have implications for other plots?
 
 ```{python}
 #| include: true
 
 ```
 
-4.  From the output above, what is the value for the variance of NAB's returns given by the covariance matrix (i.e., the diagonal element for `NAB`) produced by `np.cov()` on the wide return table? Why does this value differ from that you calculated in the previous question?
+4. Create `bank_rets` using the following steps:
+
+    A) First apply either `.join()` or `.filter()` to `aus_banks` to focus on the banks in `latest_mkt_cap`.
+    B) Join `aus_bank_rets` using `.join()`.
+    C) Normalize `datadate` to month-end using `.dt.month_end()`.
+   
+   With `bank_rets`, `.group_by()` and `.agg(var=pl.col("ret"))`, calculate the variance of returns for each bank (`"ticker"`).
 
 ```{python}
 #| include: true
 
 ```
 
-5.  In calculating ROE above, we used `ib` rather than a measure of "net income". According to [WRDS,](https://go.unimelb.edu.au/ocd8) `ni` (net income) only applies to Compustat North America; instead use: `ni = ib + xi + do`. Looking at the data in `aus_bank_funds`, does this advice seem correct? How would you check this claim? (*Hint:* Focus on cases where both `xi` and `do` are non-missing; checking more recent years may be easier if you decide to consult banks' financial statements.)
+5. Create the data frame `bank_rets_wide` using the following steps:
+
+    A) Apply `.pivot()` to `bank_rets` to change it from a "long" form to a "wide" form.
+    B) Drop missing values using `.drop_nulls()`.
+
+   Correlations can also be computed for entire data frames.
+   Calculate the correlation matrix for the returns of all banks using the following steps organized as a method chain:
+
+    A) Drop `datadate` from `bank_rets_wide` by applying `.select(pl.exclude("datadate"))`.
+    B) Apply `.corr(label="ticker")` to the result.
+    C) Use `.with_columns(cs.numeric().round(6))` to round all numbers to six decimal places.
 
 ```{python}
 #| include: true
 
 ```
 
-6.  @fig-mb-ts is a plot of market-to-book ratios. Another measure linking stock prices to fundamentals is the **price-to-earnings ratio** (also known as the **PE ratio**). Typically, PE ratios are calculated as
+6. Polars does not offer a `.cov()` method, but pandas does.
+   First, apply `.to_pandas()` and then `.corr()` to `bank_rets_wide` to check that you get the same results using pandas as you obtained in your answer to the previous question.
+   Do you need `.select(pl.exclude("datadate"))` here?
+
+   Second, use `.to_pandas()` and then `.cov()` to calculate the *covariance* matrix of the returns of the Australian banks.
+   What is the calculated value of the variance of the returns for NAB?
+
+```{python}
+#| include: true
+
+```
+
+7. From the output above, what is the value for the variance of NAB's returns?
+Why does this value differ from that you calculated in response to Q1?
+
+```{python}
+#| include: true
+
+```
+
+8. In calculating ROE above, we used `ib` rather than a measure of "net income".
+According to [WRDS,](https://go.unimelb.edu.au/ocd8) `ni` (net income) only applies to Compustat North America; instead use: `ni = ib + xi + do`.
+Looking at the data in `aus_bank_funds`, does this advice seem correct?
+How would you check this claim?
+(*Hint:* Focus on cases where both `xi` and `do` are non-missing; checking more recent years may be easier if you decide to consult banks' financial statements.)
+
+```{python}
+#| include: true
+
+```
+
+9. Figure 2.4 is a plot of market-to-book ratios.
+Another measure linking stock prices to fundamentals is the **price-to-earnings ratio** (also known as the **PE ratio**).
+Typically, PE ratios are calculated as
 
     $$ \textrm{PE} = \frac{\textrm{Stock price}}{\textrm{Earnings per share}} $$
 
@@ -919,37 +977,23 @@ How might you use Polars date tools to address the second reason (for example, t
 
     $$ \textrm{PE} = \frac{\textrm{Stock price} \times \textrm{Shares outstanding}}{\textrm{Net income}} $$
 
-    What critical assumption have we made in deriving the last equation? Is this likely to hold in practice?
+    What critical assumption have we made in deriving the last equation?
+    Is this likely to hold in practice?
 
-7.  Calculating the PE ratio using `pe = mkt_cap / ib`, create a plot similar to @fig-mb-ts, but for the PE ratios of Australian banks over time.
+```{python}
+#| include: true
+
+```
+
+10. Calculating the PE ratio using `pe = mkt_cap / ib`, create a plot similar to Figure 2.4, but for the PE ratios of Australian banks over time.
 
 ```{python}
 #| include: true
 
 ```
 
-8.  Suppose you wanted to produce the plots in this chapter (market capitalization; market-to-book ratios; histogram of ROE) using Excel starting from spreadsheet versions of the three data sets provided above. Which aspects of the task would be easier? Which would be more difficult? What benefits do you see in using Python code (as we did above) rather than point-and-click tools?
+11. Suppose you wanted to produce the plots in this chapter (market capitalization; market-to-book ratios; histogram of ROE) using Excel starting from spreadsheet versions of the three data sets provided above.
+Which aspects of the task would be easier?
+Which would be more difficult?
+What benefits do you see in using Python code (as we did above) rather than point-and-click tools?
 
-9. Correlations can also be computed for an entire data frame.
-   Calculate the correlation matrix for the returns of all banks using the following steps (organize these as a method chain):
-
-   A. First apply `.filter()` to `aus_banks` to focus on the banks in `latest_mkt_cap`.
-
-   B. Join `aus_bank_rets` using `.join()`
-
-   C. Apply `.pivot()` to the resulting data frame to change it from a "long" form to a "wide" form.
-
-   D. Drop missing values using `.drop_nulls()`.
-
-   E. Drop `datadate` from the result by applying `.select(pl.exclude("datadate"))`.
-
-   F. Apply `.corr(label="ticker")` to the result.
-
-   G. Use `.style` and `.fmt_number(columns=cs.numeric(), ...)` to format all numbers to three decimal places.
-
-   (*Hint:* Use code fromabove as a guide for each step.)
-
-```{python}
-#| include: true
-
-```

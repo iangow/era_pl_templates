@@ -21,7 +21,7 @@ dependencies = [
     "pdfplumber",
     "plotnine",
     "plotnine-polars>=0.2.0",
-    "polars",
+    "polars[excel]>=1.39.3",
     "pyfixest>=0.40.1",
     "python-dotenv",
     "quarto",
