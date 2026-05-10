@@ -1,0 +1,780 @@
+---
+title: "Linking databases"
+subtitle: "Responses to exercise questions"
+author: Put your name here
+engine: jupyter
+jupyter: python3
+format:
+  typst: default
+---
+
+:::{.content-visible when-format="markdown"}
+## Instructions
+
+This document assumes that you have completed the instructions [here](https://github.com/iangow/era_pl_templates/blob/main/README.md).
+Note that this chapter uses CRSP and Compustat data from a local Parquet repository, which means you will need to complete **Step 5: Get data from WRDS** before running any code.
+
+This template extracts the visible code and exercises from [Chapter 7](https://iangow.github.io/era_pl_book/identifiers.html) of the Python Polars edition of *Empirical Research in Accounting: Tools and Methods*.
+This template includes all the code from the book chapter.
+
+Within Positron, you can run the code below in two ways.
+
+In the first way, you can treat this file as a notebook of sorts and just run the code interactively.
+In Positron, you will see "Run Cell" and (for cells after the first cell) "Run Above".
+You might choose to go through the cells in order and click "Run Cell" on each one to see its output.
+Alternatively, you might jump ahead to a cell of interest, and click "Run Above" so that any prior code needed for your chosen cell has been executed, then "Run Cell" on the cell of interest.
+
+Note that some cells contain multiple lines and to see the output from each, you may need to execute them one at a time.
+You can run code interactively from a .qmd file in Positron without rendering the whole document.
+On macOS, place the cursor in a code cell or highlight selected lines and press `Command+Enter`; on Windows and Linux, use `Ctrl+Enter` instead.
+
+In the second way, you have Quarto "render" the document as PDF.
+In Positron, you can accomplish this by clicking the "Preview" button at the top of the edit window.
+Note that many of the cells below will not appear in the created PDF.
+This document uses Quarto chunk options to control that behaviour.
+(Quarto seems to use the words "cell" and "chunk" interchangeably.)
+In particular, chunks with `#| include: false` are executed without either the code or the output being shown in the rendered document.
+Other chunk options include `#| echo` to show or hide the code and `#| output` to hide or show the output.
+
+To answer the questions below, you are likely to play around with code interactively (the first way) until you are ready to render your answers (using the second way) and submit them to your course instructor.
+
+Note that you can type text outside code cells and these will be rendered as markdown.
+More details on using Quarto markdown are provided on the [Quarto website](https://quarto.org).
+
+:::
+
+```{python}
+#| include: false
+import plotnine_polars as p9p
+p9p.theme_set(p9p.theme_matplotlib())
+```
+
+```{python}
+#| include: false
+#| eval: true
+import polars as pl
+import plotnine_polars
+from plotnine_polars import element_text
+from era_pl import load_parquet
+```
+
+```{python}
+#| include: false
+#| eval: true
+pl.Config.set_tbl_cols(200)
+pl.Config.set_tbl_width_chars(120)
+pl.Config.set_tbl_hide_dataframe_shape(True)
+pl.Config.set_tbl_hide_column_data_types(True)
+```
+
+```{python}
+#| include: false
+#| eval: true
+dsf = load_parquet(table="dsf", schema="crsp")
+msf = load_parquet(table="msf", schema="crsp")
+```
+
+```{python}
+#| include: false
+#| eval: true
+dsf.limit(5).collect()
+```
+
+```{python}
+#| include: false
+#| eval: true
+dsi = load_parquet(table="dsi", schema="crsp")
+msi = load_parquet(table="msi", schema="crsp")
+```
+
+```{python}
+#| include: false
+#| eval: true
+ccmxpf_lnkhist = load_parquet(table="ccmxpf_lnkhist", schema="crsp")
+```
+
+```{python}
+#| include: false
+#| eval: true
+ccmxpf_lnkhist.limit(10).collect().style
+```
+
+```{python}
+#| include: false
+#| eval: true
+(
+    ccmxpf_lnkhist
+    .with_columns(has_permno=pl.col("lpermno").is_not_null())
+    .group_by("linktype", "has_permno")
+    .agg(n=pl.len())
+    .sort("has_permno", "n", descending=[False, True])
+    .collect()
+    .style
+    .fmt_integer(columns="n")
+)
+```
+
+```{python}
+#| include: false
+#| eval: true
+ccmxpf_lnkhist.filter(pl.col("lpermno") == 23536).collect().style
+```
+
+```{python}
+#| include: false
+#| eval: true
+(
+    ccmxpf_lnkhist
+    .filter(
+        pl.col("gvkey") == "001186",
+        pl.col("lpermno").is_not_null(),
+    )
+    .collect()
+    .style
+)
+```
+
+```{python}
+#| include: false
+#| eval: true
+ccm_link = ccmxpf_lnkhist.filter(
+    pl.col("linktype").is_in(["LC", "LU", "LS"])
+)
+```
+
+```{python}
+#| include: false
+#| eval: true
+(
+    ccm_link
+    .group_by("linkprim")
+    .agg(n=pl.len())
+    .sort("n", descending=True)
+    .collect()
+    .style
+    .fmt_integer(columns="n")
+)
+```
+
+```{python}
+#| include: false
+#| eval: true
+ccm_link = (
+    ccmxpf_lnkhist
+    .filter(
+        pl.col("linktype").is_in(["LC", "LU", "LS"])
+        & pl.col("linkprim").is_in(["C", "P"])
+    )
+    .with_columns(pl.col("linkenddt").fill_null(pl.col("linkenddt").max()))
+)
+```
+
+```{python}
+#| include: false
+#| eval: true
+int(
+    ccm_link
+    .sort(["gvkey", "linkdt"])
+    .with_columns(
+        lag_linkenddt=pl.col("linkenddt").shift(1).over("gvkey"),
+        lead_linkdt=pl.col("linkdt").shift(-1).over("gvkey"),
+    )
+    .filter(
+        (pl.col("lag_linkenddt") >= pl.col("linkdt"))
+        | (pl.col("linkenddt") >= pl.col("lead_linkdt"))
+    )
+    .select(pl.len())
+    .collect()
+    .item()
+)
+```
+
+```{python}
+#| include: false
+#| eval: true
+(
+    ccm_link
+    .group_by("gvkey")
+    .agg(num_permnos=pl.col("lpermno").n_unique())
+    .group_by("num_permnos")
+    .agg(n=pl.len())
+    .sort("n", descending=True)
+    .collect()
+    .style
+    .fmt_integer(columns="n")
+)
+```
+
+```{python}
+#| include: false
+#| eval: true
+funda = load_parquet(table="funda", schema="comp")
+fundq = load_parquet(table="fundq", schema="comp")
+```
+
+```{python}
+#| include: false
+#| eval: true
+rdqs = (
+    fundq
+    .filter(
+        (pl.col("indfmt") == "INDL")
+        & (pl.col("datafmt") == "STD")
+        & (pl.col("consol") == "C")
+        & (pl.col("popsrc") == "D")
+        & pl.col("rdq").is_not_null()
+        & (pl.col("fqtr") == 4)
+    )
+    .select("gvkey", "datadate", "rdq")
+)
+```
+
+```{python}
+#| include: false
+#| eval: true
+funda_mod = (
+    funda
+    .filter(
+        (pl.col("indfmt") == "INDL")
+        & (pl.col("datafmt") == "STD")
+        & (pl.col("consol") == "C")
+        & (pl.col("popsrc") == "D")
+    )
+)
+
+annc_dates = (
+    funda_mod
+    .select("gvkey", "datadate")
+    .join(rdqs, on=["gvkey", "datadate"], how="inner")
+    .filter(pl.col("datadate") >= pl.date(2000, 1, 1))
+)
+```
+
+```{python}
+#| include: false
+#| eval: true
+datadate_permnos = (
+    annc_dates
+    .join(ccm_link, on="gvkey", how="inner")
+    .filter(
+        pl.col("datadate").is_between(
+            pl.col("linkdt"),
+            pl.col("linkenddt"),
+        )
+    )
+    .rename({"lpermno": "permno", "lpermco": "permco"})
+    .select("gvkey", "datadate", "rdq", "permno", "permco")
+)
+```
+
+```{python}
+#| include: false
+#| eval: true
+rdq_permnos = (
+    annc_dates
+    .join(ccm_link, on="gvkey", how="inner")
+    .filter(
+        pl.col("rdq").is_between(
+            pl.col("linkdt"),
+            pl.col("linkenddt"),
+        )
+    )
+    .rename({"lpermno": "permno", "lpermco": "permco"})
+    .select("gvkey", "datadate", "rdq", "permno", "permco")
+)
+```
+
+```{python}
+#| include: false
+#| eval: true
+link_table_combined = (
+    rdq_permnos
+    .join(
+        datadate_permnos,
+        on=["gvkey", "datadate", "rdq"],
+        how="full",
+        suffix="_ddate",
+        coalesce=True,
+    )
+    .rename({"permno": "permno_rdq", "permco": "permco_rdq"})
+    .filter(
+        pl.col("permno_rdq").is_not_null()
+        | pl.col("permno_ddate").is_not_null()
+    )
+    .with_columns(
+        same_permno=(
+            pl.col("permno_rdq") == pl.col("permno_ddate")
+        ).fill_null(False),
+        same_permco=(
+            pl.col("permco_rdq") == pl.col("permco_ddate")
+        ).fill_null(False),
+        has_permno_rdq=pl.col("permno_rdq").is_not_null(),
+        has_permno_ddate=pl.col("permno_ddate").is_not_null(),
+    )
+)
+```
+
+```{python}
+#| include: false
+#| eval: true
+link_table_stats = (
+    link_table_combined
+    .group_by(
+        "same_permno",
+        "same_permco",
+        "has_permno_rdq",
+        "has_permno_ddate",
+    )
+    .agg(n=pl.len())
+    .sort("n", descending=True)
+    .collect()
+)
+
+link_table_stats.style.fmt_integer(columns="n")
+```
+
+```{python}
+#| include: false
+#| eval: true
+num_same = int(
+    link_table_stats
+    .filter(pl.col("same_permno"))
+    .select(pl.col("n").sum().fill_null(0))
+    .item()
+)
+denom = int(link_table_stats.select(pl.col("n").sum().fill_null(0)).item())
+percent_same = f"{(num_same / denom * 100):.1f}%"
+
+num_diff = int(
+    link_table_stats
+    .filter(
+        ~pl.col('same_permno'),
+        pl.col('has_permno_rdq'),
+        pl.col('has_permno_ddate'),
+    )
+    .select(pl.col('n').sum().fill_null(0))
+    .item()
+)
+
+num_same_permco = int(
+    link_table_stats
+    .filter(
+        pl.col('has_permno_ddate'),
+        pl.col('has_permno_rdq'),
+        ~pl.col('same_permno'),
+        pl.col('same_permco'),
+    )
+    .select(pl.col('n').sum().fill_null(0))
+    .item()
+)
+
+num_diff_permco = int(
+    link_table_stats
+    .filter(
+        pl.col('has_permno_ddate'),
+        pl.col('has_permno_rdq'),
+        ~pl.col('same_permco'),
+    )
+    .select(pl.col('n').sum().fill_null(0))
+    .item()
+)
+
+num_miss_datadate = int(
+    link_table_stats
+    .filter(~pl.col('has_permno_ddate'))
+    .select(pl.col('n').sum().fill_null(0))
+    .item()
+)
+
+num_miss_rdq = int(
+    link_table_stats
+    .filter(~pl.col('has_permno_rdq'))
+    .select(pl.col('n').sum().fill_null(0))
+    .item()
+)
+```
+
+```{python}
+#| include: false
+#| eval: true
+ccm_link.filter(pl.col("lpermno") == 15075).collect()
+```
+
+```{python}
+#| include: false
+#| eval: true
+(
+    ccm_link
+    .filter(pl.col("lpermno") == 15075)
+    .select("gvkey")
+    .join(funda_mod, on="gvkey", how="inner")
+    .select("gvkey", "datadate", "at", "ni")
+    .sort("datadate")
+    .collect()
+)
+```
+
+```{python}
+#| include: false
+#| eval: true
+(
+    ccmxpf_lnkhist
+    .filter(
+        pl.col("gvkey") == "017010",
+        pl.col("lpermno").is_in([15998, 16000]),
+    )
+    .collect()
+)
+```
+
+```{python}
+#| include: false
+#| eval: true
+funda_mod = (
+    funda
+    .filter(
+        pl.col("indfmt") == "INDL",
+        pl.col("datafmt") == "STD",
+        pl.col("consol") == "C",
+        pl.col("popsrc") == "D",
+    )
+    .with_columns(mkt_cap=pl.col("prcc_f") * pl.col("csho"))
+    .select("gvkey", "datadate", "cusip", "at", "mkt_cap")
+)
+```
+
+```{python}
+#| include: false
+#| eval: true
+stocknames = load_parquet(table="stocknames", schema="crsp")
+```
+
+```{python}
+#| include: false
+#| eval: true
+sn_plus = stocknames.with_columns(
+    ncusip=pl.col("ncusip").fill_null(pl.col("cusip"))
+)
+```
+
+```{python}
+#| include: false
+#| eval: true
+funda_cusip_link = (
+    funda_mod
+    .with_columns(ncusip=pl.col("cusip").str.slice(0, 8))
+    .join(sn_plus, on="ncusip", how="inner")
+    .filter(
+        pl.col("datadate").is_between(
+            pl.col("namedt"),
+            pl.col("nameenddt"),
+        )
+    )
+    .select("gvkey", "datadate", "permno", "permco")
+)
+```
+
+```{python}
+#| include: false
+#| eval: true
+funda_ccm_link = (
+    funda_mod
+    .select("gvkey", "datadate")
+    .join(ccm_link, on="gvkey", how="inner")
+    .filter(
+        pl.col("datadate").is_between(
+            pl.col("linkdt"),
+            pl.col("linkenddt"),
+        )
+    )
+    .select(
+        "gvkey",
+        "datadate",
+        pl.col("lpermno").alias("permno"),
+        pl.col("lpermco").alias("permco"),
+    )
+)
+```
+
+```{python}
+#| include: false
+#| eval: true
+funda_link_combined = (
+    funda_mod
+    .select("gvkey", "datadate", "at", "mkt_cap")
+    .join(
+        funda_ccm_link.rename(
+            {"permno": "permno_ccm", "permco": "permco_ccm"}
+        ),
+        on=["gvkey", "datadate"],
+        how="left",
+    )
+    .join(
+        funda_cusip_link.rename(
+            {"permno": "permno_cusip", "permco": "permco_cusip"}
+        ),
+        on=["gvkey", "datadate"],
+        how="left",
+    )
+    .with_columns(
+        same_permno=pl.col("permno_ccm") == pl.col("permno_cusip"),
+        same_permco=pl.col("permco_ccm") == pl.col("permco_cusip"),
+        has_permno_ccm=pl.col("permno_ccm").is_not_null(),
+        has_permno_cusip=pl.col("permno_cusip").is_not_null(),
+    )
+    .filter(pl.col("has_permno_ccm") | pl.col("has_permno_cusip"))
+)
+```
+
+```{python}
+#| include: false
+#| eval: true
+(
+    funda_link_combined
+    .group_by(["same_permno", "same_permco"])
+    .agg(n=pl.len())
+    .collect()
+    .style
+    .fmt_integer(columns="n")
+)
+```
+
+```{python}
+#| include: false
+#| eval: true
+(
+    funda_link_combined
+    .group_by(["has_permno_ccm", "has_permno_cusip"])
+    .agg(n=pl.len())
+    .collect()
+    .style
+    .fmt_integer(columns="n")
+)
+```
+
+## The CRSP database
+
+### Exercises
+
+1. Looking at `crsp.dsf` and `crsp.msf`, we see that `prc` can be negative.
+Do negative stock prices make sense economically?
+What do negative stock prices on CRSP mean?
+What would be an alternative approach to encode this information?
+(Write code to recast the data using this approach.)
+Why do you think that CRSP chose the approach it uses?
+
+```{python}
+#| include: true
+
+```
+
+2. How do `ret` and `retx` differ?
+Which variable are you more likely to use in research?
+
+```{python}
+#| include: true
+
+```
+
+3. Is the `date` variable on `crsp.msf` always the last day of the month?
+If not, why not?
+
+```{python}
+#| include: true
+
+```
+
+4. Suggest the "natural" primary key for `crsp.dsf` and `crsp.msf`.
+Check that this is a valid primary key for `crsp.msf`.
+
+```{python}
+#| include: true
+
+```
+
+```{python}
+plot_data = (
+    dsf
+    .select("date")
+    .filter(pl.col("date").is_between(
+        pl.date(2017, 12, 31), pl.date(2022, 12, 31)))
+    .with_columns(pl.col("date").dt.truncate("1mo").alias("month"))
+    .collect()
+)
+```
+
+6. What is being depicted in the two figures below?
+What are the sources of variation across months in the first figure?
+Can you guess what is the main driver of variation in the second figure?
+Create an additional plot to visualize the source of variation in the first figure not depicted in the second figure.
+
+```{python}
+#| echo: false
+(
+    plot_data
+    .group_by("month")
+    .agg(n=pl.len())
+    .sort("month")
+    .ggplot()
+    .aes(x="month", y="n")
+    .geom_col()
+    .add_theme(axis_text_x=element_text(rotation=90))
+)
+```
+
+```{python}
+#| echo: false
+(
+    plot_data
+    .unique()
+    .group_by("month")
+    .agg(n=pl.len())
+    .sort("month")
+    .ggplot()
+    .aes(x="month", y="n")
+    .geom_col()
+    .add_theme(axis_text_x=element_text(rotation=90))
+)
+```
+
+```{python}
+#| include: true
+
+```
+
+7. What is the primary key for `crsp.dsi` and `crsp.msi`?
+Verify that it is a valid key for both tables.
+
+```{python}
+#| include: true
+
+```
+
+8. Using the `.anti_join()` method, determine if there are any dates on `crsp.dsf` that do not appear on `crsp.dsi` or vice versa.
+Do the same for `crsp.msi` and `crsp.msf`.
+
+```{python}
+#| include: true
+
+```
+
+## All about CUSIPs
+
+### Exercises
+
+1. Is there any evidence of "reuse" of CUSIPs on `crsp.stocknames`?
+In other words, are there any `ncusip` or `cusip` values associated with more than one `permno`?
+
+```{python}
+#| include: true
+
+```
+
+2. The CRSP table `crsp.stocknames` includes two CUSIP-related fields, `cusip` and `ncusip`.
+What are the differences between the two fields?
+What does it mean when `ncusip` is missing, but `cusip` is present?
+
+```{python}
+#| include: true
+
+```
+
+3. Like CUSIPs, PERMNOs are security-level identifiers.
+Can a PERMNO be associated with more than one CUSIP at a given point in time?
+Can a PERMNO be associated with more than one CUSIP over time?
+
+```{python}
+#| include: true
+
+```
+
+4. Looking at entries on `crsp.stocknames` where the company name starts with `DELL`, we see multiple different `permno` values.
+What explains this?
+
+```{python}
+(
+    stocknames
+    .filter(pl.col("comnam").str.contains(r"^DELL "))
+    .select("permno", "cusip", "ncusip", "comnam",
+            "siccd", "namedt", "nameenddt")
+    .collect()
+)
+```
+
+```{python}
+#| include: true
+
+```
+
+5. Looking at `permno` of `11081` (Dell), we see two different CUSIP values.
+What change appears to have caused the change in CUSIP for what CRSP regards as the same security?
+
+```{python}
+#| include: true
+
+```
+
+6. Choose a row from `funda_link_combined` where `same_permco` is `false`.
+Can you discern from the underlying tables what issue is causing the difference and which match (if any) is valid?
+(*Hint:* Do rows where `pl.col("gvkey").is_in(["065228", "136265"])` meet this condition?
+What appears to be the issue for these GVKEYs?)
+Can you conclude that the CCM-based match is the preferred one in each case?
+
+```{python}
+#| include: true
+
+```
+
+7. Choose a row from `funda_link_combined` where `has_permno_cusip` is `true` and `has_permno_ccm` is `false`.
+Can you discern from the underlying tables whether the CUSIP-based match is valid?
+(*Hint:* Do rows where `pl.col("gvkey").is_in(["033728", "346027"])` meet this condition?
+What appears to be the issue for these GVKEYs?)
+
+```{python}
+#| include: true
+
+```
+
+```{python}
+#| echo: false
+(
+    funda_link_combined
+    .group_by(["same_permno", "same_permco"])
+    .agg(n=pl.len())
+    .sort("same_permno", "same_permco", nulls_last=True)
+    .collect()
+)
+```
+
+```{python}
+#| echo: false
+(
+    funda_link_combined
+    .group_by(["has_permno_ccm", "has_permno_cusip"])
+    .agg(n=pl.len())
+    .sort("has_permno_ccm", "has_permno_cusip")
+    .collect()
+)
+```
+
+8. Given the results shown in the two tables above and your answers to the previous two questions,
+can you conclude that the CCM-based match is preferred to the CUSIP-based match in each case?
+
+```{python}
+#| include: true
+
+```
+
+```{python}
+#| include: false
+#| eval: true
+dsf = load_parquet("dsf", "crsp")
+dsf.select("permno", "date", "ret", "prc").show()
+```
+
+```{python}
+#| include: false
+#| eval: true
+dsf = load_parquet("dsf", "crsp", convert_decimals=False)
+dsf.select("permno", "date", "ret", "prc").show()
+```

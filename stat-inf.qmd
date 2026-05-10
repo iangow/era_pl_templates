@@ -1,0 +1,830 @@
+---
+title: "Statistical inference"
+subtitle: "Responses to exercise questions"
+author: Put your name here
+engine: jupyter
+jupyter: python3
+format:
+  typst: default
+---
+
+:::{.content-visible when-format="markdown"}
+## Instructions
+
+This document assumes that you have completed the instructions [here](https://github.com/iangow/era_pl_templates/blob/main/README.md).
+As mentioned there, there is no need to complete **Step 5: Get data from WRDS** for this chapter.
+
+This template extracts the visible code and exercises from [Chapter 5](https://iangow.github.io/era_pl_book/stat-inf.html) of the Python Polars edition of *Empirical Research in Accounting: Tools and Methods*.
+This template includes all the code from the book chapter.
+
+Within Positron, you can run the code below in two ways.
+
+In the first way, you can treat this file as a notebook of sorts and just run the code interactively.
+In Positron, you will see "Run Cell" and (for cells after the first cell) "Run Above".
+You might choose to go through the cells in order and click "Run Cell" on each one to see its output.
+Alternatively, you might jump ahead to a cell of interest, and click "Run Above" so that any prior code needed for your chosen cell has been executed, then "Run Cell" on the cell of interest.
+
+Note that some cells contain multiple lines and to see the output from each, you may need to execute them one at a time.
+You can run code interactively from a .qmd file in Positron without rendering the whole document.
+On macOS, place the cursor in a code cell or highlight selected lines and press `Command+Enter`; on Windows and Linux, use `Ctrl+Enter` instead.
+
+In the second way, you have Quarto "render" the document as PDF.
+In Positron, you can accomplish this by clicking the "Preview" button at the top of the edit window.
+Note that many of the cells below will not appear in the created PDF.
+This document uses Quarto chunk options to control that behaviour.
+(Quarto seems to use the words "cell" and "chunk" interchangeably.)
+In particular, chunks with `#| include: false` are executed without either the code or the output being shown in the rendered document.
+Other chunk options include `#| echo` to show or hide the code and `#| output` to hide or show the output.
+
+Note that one cell is marked with `#| eval: false`.
+This is code that takes a long time to run; you may prefer to run it interactively rather than every time you render the document.
+
+To answer the questions below, you are likely to play around with code interactively (the first way) until you are ready to render your answers (using the second way) and submit them to your course instructor.
+
+Note that you can type text outside code cells and these will be rendered as markdown.
+More details on using Quarto markdown are provided on the [Quarto website](https://quarto.org).
+
+:::
+
+```{python}
+#| include: false
+import plotnine_polars as p9p
+p9p.theme_set(p9p.theme_matplotlib())
+```
+
+```{python}
+#| include: false
+#| eval: true
+import numpy as np
+import polars as pl
+from scipy import stats
+from era_pl import get_got_data, show_typst
+import plotnine_polars as p9p
+from plotnine_polars import aes, after_stat
+from linearmodels.panel import FamaMacBeth, PanelOLS
+import statsmodels.formula.api as smf
+from maketables import ETable
+```
+
+```{python}
+#| include: false
+#| eval: true
+pl.Config.set_tbl_cols(200)
+pl.Config.set_tbl_width_chars(120)
+pl.Config.set_tbl_hide_dataframe_shape(True)
+pl.Config.set_tbl_hide_column_data_types(True)
+```
+
+```{python}
+#| include: false
+#| eval: true
+hgt_mean = 165
+hgt_sd = 8
+```
+
+```{python}
+#| include: false
+#| eval: true
+rng = np.random.default_rng(2023)
+hgt_sample = rng.normal(loc=hgt_mean, scale=hgt_sd, size=100)
+```
+
+```{python}
+#| include: false
+#| eval: true
+def get_hgt_sample(rng, n):
+    return rng.normal(loc=hgt_mean, scale=hgt_sd, size=n)
+```
+
+```{python}
+#| include: false
+#| eval: true
+rng = np.random.default_rng(2023)
+get_hgt_sample(rng, 10)
+```
+
+```{python}
+#| include: false
+#| eval: true
+n_samples = 10000
+```
+
+```{python}
+#| include: false
+#| eval: true
+rng = np.random.default_rng(2023)
+
+hgt_samples = [get_hgt_sample(rng, 100) for _ in range(n_samples)]
+```
+
+```{python}
+#| include: false
+#| eval: true
+hgt_samples[462][:10]
+```
+
+```{python}
+#| include: false
+#| eval: true
+np.mean(hgt_samples[462])
+```
+
+```{python}
+#| include: false
+#| eval: true
+hgt_sample_means = [np.mean(sample) for sample in hgt_samples]
+```
+
+```{python}
+#| include: false
+#| eval: true
+hgt_sample_means[:5]
+```
+
+```{python}
+#| include: false
+#| eval: true
+hgt_sample_means = np.array(hgt_sample_means)
+hgt_sample_means[:5]
+```
+
+```{python}
+#| include: false
+#| eval: true
+rng = np.random.default_rng(2023)
+
+hgt_samples_df = pl.DataFrame({
+    'i': range(n_samples),
+    'data': [get_hgt_sample(rng, 100) for _ in range(n_samples)]
+})
+hgt_samples_df
+```
+
+```{python}
+#| include: false
+#| eval: true
+hgt_samples_stats = (
+    hgt_samples_df
+    .select(
+        "i",
+        n=pl.col("data").arr.len(),
+        mean=pl.col("data").arr.mean(),
+        std=pl.col("data").arr.std(ddof=1),
+    )
+    .with_columns(se=pl.col("std") / pl.col("n").sqrt())
+)
+```
+
+```{python}
+#| include: false
+#| eval: true
+hgt_stats_summ = (
+    hgt_samples_stats
+    .select(
+        n=pl.col("n").mean(),
+        mean_mean=pl.col("mean").mean(),
+        sd_mean=pl.col("mean").std(),
+        mean_se=pl.col("se").mean(),
+        sd_se=pl.col("se").std(),
+    )
+)
+
+hgt_stats_summ
+```
+
+```{python}
+#| include: false
+#| eval: true
+(
+    hgt_stats_summ
+    .select(
+        mean_error=pl.col("mean_mean") - hgt_mean,
+        se_error=pl.col("sd_mean") - hgt_sd / pl.col("n").sqrt(),
+        se_est_error=pl.col("mean_se") - pl.col("sd_mean"),
+    )
+)
+```
+
+## Data-generating processes
+
+### Discussion questions
+
+1. Explain what "error" each of `mean_error`, `se_error`, and `se_est_error` is capturing.
+
+```{python}
+#| include: true
+
+```
+
+2. What effects do you expect changes in the values of `n_samples` or `n` to have on `mean_error`?
+Do you expect changing `n_samples` or changing `n` to have a greater effect?
+Verify your conjectures using the simulation code.
+(*Hint:* Consider 100,000 draws of samples of 100 and 10,000 draws of samples of 1,000.
+In each case, you should create a fresh random generator and effectively replace data in `hgt_samples`.)
+
+```{python}
+#| include: true
+
+```
+
+```{python}
+#| include: false
+#| eval: true
+hgt_mean_null = 170
+```
+
+```{python}
+#| include: false
+#| eval: true
+rng = np.random.default_rng(2023)
+sample_size = 100
+test_sample = get_hgt_sample(rng, sample_size)
+mean_est = np.mean(test_sample)
+mean_est
+```
+
+```{python}
+#| include: false
+#| eval: true
+stats.norm.cdf(mean_est, loc=hgt_mean_null,
+               scale=hgt_sd / np.sqrt(sample_size))
+```
+
+```{python}
+#| include: false
+#| eval: true
+z_stat = (mean_est - hgt_mean_null) / (hgt_sd / np.sqrt(sample_size))
+```
+
+```{python}
+#| include: false
+#| eval: true
+stats.norm.cdf(z_stat)
+```
+
+```{python}
+#| include: false
+#| eval: true
+stats.norm.ppf(0.025)
+```
+
+```{python}
+#| include: false
+#| eval: true
+stats.norm.ppf(1 - 0.025)
+```
+
+```{python}
+#| include: false
+#| eval: true
+2 * stats.norm.cdf(z_stat)
+```
+
+```{python}
+#| include: false
+#| eval: true
+sd_est = np.std(test_sample, ddof=1)
+t_stat = (mean_est - hgt_mean_null) / (sd_est / np.sqrt(sample_size))
+t_stat
+```
+
+```{python}
+#| include: false
+#| eval: true
+stats.t.ppf(0.025, df=sample_size - 1)
+```
+
+```{python}
+#| include: false
+#| eval: true
+stats.t.ppf(1 - 0.025, df=sample_size - 1)
+```
+
+```{python}
+#| include: false
+#| eval: true
+stats.t.cdf(t_stat, df=sample_size - 1) * 2
+```
+
+```{python}
+#| include: false
+#| eval: true
+def bimodal_dgf(rng, n):
+    short = rng.random(n) < 0.3
+    short_sample = rng.normal(loc=155, scale=3, size=n)
+    tall_sample = rng.normal(loc=171, scale=3, size=n)
+    return np.where(short, short_sample, tall_sample)
+```
+
+```{python}
+#| include: false
+#| eval: true
+rng = np.random.default_rng(2023)
+bimodal_sample = bimodal_dgf(rng, 1000)
+```
+
+```{python}
+#| include: false
+#| eval: true
+(
+    pl.DataFrame({"height": bimodal_sample})
+    .ggplot()
+    .aes(x="height")
+    .geom_histogram(bins=30, color="black")
+    .labs(x="Height", y="Count")
+)
+```
+
+```{python}
+#| include: false
+#| eval: true
+def get_means(rng, sample_size, n_samples, dgf):
+    results = []
+    for i in range(n_samples):
+        sample = dgf(rng, sample_size)
+        sample_mean = np.mean(sample)
+        sample_se = np.std(sample, ddof=1) / np.sqrt(len(sample) - 1)
+        results.append({
+            'i': i,
+            'mean': sample_mean,
+            'se': sample_se,
+            'z': sample_mean / sample_se
+        })
+    return pl.DataFrame(results)
+```
+
+```{python}
+#| include: false
+#| eval: true
+rng = np.random.default_rng(2023)
+bimodal_sample_stats = get_means(rng, sample_size=1000, n_samples=10000,
+                                  dgf=bimodal_dgf)
+```
+
+```{python}
+#| include: false
+#| eval: true
+def make_clt_plot(df):
+    x = np.linspace(df["mean"].min(), df["mean"].max(), 100)
+    normal_density = pl.DataFrame(
+        {
+            "mean": x,
+            "density": stats.norm.pdf(
+                x, df["mean"].mean(), df["mean"].std()
+            ),
+        }
+    )
+
+    return (
+        df
+        .ggplot(aes(x="mean"))
+        .geom_histogram(
+            aes(y=after_stat("density")),
+            bins=50,
+            fill="green",
+            color="black",
+        )
+        .geom_vline(xintercept=df["mean"].mean(), color="red", size=1)
+        .geom_line(
+            data=normal_density,
+            mapping=aes(x="mean", y="density"),
+            color="blue",
+            size=1,
+        )
+        .labs(x="Mean", y="Density")
+    )
+```
+
+```{python}
+#| include: false
+#| eval: true
+make_clt_plot(bimodal_sample_stats)
+```
+
+```{python}
+#| include: false
+#| eval: true
+def clt_demo(sample_size, n_samples, dgf):
+    rng = np.random.default_rng(2023)
+    df = get_means(rng, sample_size, n_samples, dgf)
+    return make_clt_plot(df)
+```
+
+```{python}
+#| include: false
+#| eval: true
+clt_demo(sample_size=100, n_samples=10000, dgf=bimodal_dgf)
+```
+
+```{python}
+#| include: false
+#| eval: true
+def get_bs_mean(rng, data):
+    bs_sample = rng.choice(data, size=len(data), replace=True)
+    return np.mean(bs_sample)
+```
+
+```{python}
+#| include: false
+#| eval: true
+rng = np.random.default_rng(2021)
+bs_stats = pl.DataFrame({
+    'i': range(n_samples),
+    'mean': [get_bs_mean(rng, bimodal_sample) for _ in range(n_samples)]
+})
+```
+
+```{python}
+#| include: false
+#| eval: true
+bs_stats["mean"].std(ddof=1)
+```
+
+```{python}
+#| include: false
+#| eval: true
+make_clt_plot(bs_stats)
+```
+
+```{python}
+#| include: false
+#| eval: true
+def ols_fit(formula, data, **fit_kwargs):
+    df = data.to_pandas()
+    return smf.ols(formula, data=df).fit(**fit_kwargs)
+```
+
+## Hypothesis testing
+
+### Exercises
+
+1. What is the relation between critical values and p-values using z-statistics and t-statistics?
+(*Hint:* Use Python functions such as `stats.t.ppf(p/2, df=sample_size - 1)` and `stats.norm.ppf(0.025)` for various significant levels and sample sizes.)
+
+```{python}
+#| include: true
+
+```
+
+2. Explain how the output of the following code relates to the statistical tests above.
+Why does this relationship exist?
+
+```{python}
+#| eval: false
+df = pl.DataFrame({'x': test_sample})
+df = df.with_columns((pl.col("x") - hgt_mean_null).alias("x_centered"))
+fm = ols_fit('x_centered ~ 1', data=df)
+print(fm.summary())
+```
+
+```{python}
+#| include: true
+
+```
+
+3. Examine `clt_demo(sample_size, n_samples=10000, dgf=bimodal_dgf)` for different values of `sample_size`.
+At what value of `sample_size` does the underlying non-normality of `bimodal_dgf()` become apparent?
+
+```{python}
+#| include: true
+
+```
+
+4. Using the value for `sample_size` you calculated in the previous question, what effect does varying `n_samples` have on the distribution?
+How do you interpret the pattern here?
+
+```{python}
+#| include: true
+
+```
+
+5. Create your own data-generating function (say, `my_dgf()`) like `bimodal_dgf()`.
+This function should embody the distribution of a random variable and it should have arguments `rng` and `n` for the random generator and sample size.
+Examine the output of `clt_demo()` for your function.
+(*Hint:* Like `bimodal_dgf()`, you might find it helpful to use NumPy's built-in functions, such as `rng.choice()` and `rng.normal()` to make your function.)
+
+```{python}
+#| include: true
+
+```
+
+```{python}
+#| include: false
+#| eval: true
+def rnorm_dgf(rng, n):
+    return rng.normal(size=n)
+
+rng = np.random.default_rng(2023)
+
+sample_0_stats = get_means(
+    rng,
+    sample_size=1000,
+    n_samples=10000,
+    dgf=rnorm_dgf,
+)
+
+sample_1_stats = get_means(
+    rng,
+    sample_size=1000,
+    n_samples=10000,
+    dgf=rnorm_dgf,
+)
+```
+
+```{python}
+#| include: false
+#| eval: true
+merged_stats = (
+    sample_0_stats
+    .join(sample_1_stats, on="i", suffix="_1")
+    .rename({"mean": "mean_0", "se": "se_0", "z": "z_0"})
+    .with_columns(
+        (pl.col("mean_1") - pl.col("mean_0")).alias("mean_diff"),
+        (
+            (pl.col("se_0") ** 2 + pl.col("se_1") ** 2).sqrt()
+        ).alias("se_diff"),
+    )
+    .with_columns(
+        z_diff=pl.col("mean_diff") / pl.col("se_diff")
+    )
+)
+```
+
+```{python}
+#| include: false
+#| eval: true
+alpha = 0.05
+crit_value = abs(stats.norm.ppf(alpha / 2))
+```
+
+## Differences in means
+
+### Discussion question
+
+```{python}
+#| echo: false
+(
+    merged_stats
+    .with_columns(
+        sig_diff=pl.col("z_diff").abs() > crit_value,
+        sig_1=pl.col("z_1").abs() > crit_value,
+        sig_0=pl.col("z_0").abs() > crit_value,
+    )
+    .with_columns(sig_diff_alt = (pl.col("sig_1") & ~pl.col("sig_0")) |
+                                 (pl.col("sig_0") & ~pl.col("sig_1")))
+    .select(
+        prop_sig_diff=pl.col("sig_diff").mean(),
+        prop_sig_diff_alt=pl.col("sig_diff_alt").mean(),
+        prop_sig_diff_choice=(pl.col("sig_diff") |
+                           pl.col("sig_diff_alt")).mean()
+    )
+    .with_columns(pl.all().round(4))
+)
+```
+
+What is the issue implied by the statistics in the table above?
+What is the correct approach implied by these statistics?
+Why might researchers prefer to have a choice regarding the test to be used?
+
+```{python}
+#| include: true
+
+```
+
+```{python}
+#| include: false
+#| eval: true
+rng = np.random.default_rng(2021)
+N = 1000
+x = rng.normal(size=N)
+e = rng.normal(scale=0.2, size=N)
+y = x * 1 + e
+```
+
+```{python}
+#| include: false
+#| eval: true
+X = np.column_stack([np.ones(N), x])
+```
+
+```{python}
+#| include: false
+#| eval: true
+b = np.linalg.solve(X.T @ X, X.T @ y)
+resid = y - X @ b
+```
+
+```{python}
+#| include: false
+#| eval: true
+resvar = np.sum(resid**2) / (N - 2)
+Sigma = resvar * np.linalg.inv(X.T @ X)
+se = np.sqrt(np.diag(Sigma))
+t_vals = b / se
+p_vals = 2 * (1 - stats.t.cdf(np.abs(t_vals), df=N - 2))
+
+(
+    pl.DataFrame({'b': b, 'se': se, 't': t_vals, 'p': p_vals})
+    .style
+    .fmt_number(pl.all(), decimals=4)
+)
+```
+
+```{python}
+#| include: false
+#| eval: true
+df = pl.DataFrame({'y': y, 'x': x})
+fm = ols_fit('y ~ x', data=df)
+fm.summary().tables[1]
+```
+
+```{python}
+#| include: false
+#| eval: true
+df = pl.DataFrame({'y': y, 'x': x})
+```
+
+```{python}
+#| include: false
+#| eval: true
+def get_bs_coefs(rng, data):
+    rows = np.arange(len(data))
+    bs_rows = rng.choice(rows, size=len(rows), replace=True)
+    bs_sample = data[bs_rows]
+    fm = ols_fit('y ~ x', data=bs_sample)
+    return fm.params.to_dict()
+```
+
+```{python}
+#| include: false
+#| eval: false
+# Running 10,000 OLS regressions is slow; run interactively rather than on each render.
+rng = np.random.default_rng(2021)
+bs_coefs = pl.DataFrame([get_bs_coefs(rng, df)
+                         for _ in range(n_samples)])
+```
+
+```{python}
+#| include: false
+#| eval: false
+(
+    bs_coefs
+    .select(pl.all().std())
+    .style
+    .fmt_number(pl.all(), decimals=6)
+)
+```
+
+```{python}
+#| include: false
+#| eval: true
+rng = np.random.default_rng(2021)
+test = get_got_data(rng, N=500, T=10,
+                    Xvol=0.75, Evol=0.75, rho_X=0.5, rho_E=0.5)
+```
+
+```{python}
+#| include: false
+#| eval: true
+coefs_rows = []
+for year in sorted(test["year"].unique()):
+    group = test.filter(pl.col("year") == year)
+    fm = ols_fit('y ~ x', data=group)
+    coefs_rows.append(
+        {
+            'year': int(year),
+            '(Intercept)': fm.params['Intercept'],
+            'x': fm.params['x'],
+        }
+    )
+
+coefs_df = pl.DataFrame(coefs_rows).sort("year")
+coefs_df
+```
+
+```{python}
+#| include: false
+#| eval: true
+fm_intercept = ols_fit('Q("(Intercept)") ~ 1', data=coefs_df)
+fm_x = ols_fit('x ~ 1', data=coefs_df)
+```
+
+```{python}
+#| include: false
+#| eval: true
+ETable(
+    [fm_intercept, fm_x],
+    model_heads=["Intercept", "x"],
+    head_order="h",
+    coef_fmt="b:.4f \n (se:.4f)",
+    model_stats=["N"],
+    show_fe=False,
+)
+```
+
+```{python}
+#| include: false
+#| eval: true
+test_panel = test.to_pandas().set_index(['firm', 'year'])
+fm_fmt = FamaMacBeth.from_formula('y ~ 1 + x', data=test_panel).fit()
+fm_fmnw = FamaMacBeth.from_formula('y ~ 1 + x', data=test_panel).fit(
+    cov_type='kernel', bandwidth=1
+)
+```
+
+```{python}
+#| include: false
+#| eval: true
+ETable(
+    [fm_fmt, fm_fmnw],
+    model_heads=["FM-t", "FM-NW"],
+    head_order="h",
+    coef_fmt="b:.4f \n (se:.4f)",
+    model_stats=["N"],
+    show_fe=False,
+)
+```
+
+```{python}
+#| include: false
+#| eval: true
+test_pd = test.to_pandas()
+
+fm_ols = ols_fit('y ~ x', data=test)
+fm_white = ols_fit('y ~ x', data=test, cov_type="HC1")
+fm_cl_i = ols_fit('y ~ x', data=test,
+                  cov_type='cluster',
+                  cov_kwds={'groups': test_pd['firm']})
+fm_cl_t = ols_fit('y ~ x', data=test,
+                  cov_type='cluster', cov_kwds={'groups': test_pd['year']})
+```
+
+```{python}
+#| include: false
+#| eval: true
+test_panel = test_pd.set_index(['firm', 'year'])
+fm_cl_2 = (
+    PanelOLS.from_formula('y ~ 1 + x', data=test_panel)
+    .fit(cov_type='clustered', cluster_entity=True, cluster_time=True)
+)
+```
+
+## Dependence
+
+### Exercises
+
+1. Verify either by direct computation using the data in `coefs_df` or using a little algebra that regressing the first-stage coefficients on a constant (as we did above) yields the desired second-stage results for FM-t.
+
+```{python}
+#| include: true
+
+```
+
+```{python}
+#| echo: false
+show_typst(ETable(
+    [fm_ols, fm_white, fm_cl_i, fm_cl_t, fm_cl_2, fm_fmt],
+    model_heads=["OLS", "White", "CL-i (firm)",
+                 "CL-t (year)", "CL-2", "FM-t"],
+    head_order="h",
+    coef_fmt="b:.4f \n (se:.4f)",
+    model_stats=["N"],
+    show_fe=False,
+))
+```
+
+2. Assume that the null hypothesis is $H_0: \beta = 1$.
+Using the reported coefficients and standard errors for each of the methods listed in the table above (i.e., OLS, White, CL-i, CL-t, CL-2, FM-t), for which methods is the null hypothesis rejected?
+
+```{python}
+#| include: true
+
+```
+
+3. Based on the analysis in Gow et al. (2010), when should you use the FM-NW or Z2 approaches?
+What factors might have led researchers to use these approaches and make unsubstantiated claims about them (e.g., robustness to cross-sectional and time-series dependence)?
+
+```{python}
+#| include: true
+
+```
+
+4. If FM-i is, as Gow et al. (2010) show, so inappropriate for the situations in which it was used, why do you think it was used in those situations?
+
+```{python}
+#| include: true
+
+```
+
+5. Gow et al. (2010) refer to "the standard 1.64, 1.96, and 2.58 critical values."
+Using the `stats.norm.cdf()` function, determine the p-value associated with each of these critical values.
+Are these one-tailed or two-tailed p-values?
+The values of 1.64, 1.96, and 2.58 are approximations.
+Which function in SciPy allows you to recover the precise critical values associated with a chosen p-value?
+(*Hint:* Read the documentation for `scipy.stats.norm`.)
+Provide the critical values to four decimal places.
+
+```{python}
+#| include: true
+
+```

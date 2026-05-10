@@ -1,0 +1,391 @@
+---
+title: "Causal inference"
+subtitle: "Responses to exercise questions"
+author: Put your name here
+engine: jupyter
+jupyter: python3
+format:
+  typst: default
+---
+
+:::{.content-visible when-format="markdown"}
+## Instructions
+
+This document assumes that you have completed the instructions [here](https://github.com/iangow/era_pl_templates/blob/main/README.md).
+As mentioned there, there is no need to complete **Step 5: Get data from WRDS** for this chapter.
+
+This template extracts the visible code and exercises from [Chapter 4](https://iangow.github.io/era_pl_book/causal-inf.html) of the Python Polars edition of *Empirical Research in Accounting: Tools and Methods*.
+This template includes all the code from the book chapter.
+
+Within Positron, you can run the code below in two ways.
+
+In the first way, you can treat this file as a notebook of sorts and just run the code interactively.
+In Positron, you will see "Run Cell" and (for cells after the first cell) "Run Above".
+You might choose to go through the cells in order and click "Run Cell" on each one to see its output.
+Alternatively, you might jump ahead to a cell of interest, and click "Run Above" so that any prior code needed for your chosen cell has been executed, then "Run Cell" on the cell of interest.
+
+Note that some cells contain multiple lines and to see the output from each, you may need to execute them one at a time.
+You can run code interactively from a .qmd file in Positron without rendering the whole document.
+On macOS, place the cursor in a code cell or highlight selected lines and press `Command+Enter`; on Windows and Linux, use `Ctrl+Enter` instead.
+
+In the second way, you have Quarto "render" the document as PDF.
+In Positron, you can accomplish this by clicking the "Preview" button at the top of the edit window.
+Note that many of the cells below will not appear in the created PDF.
+This document uses Quarto chunk options to control that behaviour.
+(Quarto seems to use the words "cell" and "chunk" interchangeably.)
+In particular, chunks with `#| include: false` are executed without either the code or the output being shown in the rendered document.
+Other chunk options include `#| echo` to show or hide the code and `#| output` to hide or show the output.
+
+To answer the questions below, you are likely to play around with code interactively (the first way) until you are ready to render your answers (using the second way) and submit them to your course instructor.
+
+Note that you can type text outside code cells and these will be rendered as markdown.
+More details on using Quarto markdown are provided on the [Quarto website](https://quarto.org).
+
+:::
+
+```{python}
+#| include: false
+import numpy as np
+import polars as pl
+import plotnine_polars as p9p
+import statsmodels.formula.api as smf
+from maketables import ETable
+```
+
+```{python}
+#| include: false
+#| eval: true
+pl.Config.set_tbl_cols(200)
+pl.Config.set_tbl_width_chars(120)
+pl.Config.set_tbl_hide_dataframe_shape(True)
+pl.Config.set_tbl_hide_column_data_types(True)
+```
+
+```{python}
+#| include: false
+#| eval: true
+def get_e(rng, n=100_000):
+    return rng.standard_normal(n)
+
+def fit_ols(formula, data, subset=None):
+    data = data.to_pandas()
+    if subset is not None:
+        subset = subset.to_numpy()
+    return smf.ols(formula, data=data, subset=subset).fit()
+```
+
+```{python}
+#| include: false
+#| eval: true
+rng = np.random.default_rng(2021)
+
+industry = get_e(rng)
+intelligence = get_e(rng)
+education = 3 * intelligence + 4 * industry + get_e(rng)
+income = 10 + 5 * education + 6 * intelligence + 7 * industry + get_e(rng)
+
+df = pl.DataFrame({
+    "industry": industry,
+    "intelligence": intelligence,
+    "education": education,
+    "income": income,
+})
+
+formulas = [
+    "income ~ education",
+    "income ~ education + intelligence + industry",
+    "income ~ intelligence + industry",
+]
+
+fms = [fit_ols(f, data=df) for f in formulas]
+```
+
+```{python}
+#| include: false
+#| eval: true
+ETable(
+    fms,
+    model_stats=["N", "r2"],
+    coef_fmt="b:.3f \n (t:.3f)",
+)
+```
+
+```{python}
+#| include: false
+#| eval: true
+def get_admissions_data(n, rng):
+    test = get_e(rng, n)
+    interview = get_e(rng, n)
+    score = test + interview
+    cutoff = np.quantile(score, 0.90)
+    return pl.DataFrame({
+        "test": test,
+        "interview": interview,
+        "score": score,
+        "cutoff": cutoff,
+        "admitted": score >= cutoff,
+    })
+
+rng = np.random.default_rng(2021)
+admissions = get_admissions_data(100_000, rng)
+```
+
+```{python}
+#| include: false
+#| eval: true
+(
+    admissions
+    .ggplot()
+    .aes(x="test", y="interview", color="admitted")
+    .geom_point(alpha=0.6)
+    .labs(x="Test Score", y="Interview Score", color="Admitted")
+)
+```
+
+```{python}
+#| include: false
+#| eval: true
+specs = [
+    ("interview ~ test", None),
+    ("interview ~ test", ~admissions["admitted"]),
+    ("interview ~ test", admissions["admitted"]),
+    ("interview ~ test * admitted", None),
+]
+
+fms_collider = [
+    fit_ols(formula, admissions, subset=subset)
+    for formula, subset in specs
+]
+```
+
+```{python}
+#| include: false
+#| eval: true
+ETable(
+    fms_collider,
+    model_stats=["N", "r2"],
+    coef_fmt="b:.3f* \n (t:.3f)",
+    signif_code=[0.01, 0.05, 0.10],
+)
+```
+
+```{python}
+#| include: false
+#| eval: true
+def get_disc_df(n, rng):
+    female = rng.random(n) >= 0.5
+    disc = female
+    occ = 1 + 0 * female - 2 * disc + get_e(rng, n)
+    salary = 1 - 1 * disc + 2 * occ + get_e(rng, n)
+    return pl.DataFrame({
+        "female": female,
+        "discrimination": disc,
+        "occupation": occ,
+        "salary": salary,
+    })
+
+rng = np.random.default_rng(2023)
+disc_df = get_disc_df(100_000, rng)
+
+fms_discrim = [
+    fit_ols("salary ~ female", disc_df),
+    fit_ols("salary ~ female + occupation", disc_df),
+]
+```
+
+```{python}
+#| include: false
+#| eval: true
+ETable(
+    fms_discrim,
+    model_stats=["N", "r2"],
+    coef_fmt="b:.3f* \n (t:.3f)",
+    signif_code=[0.01, 0.05, 0.10],
+)
+```
+
+## Econometrics
+
+### Exercises
+
+1. Looking at the simulation code, what are the true values of $\beta := \left(\beta_0, \beta_1, \beta_2, \beta_3 \right)$ and $\alpha := \left(\alpha_0, \alpha_1, \alpha_2 \right)$?
+
+```{python}
+#| include: true
+
+```
+
+2. Do any of the three equations provide good estimates of $\beta$?
+
+```{python}
+#| include: true
+
+```
+
+3. Consider regression (3).
+With regard to the first of the two equations, are there any issues with regard to estimating $\beta$?
+What (if any) OLS assumption is violated?
+
+```{python}
+#| include: true
+
+```
+
+4. What happens if you substitute the second equation (for $x_{i1}$) into the first equation (for $y_i$)?
+Does this equation satisfy OLS assumptions in some way?
+
+```{python}
+#| include: true
+
+```
+
+5. Using the structural equations, what happens if we arbitrarily increase the value of `industry` ($x_{i3}$) by one unit?
+What happens to `education` ($x_{i1}$)?
+What happens to `income` ($y_i$)?
+
+```{python}
+#| include: true
+
+```
+
+6. Can you read the effect sizes from the previous question off any of the regression results?
+If so, which one(s)?
+
+```{python}
+#| include: true
+
+```
+
+## Basic causal relations
+
+### Exercises
+
+1. Imagine that, while you understand the basic idea that both tests and interviews affect admissions, you only have access to the regression results shown below.
+Which of the four models seems to best "describe the data"?
+Which of the four models seems to do worst?
+
+```{python}
+#| echo: false
+ETable(
+    fms_collider,
+    model_stats=["N", "r2"],
+    coef_fmt="b:.3f* \n (t:.3f)",
+    signif_code=[0.01, 0.05, 0.10],
+)
+```
+
+```{python}
+#| include: true
+
+```
+
+2. How are the coefficients for model (4) related to those for models (2) and (3)?
+Is this coincidence?
+Or would we always expect these relations to hold?
+
+```{python}
+#| include: true
+
+```
+
+3. As applied economists, we should be alert to the "endogeneity" of institutions.
+For example, if universities admitted students based on test and interview performance, they probably have good reasons for doing so.
+Can you think of reasons why a university might add test and interview performance into a single score?
+Does your story have implications for the relationship between test and interview performance?
+
+```{python}
+#| include: true
+
+```
+
+4. Create a fourth variable `test_x_admitted` that is the product of `test` and `admitted` and run a version of model (4) that uses this variable.
+That is, regress `interview` on `test`, `admitted`, and `test_x_admitted`.
+Do you get the same results as are shown above for model (4)?
+Why or why not?
+
+```{python}
+#| include: true
+
+```
+
+## Causal diagrams: Formalities
+
+### Exercises
+
+1. Draw the DAG for the structural model above relating intelligence, industriousness, education, and income.
+For each $x$ variable, identify the sets of conditioning variables that satisfy the back-door criterion with respect to estimating a causal effect of the variable on $y$.
+
+```{python}
+#| include: true
+
+```
+
+2. For any valid set of conditioning variables not considered in the income regressions above, run regressions to confirm that these indeed deliver good estimates of causal effects.
+
+```{python}
+#| include: true
+
+```
+
+## Discrimination and bias
+
+### Exercises
+
+1. Given the equations for `occupation` and `salary` in the simulation above, what is the direct effect of discrimination on salary?
+What is the indirect effect (i.e., the effect via `occupation`) of discrimination on salary?
+What is the total effect of discrimination on salary?
+How do each of these effects show up in the regression results shown below?
+(*Note:* Because of sampling variation, the relationships will not be exact.)
+
+```{python}
+#| echo: false
+ETable(
+    fms_discrim,
+    model_stats=["N", "r2"],
+    coef_fmt="b:.3f* \n (t:.3f)",
+    signif_code=[0.01, 0.05, 0.10],
+)
+```
+
+```{python}
+#| include: true
+
+```
+
+2. Consider the possibility of an additional unobserved variable, ability ($A$), that affects role assignment ($O$) and also affects income ($Y$) directly, as depicted in the DAG below.
+What would be the correct conditioning strategy in this case?
+Would it now make sense to condition on $O$ if the goal is to estimate the total effect of discrimination on $Y$?
+(*Hint:* In answering this question, it may help to adapt the simulation above to generate an `ability` variable and to incorporate that in the model using code like the following.)
+
+The DAG has the following edges: $F \rightarrow D \rightarrow O \rightarrow Y$, $D \rightarrow Y$, $A \rightarrow O$, $A \rightarrow Y$.
+$D$ (discrimination) and $A$ (ability) are unobserved.
+
+```{python}
+#| eval: false
+"ability": (abil := get_e(rng, n)),
+"occupation": (occ := 1 + 0 * female - 2 * disc + 2 * abil +
+                        get_e(rng, n)),
+"salary":  1 - 1 * disc + 2 * occ + 0.3 * abil + get_e(rng, n),
+```
+
+```{python}
+#| include: true
+
+```
+
+3. Consider the additional possibility of different occupational preferences between males and females, as depicted in the DAG below.
+Given this DAG, is it possible to identify a set of conditioning variables that allow you to estimate the total effect of discrimination on salary?
+What roles does $O$ have in this DAG?
+(*Hint:* Replace the `0` coefficient on `female` in the `occupation` equation used in the last question with a value of either `-1` or `+1`.
+Does the sign of this coefficient affect the sign of bias, if any?)
+Is it possible to estimate the *direct* effect of discrimination on salary?
+If so, how?
+If not, why?
+
+The DAG has the following edges: $F \rightarrow D \rightarrow O \rightarrow Y$, $D \rightarrow Y$, $A \rightarrow O$, $A \rightarrow Y$, $F \rightarrow O$.
+$D$ (discrimination) and $A$ (ability) are unobserved.
+
+```{python}
+#| include: true
+
+```

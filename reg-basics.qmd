@@ -12,7 +12,7 @@ format:
 ## Instructions
 
 This document assumes that you have completed the instructions [here](https://github.com/iangow/era_pl_templates/blob/main/README.md).
-Note that the Frisch-Waugh-Lovell exercises require the `comp` data set, which means you will need to complete **Step 5: Get data from WRDS** for those exercises.
+As mentioned there, there is no need to complete **Step 5: Get data from WRDS** for this chapter.
 
 This template extracts the visible code and exercises from [Chapter 3](https://iangow.github.io/era_pl_book/reg-basics.html) of the Python Polars edition of *Empirical Research in Accounting: Tools and Methods*.
 This template includes all the code from the book chapter.

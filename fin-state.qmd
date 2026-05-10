@@ -1,0 +1,575 @@
+---
+title: "Financial statements: A first look"
+subtitle: "Responses to exercise questions"
+author: Put your name here
+engine: jupyter
+jupyter: python3
+format:
+  typst: default
+---
+
+:::{.content-visible when-format="markdown"}
+## Instructions
+
+This document assumes that you have completed the instructions [here](https://github.com/iangow/era_pl_templates/blob/main/README.md).
+Note that this chapter uses Compustat data from a local Parquet repository, which means you will need to complete **Step 5: Get data from WRDS** before running any code.
+
+This template extracts the visible code and exercises from [Chapter 6](https://iangow.github.io/era_pl_book/fin-state.html) of the Python Polars edition of *Empirical Research in Accounting: Tools and Methods*.
+This template includes all the code from the book chapter.
+
+Within Positron, you can run the code below in two ways.
+
+In the first way, you can treat this file as a notebook of sorts and just run the code interactively.
+In Positron, you will see "Run Cell" and (for cells after the first cell) "Run Above".
+You might choose to go through the cells in order and click "Run Cell" on each one to see its output.
+Alternatively, you might jump ahead to a cell of interest, and click "Run Above" so that any prior code needed for your chosen cell has been executed, then "Run Cell" on the cell of interest.
+
+Note that some cells contain multiple lines and to see the output from each, you may need to execute them one at a time.
+You can run code interactively from a .qmd file in Positron without rendering the whole document.
+On macOS, place the cursor in a code cell or highlight selected lines and press `Command+Enter`; on Windows and Linux, use `Ctrl+Enter` instead.
+
+In the second way, you have Quarto "render" the document as PDF.
+In Positron, you can accomplish this by clicking the "Preview" button at the top of the edit window.
+Note that many of the cells below will not appear in the created PDF.
+This document uses Quarto chunk options to control that behaviour.
+(Quarto seems to use the words "cell" and "chunk" interchangeably.)
+In particular, chunks with `#| include: false` are executed without either the code or the output being shown in the rendered document.
+Other chunk options include `#| echo` to show or hide the code and `#| output` to hide or show the output.
+
+To answer the questions below, you are likely to play around with code interactively (the first way) until you are ready to render your answers (using the second way) and submit them to your course instructor.
+
+Note that you can type text outside code cells and these will be rendered as markdown.
+More details on using Quarto markdown are provided on the [Quarto website](https://quarto.org).
+
+:::
+
+```{python}
+#| include: false
+import plotnine_polars as p9p
+p9p.theme_set(p9p.theme_matplotlib())
+```
+
+```{python}
+#| include: false
+#| eval: true
+import polars as pl
+import polars.selectors as cs
+import plotnine_polars
+from era_pl import load_parquet
+```
+
+```{python}
+#| include: false
+#| eval: true
+pl.Config.set_tbl_cols(200)
+pl.Config.set_tbl_width_chars(120)
+pl.Config.set_tbl_hide_dataframe_shape(True)
+pl.Config.set_tbl_hide_column_data_types(True)
+```
+
+```{python}
+#| include: false
+#| eval: false
+from dotenv import load_dotenv
+import os
+
+load_dotenv()
+os.getenv("DATA_DIR")
+```
+
+```{python}
+#| include: false
+#| eval: false
+os.environ["DATA_DIR"] = "/path/to/your/parquet/data"
+```
+
+```{python}
+#| include: false
+#| eval: true
+company = load_parquet(table="company", schema="comp")
+```
+
+```{python}
+#| include: false
+#| eval: true
+company.show()
+```
+
+```{python}
+#| include: false
+#| eval: true
+type(company)
+```
+
+```{python}
+#| include: false
+#| eval: true
+(
+    company
+    .filter(
+        pl.col("gsubind") == "45202030",
+        pl.col("conm").str.slice(0, 1) == "A",
+    )
+    .select("gvkey", "conm", "state")
+    .limit(5)
+    .collect()
+)
+```
+
+```{python}
+#| include: false
+#| eval: true
+(
+    company
+    .filter(
+        pl.col("gsubind") == "45202030",
+        pl.col("conm").str.slice(0, 1) == "A"
+    )
+    .select("gvkey", "conm", "state")
+    .limit(5)
+    .explain()
+)
+```
+
+```{python}
+#| include: false
+#| eval: true
+df_company = (
+    company
+    .filter(
+        pl.col("gsubind") == "45202030",
+        pl.col("conm").str.slice(0, 1) == "A",
+    )
+    .select("gvkey", "conm", "state")
+    .collect()
+)
+```
+
+```{python}
+#| include: false
+#| eval: true
+type(df_company)
+```
+
+```{python}
+#| include: false
+#| eval: true
+df_company
+```
+
+```{python}
+#| include: false
+#| eval: true
+funda = load_parquet("funda", "comp")
+fundq = load_parquet("fundq", "comp")
+```
+
+```{python}
+#| include: false
+#| eval: true
+len(funda.collect_schema())
+```
+
+```{python}
+#| include: false
+#| eval: true
+funda.select(cs.by_index(range(6))).show()
+```
+
+```{python}
+#| include: false
+#| eval: true
+funda.select(cs.by_index(range(6, 12))).show()
+```
+
+```{python}
+#| include: false
+#| eval: true
+funda.select(pl.len()).collect().item()
+```
+
+```{python}
+#| include: false
+#| eval: true
+(
+    funda
+    .group_by("gvkey", "datadate", "indfmt",
+              "consol", "popsrc", "datafmt")
+    .agg(num_rows=pl.len())
+    .group_by("num_rows")
+    .agg(n=pl.len())
+    .collect()
+)
+```
+
+```{python}
+#| include: false
+#| eval: true
+(
+    funda
+    .filter(
+        pl.any_horizontal(
+            pl.col("gvkey", "datadate", "indfmt",
+                   "consol", "popsrc", "datafmt")
+            .is_null()
+        )
+    )
+    .select(pl.len())
+    .collect()
+)
+```
+
+```{python}
+#| include: false
+#| eval: true
+(
+    funda
+    .group_by("indfmt", "consol", "popsrc", "datafmt")
+    .agg(n=pl.len())
+    .sort("n", descending=True)
+    .collect()
+)
+```
+
+```{python}
+#| include: false
+#| eval: true
+funda_mod = (
+    funda
+    .filter(
+        pl.col("indfmt") == "INDL",
+        pl.col("datafmt") == "STD",
+        pl.col("consol") == "C",
+        pl.col("popsrc") == "D",
+    )
+)
+```
+
+```{python}
+#| include: false
+#| eval: true
+(
+    funda_mod
+    .group_by("gvkey", "datadate")
+    .agg(num_rows=pl.len())
+    .group_by("num_rows")
+    .agg(n=pl.len())
+    .collect()
+)
+```
+
+```{python}
+#| include: false
+#| eval: true
+company.show()
+```
+
+```{python}
+#| include: false
+#| eval: true
+(
+    company
+    .group_by("gvkey")
+    .agg(num_rows=pl.len())
+    .group_by("num_rows")
+    .agg(n=pl.len())
+    .collect()
+)
+```
+
+```{python}
+#| include: false
+#| eval: true
+(
+    company
+    .filter(pl.col("gvkey").is_null())
+    .select(pl.len())
+    .collect()
+)
+```
+
+```{python}
+#| include: false
+#| eval: true
+sample = (
+    company
+    .filter(pl.col("gvkey").is_in(["001690", "012141"]))
+    .select("conm", "gvkey")
+)
+
+sample.collect()
+```
+
+```{python}
+#| include: false
+#| eval: true
+sample.explain()
+```
+
+```{python}
+#| include: false
+#| eval: true
+ib_at = funda_mod.select("gvkey", "datadate", "ib", "at")
+
+ib_at.limit(5).collect()
+```
+
+```{python}
+#| include: false
+#| eval: true
+ib_at = (
+    funda_mod
+    .select("gvkey", "datadate", "ib", "at")
+    .join(sample, on="gvkey", how="inner")
+)
+
+ib_at.limit(5).collect()
+```
+
+```{python}
+#| include: false
+#| eval: true
+ib_at = (
+    funda_mod
+    .select("gvkey", "datadate", "ib", "at")
+    .join(sample, on="gvkey", how="inner")
+    .with_columns((pl.col("ib") / pl.col("at")).alias("roa"))
+)
+```
+
+```{python}
+#| include: false
+#| eval: true
+type(ib_at)
+```
+
+```{python}
+#| include: false
+#| eval: true
+ib_at = (funda_mod
+    .select("gvkey", "datadate", "ib", "at")
+    .join(sample, on="gvkey", how="inner")
+    .with_columns(roa=pl.col("ib") / pl.col("at"))
+    .collect()
+)
+```
+
+```{python}
+#| include: false
+#| eval: true
+type(ib_at)
+```
+
+```{python}
+#| include: false
+#| eval: true
+size_bytes = ib_at.estimated_size()
+size_kb = size_bytes / 1_000
+```
+
+```{python}
+#| include: false
+#| eval: true
+(
+    ib_at
+    .ggplot()
+    .aes(x="datadate", y="roa", color="conm", linetype="conm")
+    .geom_line()
+    .labs(color="", linetype="")
+    .add_theme(legend_position="bottom")
+)
+```
+
+## Exercises
+
+1. Suppose we didn't have access to Compustat (or an equivalent database) for the analysis above, describe a process you would use to get the data required to make the plot above comparing performance of Microsoft and Apple.
+
+```{python}
+#| include: true
+
+```
+
+2. In the following code, how do `funda_mod` and `funda_mod_alt` differ?
+(For example, where are the data for each table?)
+What does the `limit(100).collect()` at the end of this code do?
+
+```{python}
+funda_mod = (
+    funda
+    .filter(
+        pl.col("indfmt") == "INDL",
+        pl.col("datafmt") == "STD",
+        pl.col("consol") == "C",
+        pl.col("popsrc") == "D",
+        pl.col("fyear") >= 1980
+    )
+)
+
+funda_mod_alt = funda_mod.limit(100).collect()
+```
+
+```{python}
+#| include: true
+
+```
+
+3. The table `comp.company` has data on SIC (Standard Industrial Classification) codes in the field `sic`.
+In words, what is the `when/then/otherwise` logic doing in the following code?
+What happens if we omit `.otherwise(None)`?
+Why do we end up with just two rows?
+
+```{python}
+sample = (
+    company
+    .select("gvkey", "sic")
+    .with_columns(
+        pl.when(pl.col("gvkey") == "001690")
+        .then(pl.lit("Apple"))
+        .when(pl.col("gvkey") == "012141")
+        .then(pl.lit("Microsoft"))
+        .otherwise(None)
+        .alias("co_name")
+    )
+    .filter(pl.col("co_name").is_not_null())
+)
+```
+
+```{python}
+#| include: true
+
+```
+
+4. What does the data frame `another_sample` represent?
+Why do we use `.filter(pl.col("gvkey") != pl.col("gvkey_right"))`?
+
+```{python}
+another_sample = (
+    company
+    .select("gvkey", "sic")
+    .join(sample, on="sic", how="inner", suffix="_right")
+    .filter(pl.col("gvkey") != pl.col("gvkey_right"))
+    .with_columns(group=pl.col("co_name") + " peer")
+    .select("gvkey", "group")
+)
+```
+
+```{python}
+#| include: true
+
+```
+
+5. What is the following code doing?
+
+```{python}
+total_sample = pl.concat(
+    [
+        sample
+        .with_columns(group=pl.col("co_name"))
+        .select("gvkey", "group"),
+        another_sample,
+    ],
+    how="vertical",
+)
+```
+
+```{python}
+#| include: true
+
+```
+
+6. Suppose that we are interested in firms' R&D activity.
+One measure of R&D activity is *R&D Intensity*, which can be defined as "R&D expenses" (Compustat item `xrd`) scaled by "Total Assets" (Compustat item `at`).
+In `xrd_at`, what's the difference between `rd_intensity` and `rd_intensity_alt`?
+Does `.filter(pl.col("at") > 0)` seem like a reasonable filter?
+What happens if we omit it?
+
+```{python}
+xrd_at = (
+    funda_mod
+    .select("gvkey", "datadate", "fyear", "conm", "xrd", "at")
+    .filter(pl.col("at") > 0)
+    .with_columns(
+        rd_intensity=pl.col("xrd") / pl.col("at"),
+        xrd_alt=pl.col("xrd").fill_null(0),
+        rd_intensity_alt=pl.col("xrd").fill_null(0)
+            / pl.col("at"),
+    )
+    .join(total_sample, on="gvkey", how="inner"))
+```
+
+```{python}
+#| include: true
+
+```
+
+7. Looking at a sample of rows from `xrd_at_sum`, it appears that the three R&D intensity measures are always identical for Apple and Microsoft, but generally different for their peer groups.
+What explains these differences?
+Can you say that one measure is "correct"?
+Or would you say "it depends"?
+
+```{python}
+#| warning: false
+xrd_at_sum = (
+    xrd_at
+    .group_by("group", "fyear")
+    .agg(
+        rd_intensity1=(pl.col("xrd") / pl.col("at")).mean(),
+        rd_intensity2=(pl.col("xrd_alt") / pl.col("at")).mean(),
+        rd_intensity3=pl.when(pl.col("at").sum() > 0)
+            .then(pl.col("xrd").sum() / pl.col("at").sum()),
+    )
+    .collect()
+)
+
+(
+    xrd_at_sum
+    .sort(["fyear", "group"],
+          descending=[True, False])
+    .limit(8)
+)
+```
+
+```{python}
+#| include: true
+
+```
+
+8. Write code to produce the plot shown below.
+Also produce plots that use `rd_intensity1` and `rd_intensity2` as measures of R&D intensity.
+Do the plots help you think about which of the three measures makes most sense?
+(*Hint:* The data are in `xrd_at_sum`.)
+
+```{python}
+#| echo: false
+#| warning: false
+(
+    xrd_at_sum
+    .ggplot()
+    .aes(x="fyear", y="rd_intensity3", color="group", linetype="group")
+    .geom_line()
+    .labs(color="", linetype="")
+    .add_theme(legend_position="bottom")
+)
+```
+
+```{python}
+#| include: true
+
+```
+
+```{python}
+#| include: false
+#| eval: true
+import os
+from pathlib import Path
+
+def load_parquet(table, schema, data_dir=None):
+    if data_dir is None:
+        data_dir = os.getenv("DATA_DIR")
+
+    data_dir = Path(data_dir).expanduser()
+    pq_path = data_dir / schema / f"{table}.parquet"
+    return pl.scan_parquet(pq_path)
+
+company = load_parquet(table="company", schema="comp")
+```
