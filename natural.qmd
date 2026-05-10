@@ -1,0 +1,194 @@
+---
+title: "Natural experiments"
+subtitle: "Responses to exercise questions"
+author: Put your name here
+bibliography: references.bib
+engine: jupyter
+jupyter: python3
+format:
+  typst: default
+---
+
+:::{.content-visible when-format="markdown"}
+## Instructions
+
+This document assumes that you have completed the instructions [here](https://github.com/iangow/era_pl_templates/blob/main/README.md).
+Note that this chapter does not require WRDS data.
+
+This template extracts the visible code and exercises from [Chapter 17](https://iangow.github.io/era_pl_book/natural.html) of the Python Polars edition of *Empirical Research in Accounting: Tools and Methods*.
+This template includes all the code from the book chapter.
+
+Within Positron, you can run the code below in two ways.
+
+In the first way, you can treat this file as a notebook of sorts and just run the code interactively.
+In Positron, you will see "Run Cell" and (for cells after the first cell) "Run Above".
+You might choose to go through the cells in order and click "Run Cell" on each one to see its output.
+Alternatively, you might jump ahead to a cell of interest, and click "Run Above" so that any prior code needed for your chosen cell has been executed, then "Run Cell" on the cell of interest.
+
+Note that some cells contain multiple lines and to see the output from each, you may need to execute them one at a time.
+You can run code interactively from a .qmd file in Positron without rendering the whole document.
+On macOS, place the cursor in a code cell or highlight selected lines and press `Command+Enter`; on Windows and Linux, use `Ctrl+Enter` instead.
+
+In the second way, you have Quarto "render" the document as PDF.
+In Positron, you can accomplish this by clicking the "Preview" button at the top of the edit window.
+Note that many of the cells below will not appear in the created PDF.
+This document uses Quarto chunk options to control that behaviour.
+(Quarto seems to use the words "cell" and "chunk" interchangeably.)
+In particular, chunks with `#| include: false` are executed without either the code or the output being shown in the rendered document.
+Other chunk options include `#| echo` to show or hide the code and `#| output` to hide or show the output.
+
+To answer the questions below, you are likely to play around with code interactively (the first way) until you are ready to render your answers (using the second way) and submit them to your course instructor.
+
+Note that you can type text outside code cells and these will be rendered as markdown.
+More details on using Quarto markdown are provided on the [Quarto website](https://quarto.org).
+
+:::
+
+```{python}
+#| include: false
+import plotnine_polars as p9p
+
+p9p.theme_set(p9p.theme_matplotlib())
+```
+
+```{python}
+#| include: false
+#| eval: true
+import polars as pl
+import plotnine_polars
+from era_pl import load_data
+```
+
+```{python}
+#| include: false
+#| eval: true
+michels_2017 = load_data("michels_2017")
+```
+
+```{python}
+#| include: false
+#| eval: true
+top5_tbl = (
+    michels_2017
+    .group_by("eventdate")
+    .agg(n=pl.len())
+    .sort("n", descending=True)
+    .head(5)
+)
+
+top5 = int(top5_tbl.select(pl.col("n").sum()).item())
+```
+
+## Discussion questions
+
+```{python}
+#| echo: false
+(
+    michels_2017
+    .with_columns(
+        days_to_filing=(
+            pl.col("date_filed") - pl.col("eventdate")
+        ).dt.total_days()
+    )
+    .ggplot()
+    .aes(x="days_to_filing", fill="recognize")
+    .geom_histogram(binwidth=1)
+)
+```
+
+```{python}
+#| echo: false
+(
+    michels_2017
+    .with_columns(
+        days_to_period_end=(
+            pl.col("next_period_end") - pl.col("eventdate")
+        ).dt.total_days()
+    )
+    .ggplot()
+    .aes(x="days_to_period_end", fill="recognize")
+    .geom_histogram(binwidth=1)
+)
+```
+
+1. One assumption in @Michels:2017uc is that whether a natural disaster occurs before or after the balance sheet date of the next filing is random.
+Do the inherent properties of natural disasters ensure that they are random?
+Why?
+If not, how would you evaluate the randomness of natural disasters in the sample of @Michels:2017uc?
+Do the analyses above help this evaluation?
+
+```{python}
+#| include: true
+
+```
+
+2. Describe what you imagine to be the process from the occurrence of a natural disaster to reporting on that event in the subsequent filing? Do you think this process differs for recognized versus disclosed events?
+
+```{python}
+#| include: true
+
+```
+
+```{python}
+#| echo: false
+top5_tbl
+```
+
+3. From the analysis, above it appears that five natural disasters account for `{python} top5` observations.
+A simple Google search for each date and the word "disaster" reveals that these events are Hurricane Katrina (`2005-08-29`), Hurricane Ike (`2008-09-13`), Hurricane Ivan (`2004-09-16`), Hurricane Charley (`2004-08-13`), and Hurricane Wilma (`2005-10-24`).
+Is it problematic that a small number of disasters accounts for a significant portion of the sample?
+
+```{python}
+#| include: true
+
+```
+
+4. Where does @Michels:2017uc get data on natural disasters from?
+Is there anything that is problematic about this data source?
+Would it be possible to use another approach to data collection?
+What challenges would that approach face?
+
+```{python}
+#| include: true
+
+```
+
+5. A recurring question in accounting is if it matters whether information is disclosed or recognized.
+One view is that, if markets are efficient, it should not matter where the information is disclosed, so recognition should not matter relative to disclosure.
+What assumptions underlie this view?
+Are there any reasons to believe that they do or do not hold in the setting of @Michels:2017uc?
+What are the implications for the ability of @Michels:2017uc to deliver clean causal inferences?
+How might materiality criteria differ for disclosed and recognized events?
+Would differences in these criteria affect the empirical analysis of @Michels:2017uc?
+
+```{python}
+#| include: true
+
+```
+
+6. What causal inferences does @Michels:2017uc draw?
+What (if any) issues do you see with regard to these?
+
+```{python}
+#| include: true
+
+```
+
+7. Choose a paper that you have seen recently that uses empirical analysis of non-experimental data.
+(If you cannot choose such a paper, @Hopkins:2018tg provide one option.)
+Looking at the abstract of the paper, can you determine whether this paper seeks to draw causal inferences?
+
+```{python}
+#| include: true
+
+```
+
+8. Choose what you think the authors regard to be the most important causal inference they draw (or would like to draw) in your chosen paper.
+Which table or tables provide the relevant empirical analyses?
+Sketch a rough causal diagram for this causal inference using either discussion in the paper or your own background knowledge to identify important variables.
+How credible do you find the reported causal inferences to be in light of your causal diagram?
+
+```{python}
+#| include: true
+
+```

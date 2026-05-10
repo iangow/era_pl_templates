@@ -1,0 +1,151 @@
+---
+title: "Causal mechanisms"
+subtitle: "Responses to exercise questions"
+author: Put your name here
+bibliography: references.bib
+engine: jupyter
+jupyter: python3
+format:
+  typst: default
+---
+
+:::{.content-visible when-format="markdown"}
+## Instructions
+
+This document assumes that you have completed the instructions [here](https://github.com/iangow/era_pl_templates/blob/main/README.md).
+Note that this chapter does not include code and does not require WRDS data.
+
+This template extracts the exercises from [Chapter 18](https://iangow.github.io/era_pl_book/mechanisms.html) of the Python Polars edition of *Empirical Research in Accounting: Tools and Methods*.
+
+To answer the questions below, type text outside code cells.
+These will be rendered as markdown in the PDF.
+More details on using Quarto markdown are provided on the [Quarto website](https://quarto.org).
+
+:::
+
+## Discussion questions
+
+### @Li:2018tj
+
+1. Let's think about the causal mechanism in @Li:2018tj.
+
+   Suppose you are a manager involved in the process of preparing information about significant customers for your firm's 10-K.
+What do you think your main area of expertise would be?
+   If a court upheld or rejected the IDD while you are in this role, would you expect to learn about that in your role?
+   If so, how would you learn this information?
+   If not, how might the court ruling nonetheless have an effect on your decisions regarding what to include in the filing?
+
+   Assume that the relevant managers are aware of relevant court rulings on IDD, how would you expect this to affect disclosure decisions?
+   When would this effect occur?
+   How long would it last?
+
+```{python}
+#| include: true
+
+```
+
+2. Note that PepsiCo is headquartered in the state of New York.
+Reading the discussion of the *PepsiCo Inc. v. Redmond* case [@Li:2018tj, pp. 272-3], does this fact have implications for their research design.
+How might @Li:2018tj need to do things differently?
+
+```{python}
+#| include: true
+
+```
+
+3. Look at the plots in @Li:2018tj [p. 284].
+What do we expect to see here?
+Try to imagine the plots without the fitted curves and red vertical dashed line.
+How compelling is this evidence?
+Why do you think the authors included this?
+How might one depict the results reported in Table 2 on the figures in @Li:2018tj [p. 284] (pay attention to magnitudes)?
+
+```{python}
+#| include: true
+
+```
+
+4. In @sec-regs-py, we ran regressions with **two-way fixed effects** (i.e., fixed effects for `grade` and for `id`, the student identifier).
+What variables are analogous to `grade` and for `id` in regressions (3) and (4) in Table 2 of @Li:2018tj?
+Why is there no $\mathit{POST} \times \mathit{TREAT}$ coefficient reported in Table 2?
+How would you code $\mathit{POST}$ for a firm in a state that never has IDD?
+
+```{python}
+#| include: true
+
+```
+
+5. Compare Tables 2 and 3 of @Li:2018tj.
+Which regressions are most comparable across the two tables?
+What insight does Table 3 provide over Table 2?
+
+```{python}
+#| include: true
+
+```
+
+### @Burks:2018vb
+
+1. Suppose you are a senior executive at a bank. What opportunities might implementation of IBBEA by a state other than your own provide to you? How would you evaluate such opportunities?
+How long would it take to evaluate them?
+
+```{python}
+#| include: true
+
+```
+
+2. Suppose you are a senior executive at a bank in state that is about to implement IBBEA. What actions might you take if you anticipate increased interest in your state by interstate banks?
+Would the actions you take depend on how out-of-state banks enter?
+
+```{python}
+#| include: true
+
+```
+
+3. @Burks:2018vb do not explain what a "deposit cap" is.
+Rice and Strahan (2010) describe it thus: "IBBEA specifies a statewide deposit concentration limitation of 30% with respect to interstate mergers that constitute an initial entry of a bank into a state."
+What might drive differences in the deposit cap for different states? (See Table 1.)
+Would this restriction affect behaviour of all banks in an IBBEA-implementing state in the same way?
+
+```{python}
+#| include: true
+
+```
+
+4. "The results are consistent with disclosure significantly increasing upon introduction of the IBBEA (the main effect) ... we find that the restriction imposing a deposit cap of less than 30% has a significant mitigating effect on disclosure."
+How many states implemented a cap of less than 30%? (See Table 1.)
+We checked one of these states (Colorado) and it had a cap of 25%.
+In 1997, the bank with the largest market share had 17.87%.
+With these facts, what is the practical difference between 25% and 30% in this case?
+
+```{python}
+#| include: true
+
+```
+
+### @Christensen:2017uw; @Glaeser:2017vk
+
+1. @Christensen:2017uw claim to find a causal effect of requiring disclosure in SEC filings on mine safety.
+Why is it significant that the information was already available on MSHA website?
+How persuasive do you find the evidence of a causal effect to be?
+What elements do you find particularly persuasive (or problematic)?
+
+```{python}
+#| include: true
+
+```
+
+2. What is the causal mechanism through which @Christensen:2017uw argue (or conjecture) this effect occurs?
+
+```{python}
+#| include: true
+
+```
+
+3. @Glaeser:2017vk suggest that use of securities laws to enforce safety regulations is another mechanism through which the causal effect occurs?
+Does this undermine the validity of the estimate of the causal effect?
+
+```{python}
+#| include: true
+
+```

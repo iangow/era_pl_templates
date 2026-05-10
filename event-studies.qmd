@@ -1,0 +1,493 @@
+---
+title: "Event studies"
+subtitle: "Responses to exercise questions"
+author: Put your name here
+bibliography: references.bib
+engine: jupyter
+jupyter: python3
+format:
+  typst: default
+---
+
+:::{.content-visible when-format="markdown"}
+## Instructions
+
+This document assumes that you have completed the instructions [here](https://github.com/iangow/era_pl_templates/blob/main/README.md).
+Note that this chapter uses CRSP and Compustat data from a local Parquet repository, which means you will need to complete **Step 5: Get data from WRDS** before running any code.
+
+This template extracts the visible code and exercises from [Chapter 13](https://iangow.github.io/era_pl_book/event-studies.html) of the Python Polars edition of *Empirical Research in Accounting: Tools and Methods*.
+This template includes all the code from the book chapter.
+
+Within Positron, you can run the code below in two ways.
+
+In the first way, you can treat this file as a notebook of sorts and just run the code interactively.
+In Positron, you will see "Run Cell" and (for cells after the first cell) "Run Above".
+You might choose to go through the cells in order and click "Run Cell" on each one to see its output.
+Alternatively, you might jump ahead to a cell of interest, and click "Run Above" so that any prior code needed for your chosen cell has been executed, then "Run Cell" on the cell of interest.
+
+Note that some cells contain multiple lines and to see the output from each, you may need to execute them one at a time.
+You can run code interactively from a .qmd file in Positron without rendering the whole document.
+On macOS, place the cursor in a code cell or highlight selected lines and press `Command+Enter`; on Windows and Linux, use `Ctrl+Enter` instead.
+
+In the second way, you have Quarto "render" the document as PDF.
+In Positron, you can accomplish this by clicking the "Preview" button at the top of the edit window.
+Note that many of the cells below will not appear in the created PDF.
+This document uses Quarto chunk options to control that behaviour.
+(Quarto seems to use the words "cell" and "chunk" interchangeably.)
+In particular, chunks with `#| include: false` are executed without either the code or the output being shown in the rendered document.
+Other chunk options include `#| echo` to show or hide the code and `#| output` to hide or show the output.
+
+To answer the questions below, you are likely to play around with code interactively (the first way) until you are ready to render your answers (using the second way) and submit them to your course instructor.
+
+Note that you can type text outside code cells and these will be rendered as markdown.
+More details on using Quarto markdown are provided on the [Quarto website](https://quarto.org).
+
+:::
+
+```{python}
+#| include: false
+import plotnine_polars as p9
+p9.theme_set(p9.theme_matplotlib())
+```
+
+```{python}
+#| include: false
+#| eval: true
+import polars as pl
+import statsmodels.formula.api as smf
+from scipy.stats import norm
+from maketables import ETable
+from era_pl import (load_data, load_parquet,
+                    get_trading_dates, get_event_dates)
+import plotnine_polars
+from plotnine_polars import aes
+```
+
+```{python}
+#| include: false
+#| eval: true
+stocknames = load_parquet("stocknames", "crsp")
+dsf = load_parquet("dsf", "crsp")
+dsi = load_parquet("dsi", "crsp")
+idx_daily = load_parquet("idx_daily", "comp")
+```
+
+```{python}
+#| include: false
+#| eval: true
+apple_permno = (
+    stocknames
+    .filter(pl.col("ticker") == "AAPL")
+    .select("permno")
+    .unique()
+    .collect()
+    .item()
+)
+
+apple_rets = (
+    dsf
+    .join(dsi.select("date", "vwretd"),
+          on="date", how="inner")
+    .filter(
+        pl.col("permno") == apple_permno,
+        pl.col("date") >= pl.date(2005, 1, 1),
+    )
+    .with_columns(ret_mkt=pl.col("ret") - pl.col("vwretd"))
+    .select("permno", "date", "ret", "ret_mkt", "vol")
+)
+
+apple_events = (
+    load_data("apple_events")
+    .lazy()
+    .with_columns(permno=pl.lit(apple_permno))
+)
+
+trading_dates = get_trading_dates(dsi)
+
+apple_event_dates = get_event_dates(
+    data=apple_events,
+    permno="permno",
+    event_date="event_date",
+    end_event_date="end_event_date",
+    win_start=-1,
+    win_end=1,
+)
+
+event_calendar = (
+    trading_dates
+    .join(
+        apple_event_dates.select("permno", "start_td", "end_td"),
+        how="cross",
+    )
+    .filter(pl.col("td").is_between(pl.col("start_td"), pl.col("end_td")))
+    .select("permno", "date")
+    .unique()
+    .with_columns(is_event=True)
+)
+
+apple_data = (
+    apple_rets
+    .join(event_calendar,
+          on=["permno", "date"], how="left")
+    .with_columns(pl.col("is_event").fill_null(False))
+    .select("permno", "date", "ret", "ret_mkt", "vol", "is_event")
+)
+
+plot_df = (
+    apple_data
+    .sort("date")
+    .with_columns(
+        cumret=(1 + pl.col("ret").fill_null(0)).cum_prod(),
+        switch=(
+            pl.col("is_event") != pl.col("is_event").shift(-1)
+        ).fill_null(False),
+    )
+    .with_columns(
+        y_non_event=pl.when((~pl.col("is_event")) | pl.col("switch"))
+                    .then(pl.col("cumret")),
+        y_event=pl.when(pl.col("is_event") | pl.col("switch"))
+                .then(pl.col("cumret")),
+    )
+    .collect()
+)
+
+def ols_fit(formula, data):
+    data = data.with_columns(pl.col("is_event").cast(pl.Int32))
+    return smf.ols(formula, data=data.to_pandas()).fit()
+
+fms = [ols_fit(formula, plot_df)
+       for formula in
+            ["ret_mkt ~ is_event",
+             "I(abs(ret)) ~ is_event",
+             "I(vol / vol.mean()) ~ is_event"]
+    ]
+
+apple_rets_td = apple_rets.join(trading_dates, on="date", how="inner")
+
+rets_apple = (
+    apple_event_dates
+    .join(apple_rets_td,
+          on="permno", how="inner")
+    .filter(pl.col("td").is_between(pl.col("start_td"),
+                                    pl.col("end_td")))
+    .group_by("event_date")
+    .agg(pl.col("ret", "ret_mkt").sum())
+    .sort("event_date")
+    .collect()
+)
+```
+
+```{python}
+#| include: false
+#| eval: true
+can_rets = (
+    idx_daily
+    .filter(pl.col("gvkeyx") == "000193")
+    .sort("datadate")
+    .with_columns(
+        prev_prccd=pl.col("prccd").shift(1),
+    )
+    .with_columns(
+        ret_can=pl.col("prccd")
+                .era.div_if_pos("prev_prccd") - 1
+    )
+    .filter(
+        pl.col("datadate").is_between(
+            pl.date(2000, 1, 1),
+            pl.date(2002, 12, 31),
+        )
+    )
+    .select(pl.col("datadate").alias("date"),
+            "ret_can")
+)
+
+reg_data = (
+    dsi
+    .select("date", "vwretd", "ewretd")
+    .join(can_rets, on="date", how="inner")
+    .filter(pl.col("date") < pl.date(2001, 12, 28))
+    .sort("date", descending=True)
+    .limit(100)
+    .collect()
+)
+
+fm_vw = smf.ols("vwretd ~ ret_can", data=reg_data.to_pandas()).fit()
+fm_ew = smf.ols("ewretd ~ ret_can", data=reg_data.to_pandas()).fit()
+
+dsi_merged = (
+    dsi
+    .select("date", "vwretd", "ewretd")
+    .join(can_rets, on="date", how="inner")
+    .collect()
+    .pipe(
+        lambda df: df.with_columns(
+            pl.Series("fit_vw", fm_vw.predict(df.to_pandas())),
+            pl.Series("fit_ew", fm_ew.predict(df.to_pandas())),
+        )
+    )
+    .with_columns(
+        abret_vw=pl.col("vwretd") - pl.col("fit_vw"),
+        abret_ew=pl.col("ewretd") - pl.col("fit_ew"),
+    )
+    .drop("ret_can", "fit_vw", "fit_ew")
+)
+
+sd_ret = (
+    dsi
+    .filter(pl.col("date") < pl.date(2001, 12, 28))
+    .sort("date", descending=True)
+    .limit(100)
+    .select(pl.col("vwretd").std())
+    .collect()
+    .item()
+)
+
+zhang_2007_windows = load_data("zhang_2007_windows")
+
+zhang_2007_rets = (
+    zhang_2007_windows
+    .join(
+        dsi_merged,
+        how="cross",
+    )
+    .filter(
+        pl.col("date").is_between(pl.col("beg_date"),
+                                  pl.col("end_date"))
+    )
+    .group_by("event")
+    .agg(
+        pl.col("date").count().alias("n_days"),
+        pl.col("vwretd", "ewretd",
+               "abret_vw", "abret_ew").sum(),
+    )
+    .with_columns(sqrt_n=pl.col("n_days").sqrt())
+    .with_columns(
+        vw_t=pl.col("vwretd") /
+                (pl.col("sqrt_n") * sd_ret),
+        ew_t=pl.col("ewretd") /
+                (pl.col("sqrt_n") * sd_ret),
+        abret_vw_t=pl.col("abret_vw") /
+                        (pl.col("sqrt_n") * fm_vw.resid.std()),
+        abret_ew_t=pl.col("abret_ew") /
+                        (pl.col("sqrt_n") * fm_ew.resid.std()),
+    )
+)
+
+zhang_2007_res = (
+    zhang_2007_rets
+    .filter(pl.col("vw_t").abs() > abs(norm.ppf(0.05)))
+    .select("n_days", "vwretd", "ewretd", "abret_vw", "abret_ew")
+    .sum()
+    .with_columns(sqrt_n=pl.col("n_days").sqrt())
+    .with_columns(
+        vw_t=pl.col("vwretd") /
+                (pl.col("sqrt_n") * sd_ret),
+        ew_t=pl.col("ewretd") /
+                (pl.col("sqrt_n") * sd_ret),
+        abret_vw_t=pl.col("abret_vw") /
+                (pl.col("sqrt_n") * fm_vw.resid.std()),
+        abret_ew_t=pl.col("abret_ew") /
+                (pl.col("sqrt_n") * fm_ew.resid.std())
+    )
+)
+
+vwret_pct = f"{zhang_2007_res['vwretd'].item() * 100:.2f}"
+vw_t = f"{zhang_2007_res['vw_t'].item():.2f}"
+abret_vw_pct = f"{zhang_2007_res['abret_vw'].item() * 100:.2f}"
+abret_vw_t = f"{zhang_2007_res['abret_vw_t'].item():.2f}"
+```
+
+## Overview
+
+### Discussion questions
+
+1. Does @Ball:1968ub meet the @MacKinlay:1997ua definition of an event study?
+What features are present and what, if any, are missing?
+
+```{python}
+#| include: true
+
+```
+
+2. Does @Beaver:1968vf meet the @MacKinlay:1997ua definition of an event study?
+What features are present and what, if any, are missing?
+
+```{python}
+#| include: true
+
+```
+
+## The modern event study
+
+```{python}
+#| echo: false
+#| label: fig-apple-rets
+#| fig-height: 3
+#| warning: false
+#| fig-cap: Apple returns
+#| fig-alt: "Plot of cumulative returns for Apple stock from 2005 to early 2020. While periods involving Apple media events are distinguished by colour from other periods, these are not visible in the plot at this scale. Cumulative returns are generally positive and reach an index value of 200 at the end of this period."
+(
+    plot_df
+    .ggplot()
+    .aes(x="date", y="cumret")
+    .geom_line()
+    .geom_ribbon(aes(ymax="y_non_event", ymin=0, fill='"Non-event"'))
+    .geom_ribbon(aes(ymax="y_event", ymin=0, fill='"Event"'))
+    .add_theme(legend_position="bottom")
+)
+```
+
+### Exercises
+
+1. How would you expect the plot to change if we used `cumret = (pl.col("ret").fill_null(0) + 1).log().cum_sum().exp()` in place of `cumret = (1 + pl.col("ret").fill_null(0)).cum_prod()` in creating the plot above?
+Is there any reason to prefer one calculation over the other?
+
+```{python}
+#| include: true
+
+```
+
+2. Do we get different results in this case if we use `cumret = (1 + pl.col("ret")).cum_prod()` (i.e., remove the `fill_null(0)` step)?
+If so, why?
+If not, would we always expect this to be the case (e.g., for stocks other than Apple)?
+
+```{python}
+#| include: true
+
+```
+
+## Event studies and regulation
+
+### Discussion questions
+
+#### @Zhang:2007tv
+
+1. What are the relative merits of raw and abnormal returns in evaluating the effect of SOX on market values of US firms?
+What do you observe in the raw returns for Canada, Europe, and Asia for the four events that are the focus of Panel B of Table 2 of @Zhang:2007tv?
+Does this raise concerns about the results of @Zhang:2007tv?
+
+```{python}
+#| include: true
+
+```
+
+2. Describe the process for constructing the test statistics reported in Panel D of Table 2.
+How compelling are these results?
+Do you agree with the assessment by @Leuz:2007tj [p. 150] that @Zhang:2007tv is "very careful in assessing the significance of the event returns"?
+
+```{python}
+#| include: true
+
+```
+
+3. Describe in detail how you might conduct statistical inference using **randomization inference** in the setting of @Zhang:2007tv (see @sec-fhk-inference for more on this approach)?
+What are the challenges faced and design choices you need to make in applying this approach?
+Does your approach differ from the bootstrapping approach used in @Zhang:2007tv?
+
+```{python}
+#| include: true
+
+```
+
+4. @Leuz:2007tj identifies studies other than @Zhang:2007tv that find evidence that SOX was beneficial to firms?
+How can these sets of results be reconciled?
+What steps would you look to undertake to evaluate the conflicting claims of the two papers?
+
+```{python}
+#| include: true
+
+```
+
+#### @Khan:2017wa
+
+1. What is the research question examined in @Khan:2017wa? (*Hint:* Read the title.)
+
+```{python}
+#| include: true
+
+```
+
+2. @Khan:2017wa [p. 210] argue that "an ideal research design to evaluate the benefits of accounting standards is to compare a voluntary disclosure regime, in which firms disclose information required by a particular standard, with a mandatory disclosure regime, in which firms are required to disclose that same information."
+Do you agree that this research design would be "ideal" to address the question? What is the implied treatment in this ideal design?
+
+```{python}
+#| include: true
+
+```
+
+3. Compare the Apple event study above with @Khan:2017wa.
+What are the relative strengths and weaknesses of the two studies?
+Do you think an event-study approach is appropriate for addressing the question "do Apple products add value?"
+Do you think an event-study approach is appropriate for addressing the research question of @Khan:2017wa?
+Why or why not?
+
+```{python}
+#| include: true
+
+```
+
+4. Do you think that standard-setters would view "reduction in estimation risk" as a goal of accounting standards?
+Evaluate the quality of the arguments linking improved standards to reduced estimation risk.
+The null hypothesis for Panel A is that the CAR of affected firms is not different from CAR of unaffected firms.
+How appropriate is it to report "most negative" and "most positive" CAR differences only?
+(*Hint:* If the null hypothesis is true, how many standards might you expect to have "statistically significant" coefficients?)
+
+```{python}
+#| include: true
+
+```
+
+5. Interpret the results of Table 5, Panel B of @Khan:2017wa.
+
+```{python}
+#| include: true
+
+```
+
+#### @Larcker:2011vq "LOT"
+
+1. How do LOT and FFJR differ in terms of the role of market efficiency in their research designs?
+
+```{python}
+#| include: true
+
+```
+
+2. Consider Table 1 of LOT.
+What are the differences between the event study design in LOT from that in FFJR?
+What are implications of these differences?
+
+```{python}
+#| include: true
+
+```
+
+3. How do you think Table 1 was developed?
+Do you see potential problems in the process underlying Table 1?
+Can you suggest alternative approaches to developing Table 1?
+
+```{python}
+#| include: true
+
+```
+
+4. Consider proxy access, as some of the core results of the paper relate to proxy access.
+If you were a shareholder in a company, what concerns might you have about proxy access?
+Why might this decrease the value of your shares?
+Think about this is concrete terms; be specific about the kinds of circumstances where value will be reduced.
+How well do the variables *NLargeBlock* and *NSmallCoalitions* measure the exposure of firms to the issues you identified in the previous question?
+(As part of this, consider the timing of variable measurement relative to the timing of possible value-reducing outcomes.)
+
+```{python}
+#| include: true
+
+```
+
+5. LOT makes use of a number of **Monte Carlo simulations**.
+How do these compare with the bootstrapping analyses conducted by @Zhang:2007tv?
+Are the simulations addressing the same underlying issues as @Zhang:2007tv bootstrapping approach?
+
+```{python}
+#| include: true
+
+```

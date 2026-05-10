@@ -47,8 +47,8 @@ More details on using Quarto markdown are provided on the [Quarto website](https
 
 ```{python}
 #| include: false
-import plotnine_polars as p9p
-p9p.theme_set(p9p.theme_matplotlib())
+import plotnine_polars as p9
+p9.theme_set(p9.theme_matplotlib())
 ```
 
 ```{python}

@@ -1,0 +1,462 @@
+---
+title: "Instrumental variables"
+subtitle: "Responses to exercise questions"
+author: Put your name here
+bibliography: references.bib
+engine: jupyter
+jupyter: python3
+format:
+  typst: default
+---
+
+:::{.content-visible when-format="markdown"}
+## Instructions
+
+This document assumes that you have completed the instructions [here](https://github.com/iangow/era_pl_templates/blob/main/README.md).
+Note that this chapter does not require WRDS data.
+
+This template extracts the exercises from [Chapter 20](https://iangow.github.io/era_pl_book/iv.html) of the Python Polars edition of *Empirical Research in Accounting: Tools and Methods*.
+This template includes all the code from the book chapter.
+
+Within Positron, you can run the code below in two ways.
+
+In the first way, you can treat this file as a notebook of sorts and just run the code interactively.
+In Positron, you will see "Run Cell" and (for cells after the first cell) "Run Above".
+You might choose to go through the cells in order and click "Run Cell" on each one to see its output.
+Alternatively, you might jump ahead to a cell of interest, and click "Run Above" so that any prior code needed for your chosen cell has been executed, then "Run Cell" on the cell of interest.
+
+Note that some cells contain multiple lines and to see the output from each, you may need to execute them one at a time.
+You can run code interactively from a .qmd file in Positron without rendering the whole document.
+On macOS, place the cursor in a code cell or highlight selected lines and press `Command+Enter`; on Windows and Linux, use `Ctrl+Enter` instead.
+
+In the second way, you have Quarto "render" the document as PDF.
+In Positron, you can accomplish this by clicking the "Preview" button at the top of the edit window.
+Note that many of the cells below will not appear in the created PDF.
+This document uses Quarto chunk options to control that behaviour.
+(Quarto seems to use the words "cell" and "chunk" interchangeably.)
+In particular, chunks with `#| include: false` are executed without either the code or the output being shown in the rendered document.
+Other chunk options include `#| echo` to show or hide the code and `#| output` to hide or show the output.
+
+To answer the questions below, you are likely to play around with code interactively (the first way) until you are ready to render your answers (using the second way) and submit them to your course instructor.
+
+Note that you can type text outside code cells and these will be rendered as markdown.
+More details on using Quarto markdown are provided on the [Quarto website](https://quarto.org).
+
+:::
+
+```{python}
+#| include: false
+#| eval: true
+import numpy as np
+import polars as pl
+import pyfixest as pf
+import statsmodels.api as sm
+import statsmodels.formula.api as smf
+
+from scipy.stats import chi2
+from statsmodels.sandbox.regression.gmm import IV2SLS
+```
+
+```{python}
+#| include: false
+#| eval: true
+# Parameters for generating simulated data
+n = 1000
+beta = 0
+corr = 0.2
+Sigma = np.array([[1, corr], [corr, 1]], dtype=float)
+
+# Used to generate instruments
+sd_eta = 0.3
+
+# Used for evaluation of IV
+p_cutoff = 0.05
+F_threshold = 30
+
+# Number of simulations (used later)
+k = 1000
+
+rng = np.random.default_rng(2019)
+```
+
+```{python}
+#| include: false
+#| eval: true
+def generate_data(seed: int | None = None) -> pl.DataFrame:
+    local_rng = np.random.default_rng(seed)
+    x_e = local_rng.multivariate_normal(mean=[0, 0], cov=Sigma, size=n)
+    return pl.DataFrame({
+        "X": x_e[:, 0],
+        "e": x_e[:, 1],
+    }).with_columns(
+        y=pl.col("X") * beta + pl.col("e")
+    )
+
+df = generate_data(seed=2019)
+```
+
+```{python}
+#| include: false
+#| eval: true
+def generate_ivs(
+    df: pl.DataFrame,
+    sd_eta: float = 0.3,
+    seed: int | None = None,
+) -> pl.DataFrame:
+    local_rng = np.random.default_rng(seed)
+    n_rows = df.height
+    return df.with_columns(
+        z_1=pl.col("X") + pl.Series(
+            local_rng.normal(loc=0.0, scale=sd_eta, size=n_rows)
+        ),
+        z_2=pl.Series(
+            local_rng.normal(loc=0.0, scale=sd_eta, size=n_rows)
+        ),
+        z_3=pl.Series(
+            local_rng.normal(loc=0.0, scale=sd_eta, size=n_rows)
+        ),
+    )
+```
+
+```{python}
+#| include: false
+#| eval: true
+df_ivs = generate_ivs(df, sd_eta=sd_eta, seed=2019)
+```
+
+```{python}
+#| include: false
+#| eval: true
+fms = {
+    "OLS": pf.feols("y ~ X", data=df),
+    "IV": pf.feols("y ~ 1 | X ~ z_1 + z_2 + z_3", data=df_ivs),
+}
+```
+
+```{python}
+#| include: false
+#| eval: true
+iv = fms["IV"]
+
+iv_sargan = getattr(iv, "iv_sargan", {})
+sargan_stat = float(iv_sargan.get("stat", np.nan))
+sargan_p = float(iv_sargan.get("p", np.nan))
+
+first_stage = smf.ols(
+    "X ~ z_1 + z_2 + z_3",
+    data=df_ivs.to_pandas(),
+).fit()
+f_stat = first_stage.fvalue
+f_p = first_stage.f_pvalue
+```
+
+```{python}
+#| include: false
+#| eval: false
+# Simulation takes time; no exercises depend on these results.
+def run_simulation(run: int) -> dict:
+    local_rng = np.random.default_rng(run)
+
+    x_e = local_rng.multivariate_normal(mean=[0, 0], cov=Sigma, size=n)
+    x = x_e[:, 0]
+    e = x_e[:, 1]
+    y = x * beta + e
+
+    z_1 = x + local_rng.normal(loc=0.0, scale=sd_eta, size=n)
+    z_2 = local_rng.normal(loc=0.0, scale=sd_eta, size=n)
+    z_3 = local_rng.normal(loc=0.0, scale=sd_eta, size=n)
+
+    X = sm.add_constant(x, has_constant="add")
+    Z = sm.add_constant(
+        np.column_stack([z_1, z_2, z_3]),
+        has_constant="add",
+    )
+
+    iv_fit = IV2SLS(y, X, Z).fit()
+
+    sargan_aux = sm.OLS(iv_fit.resid, Z).fit()
+    sargan_df = Z.shape[1] - X.shape[1]
+    sim_sargan_stat = n * sargan_aux.rsquared
+
+    fs_fit = sm.OLS(x, Z).fit()
+    fs_test = fs_fit.f_test("x1 = x2 = x3 = 0")
+
+    return {
+        "run": run,
+        "coeff": iv_fit.params[1],
+        "p_value": iv_fit.pvalues[1],
+        "Sargan_stat": sim_sargan_stat,
+        "Sargan_p": chi2.sf(sim_sargan_stat, df=sargan_df),
+        "F_stat": np.asarray(fs_test.fvalue).item(),
+        "F_p": np.asarray(fs_test.pvalue).item(),
+    }
+```
+
+```{python}
+#| include: false
+#| eval: false
+sim_res = pl.DataFrame([run_simulation(run) for run in range(k)])
+
+coeff = sim_res["coeff"].mean()
+sig_percent = (sim_res["p_value"] < p_cutoff).mean() * 100
+f_stat_percent = (sim_res["F_stat"] > F_threshold).mean() * 100
+reject_endogeneity = (sim_res["Sargan_p"] >= p_cutoff).mean() * 100
+```
+
+## Discussion questions and exercises
+
+1. In the 1960s and early 1970s, American men were at risk of being drafted for military service.
+Each year from 1970 to 1972, draft eligibility was prioritized based on the results of a lottery over birthdays.
+A random number was assigned to the birthdays of 19-year-olds.
+Those whose birthday was associated with a random number below the cut-off were draft-eligible; the other 19-year-olds were not draft-eligible.
+@Angrist:2008vk point out that, "in practice, many draft-eligible men were still exempted from service for health or other reasons, while many men who were draft-exempt nevertheless volunteered for service."
+Using an indicator for draft lottery number being below the cut-off as an instrumental variable, @Angrist:1990dk finds that those who served in Vietnam earned significantly less than their peers even in 1981.
+Try to draw the causal diagram for this analysis and apply the three questions outlined above to this setting.
+What assumptions are needed for the answer to each question to be "yes"?
+How might these assumptions be violated?
+
+```{python}
+#| include: true
+
+```
+
+2. @Ahern:2012kca study a rule requiring firms in Norway to appoint female directors and "use the pre-quota cross-sectional variation in female board representation to instrument for exogenous changes to corporate boards following the quota."
+What is the significance of the discussion suggesting that "the quota was implemented without the consent of business leaders" [-@Ahern:2012kca, p. 145]?
+What about the discussion [-@Ahern:2012kca, p. 155] suggesting that the rule was not anticipated?
+
+```{python}
+#| include: true
+
+```
+
+3. You and a co-author are interested in studying the effect of independent directors on financial reporting quality.
+You conjecture that independent directors demand better financial reporting, as they are less likely to benefit from obfuscation of performance than non-independent directors, who are often employees of the firm.
+However, you are concerned that causation may run in the opposite direction; firms with better financial reporting quality may have more independent directors on their boards.
+Provide some arguments for the existence of reverse causation.
+How persuasive do you find these arguments?
+
+```{python}
+#| include: true
+
+```
+
+4. In response to a request by the SEC in February 2002, the major US exchanges (NYSE and Nasdaq) proposed changes to listing standards that would require firms to have a majority of independent directors.
+In 2003, the SEC approved these changes and required that firms comply by the earlier of (i) the first annual shareholder meeting after January 15, 2004 and (ii) October 31, 2004.
+Your co-author argues that this change was "exogenous", as it was not driven by the decisions of individual firms, and this fact allows you to estimate a causal effect.
+
+   Does "exogeneity" as used by your co-author mean the same thing as exogeneity for the purposes of econometric analysis?
+   Does the former notion imply the latter?
+   Think of "examples" to support your arguments (an example could be a simple model, a numerical argument, or a verbal description of a real or imagined scenario).
+
+   More specifically, your co-author argues that the change in the number of independent directors imposed on the firm by the new rules is exogenous and thus could be used as an instrument for your study.
+   @Armstrong:2014aa examine the changes in listing standards above and use "the minimum required percentage change in independent directors, `Min % change ID`, as an instrument" in studying the effect of independent directors on firm transparency.
+   What are the parallels between the setting of @Armstrong:2014aa and that of @Ahern:2012kca?
+   Do the two papers use the same basic approach, or are there important differences between their approaches?
+
+```{python}
+#| include: true
+
+```
+
+5. The objective of @Cohen:2013uc "is to investigate how governance regulations in SOX and the exchanges are associated with chief executive officers' incentives and risk-taking behavior."
+What is the treatment of interest in @Cohen:2013uc?
+What are the outcomes of interest?
+@Cohen:2013uc state that "our dependent variables, namely, investment and executive incentive compensation, are likely to be determined jointly.
+As such, the parameter estimates from ordinary least squares (OLS) are likely to be biased.
+Our empirical analyses address the issue by using simultaneous equations models."
+What "exclusion restrictions" are implied by Panel A of Table 4?
+What does the implied causal diagram look like?
+How persuasive do you find the approach of @Cohen:2013uc to be?
+
+```{python}
+#| include: true
+
+```
+
+```{python}
+#| lst-label: lst-sneetches
+#| lst-cap: Code to generate the Sneetch world
+# Set parameters
+n = 10_000
+max_d = 10
+rng = np.random.default_rng(1)
+z = rng.lognormal(mean=0.0, sigma=1.0, size=n)
+a = 1
+gamma = 3
+b = gamma * z
+alpha = 100
+beta = 10
+sd_epsilon = 5
+
+def d_opt_fun(
+    a: float,
+    b: np.ndarray,
+    min_d: int = 0,
+    max_d: int = max_d,
+) -> np.ndarray:
+    opts = np.arange(min_d, max_d + 1)
+    vals = -a * (opts ** 2) + np.asarray(b)[:, None] * opts
+    return opts[np.argmax(vals, axis=1)]
+
+# Used to calculate firm value, etc., at t = 0, 1
+epsilon_0 = rng.normal(loc=0.0, scale=sd_epsilon, size=n)
+min_d = 3
+epsilon_1 = rng.normal(loc=0.0, scale=sd_epsilon, size=n)
+
+df_1 = (
+    pl.DataFrame({
+        "a": np.repeat(a, n),
+        "b": b,
+        "epsilon_0": epsilon_0,
+    })
+    .with_columns(
+        V_0=alpha + beta * pl.col("b") + pl.col("epsilon_0"),
+        d_0=pl.Series(d_opt_fun(a, b)),
+        epsilon_1=pl.Series(epsilon_1),
+        d_1=pl.Series(d_opt_fun(a, b, min_d=min_d)),
+    )
+    .with_columns(
+        V_1=alpha + beta * pl.col("b") + pl.col("epsilon_1"),
+    )
+)
+```
+
+6. Suppose the existence of a world of Sneetches.^[The interested reader can learn more about Sneetches in Dr Seuss's *The Sneetches and Other Stories*, available on (for example) Amazon: <https://www.amazon.com/dp/0394800893>.]
+There are two kinds of Sneetches:
+
+   | *Now, the Star-Belly Sneetches*
+   | *Had bellies with stars.*
+   | *The Plain-Belly Sneetches*
+   | *Had none upon thars.*
+   |                   ---Dr. Seuss
+
+   In the Sneetch world, there are 10,000 (`n`) firms, each with a board of 10 (`max_d`) directors.
+   The number of Plain-Belly directors $d_i$ is set by firm $i$ as
+   $$d_i = {\underset {x\in [\underline{d}, \overline{d}]}{\operatorname {arg\,max} }}\, v_i(x) = -a_i x^2 + b_i x $$
+   where $a_i = 1$ and $b = \gamma z_i$, $\gamma = 3$ and $z_i$ is log-normally distributed with default parameters of $\mu=0$ and $\sigma=1$.
+   We start with $\underline{d} = 0$ and $\overline{d} = 10$.
+   The remaining $10 - d_i$ directors would be Star-Belly Sneetches.
+
+   The value of firm $i$ at time $t=0$ is given by the equation:
+   $$ V_{i0} = \alpha + \beta \times b_i + \epsilon_0 $$
+   where $\alpha = 100$, $\beta = 10$ and $\epsilon \sim N(0, \sigma_{\epsilon})$, where $\sigma_{\epsilon} = 5$.
+\newline
+\newline
+   The Sneetches then pass new legislation requiring every board to have at least three Plain-Belly directors at time $t=1$.
+   The value of firm $i$ at time $t=1$ is given by the equation:
+   $$ V_{i1} = \alpha + \beta \times b_i + \epsilon_{i1} $$
+   The code in @lst-sneetches starts by setting the parameters discussed above and generating `z`, which is then used to construct $b_i = \gamma z_i$.
+   The code then generates the value of each of the 10,000 firms at time $t=0$ (`V_0`), as well as the number of Plain-Belly directors chosen by each firm at $t=0$ to maximize $v_i(\cdot)$ (`d_0`).
+   These values are stored in `df_1`.
+
+   The code in @lst-sneetches then sets `min_d` to reflect the requirement of the legislation coming into force for $t = 1$.
+   The code then generates the value of each firm at $t=1$ (`V_1`) and the number of Plain-Belly directors chosen by each firm at $t=1$ (`d_1`), which involves maximization of $v_i(\cdot)$ subject to the new constraint that $d_i \geq 3$.
+   We assume that neither $a_i$ nor $b_i$ is observable to the researcher.
+
+   a. Expressed in terms of $a_i$ and $b_i$, what value of $x$ maximizes $v_i(x)$ when there is no constraint (as is true at $t = 0$)?
+
+```{python}
+#| include: true
+
+```
+
+   b. What issue do we have in using this maximum to select the number of Plain-Belly directors on a board?
+
+```{python}
+#| include: true
+
+```
+
+   c. What does `d_opt_fun()` in @lst-sneetches do to handle this issue?
+
+```{python}
+#| include: true
+
+```
+
+   d. How does `d_opt_fun()` turn the constrained optimization problem into something we can solve directly with NumPy?
+   (*Hint:* Focus on the roles of `opts`, `vals`, and `np.argmax()`.)
+
+```{python}
+#| include: true
+
+```
+
+   e. Using OLS and data in `df_1` after running the code in @lst-sneetches, estimate the relationship between firm value at time $t=1$ ($V_1$) and the number of Plain-Belly directors on the board ($d_1$).
+
+```{python}
+#| include: true
+
+```
+
+   f. Using the data in `df_1`, estimate an IV regression using the strategy of @Ahern:2012kca.
+
+```{python}
+#| include: true
+
+```
+
+   g. Using the data in `df_1`, estimate an IV regression using the strategy of @Armstrong:2014aa (note that rather than `Min % change X`, you might use something like `Min change X`, as the denominator is 10 for all observations).
+   (*Hint:* The `np.minimum()` function in Python gives the point-wise minimum of two vectors of values (e.g., `np.minimum(x, y)` returns the lower of `x` and `y` for each pair.).)
+
+```{python}
+#| include: true
+
+```
+
+   h. What is the true causal effect of Plain-Belly directors on firm value?
+   Do the strategies of either @Ahern:2012kca or @Armstrong:2014aa correctly estimate this effect?
+
+```{python}
+#| label: tbl-sneetches
+#| tbl-cap: Effect of Plain-Belly Sneetches on firm value
+#| echo: false
+def _format_estimate(estimate: float, p_value: float) -> str:
+    stars = "***" if p_value < 0.01 else "**" if p_value < 0.05 else "*" if p_value < 0.1 else ""
+    return f"{estimate:.3f}{stars}"
+
+def _extract_pyfixest(fit) -> dict:
+    return {
+        "estimate": float(fit.coef()["d_1"]),
+        "std_error": float(fit.se()["d_1"]),
+        "p_value": float(fit.pvalue()["d_1"]),
+        "nobs": int(fit._N),
+    }
+
+def _extract_statsmodels(fit) -> dict:
+    return {
+        "estimate": float(fit.params["d_1"]),
+        "std_error": float(fit.bse["d_1"]),
+        "p_value": float(fit.pvalues["d_1"]),
+        "nobs": int(fit.nobs),
+    }
+
+model_results = {
+    "(1) OLS": _extract_statsmodels(fm_ols),
+    "(2) Ahern-Dittmar IV": _extract_pyfixest(fm_ad),
+    "(3) Armstrong et al. IV": _extract_pyfixest(fm_armstrong),
+}
+
+pl.DataFrame(
+    {
+        "Model": list(model_results.keys()),
+        "Estimate": [
+            _format_estimate(res["estimate"], res["p_value"])
+            for res in model_results.values()
+        ],
+        "Std. error": [
+            f"{res['std_error']:.3f}"
+            for res in model_results.values()
+        ],
+        "N": [
+            f"{res['nobs']:,}"
+            for res in model_results.values()
+        ],
+    }
+)
+```
+
+```{python}
+#| include: true
+
+```

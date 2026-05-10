@@ -1,0 +1,1065 @@
+---
+title: "Earnings management"
+subtitle: "Responses to exercise questions"
+author: Put your name here
+bibliography: references.bib
+engine: jupyter
+jupyter: python3
+format:
+  typst: default
+---
+
+:::{.content-visible when-format="markdown"}
+## Instructions
+
+This document assumes that you have completed the instructions [here](https://github.com/iangow/era_pl_templates/blob/main/README.md).
+Note that this chapter uses Compustat data from a local Parquet repository, which means you will need to complete **Step 5: Get data from WRDS** before running any code.
+
+This template extracts the visible code and exercises from [Chapter 16](https://iangow.github.io/era_pl_book/earnings-mgt.html) of the Python Polars edition of *Empirical Research in Accounting: Tools and Methods*.
+This template includes all the code from the book chapter.
+
+Within Positron, you can run the code below in two ways.
+
+In the first way, you can treat this file as a notebook of sorts and just run the code interactively.
+In Positron, you will see "Run Cell" and (for cells after the first cell) "Run Above".
+You might choose to go through the cells in order and click "Run Cell" on each one to see its output.
+Alternatively, you might jump ahead to a cell of interest, and click "Run Above" so that any prior code needed for your chosen cell has been executed, then "Run Cell" on the cell of interest.
+
+Note that some cells contain multiple lines and to see the output from each, you may need to execute them one at a time.
+You can run code interactively from a .qmd file in Positron without rendering the whole document.
+On macOS, place the cursor in a code cell or highlight selected lines and press `Command+Enter`; on Windows and Linux, use `Ctrl+Enter` instead.
+
+In the second way, you have Quarto "render" the document as PDF.
+In Positron, you can accomplish this by clicking the "Preview" button at the top of the edit window.
+Note that many of the cells below will not appear in the created PDF.
+This document uses Quarto chunk options to control that behaviour.
+(Quarto seems to use the words "cell" and "chunk" interchangeably.)
+In particular, chunks with `#| include: false` are executed without either the code or the output being shown in the rendered document.
+Other chunk options include `#| echo` to show or hide the code and `#| output` to hide or show the output.
+
+Some cells in the setup section are marked `#| eval: false` because they are long-running (e.g., constructing power functions for all five models across a grid of earnings-management magnitudes).
+Run them interactively when you want to explore the results.
+
+To answer the questions below, you are likely to play around with code interactively (the first way) until you are ready to render your answers (using the second way) and submit them to your course instructor.
+
+Note that you can type text outside code cells and these will be rendered as markdown.
+More details on using Quarto markdown are provided on the [Quarto website](https://quarto.org).
+
+:::
+
+```{python}
+#| include: false
+import plotnine_polars as p9p
+
+p9p.theme_set(p9p.theme_matplotlib())
+```
+
+```{python}
+#| include: false
+#| eval: true
+import numpy as np
+from scipy import stats
+import polars as pl
+import statsmodels.formula.api as smf
+import plotnine_polars
+from era_pl import load_parquet, ptime
+```
+
+```{python}
+#| include: false
+#| eval: true
+funda = load_parquet("funda", "comp")
+company = load_parquet("company", "comp")
+```
+
+```{python}
+#| include: false
+#| eval: true
+sics = (
+    company
+    .select("gvkey", "sic")
+    .with_columns(sic=pl.col("sic").cast(pl.Int32, strict=False))
+)
+
+funda_mod = (
+    funda
+    .filter(
+        pl.col("indfmt") == "INDL",
+        pl.col("datafmt") == "STD",
+        pl.col("consol") == "C",
+        pl.col("popsrc") == "D",
+    )
+    .join(sics, on="gvkey", how="left")
+    .with_columns(sic=pl.coalesce("sich", "sic"))
+)
+```
+
+```{python}
+#| include: false
+#| eval: true
+def calc_accruals(df: pl.DataFrame) -> pl.DataFrame:
+    return (
+        df
+        .sort("gvkey", "datadate")
+        .with_columns(
+            lag_at=pl.col("at").shift(1).over("gvkey"),
+            d_ca=pl.col("act").diff().over("gvkey"),
+            d_cash=pl.col("che").diff().over("gvkey"),
+            d_cl=pl.col("lct").diff().over("gvkey"),
+            d_std=pl.col("dlc").diff().over("gvkey"),
+            d_rev=pl.col("sale").diff().over("gvkey"),
+            d_rec=pl.col("rect").diff().over("gvkey"),
+        )
+        .with_columns(
+            acc_raw=(
+                pl.col("d_ca") - pl.col("d_cash")
+                - pl.col("d_cl") + pl.col("d_std")
+                - pl.col("dp")
+            )
+        )
+    )
+```
+
+```{python}
+#| include: false
+#| eval: true
+acc_data_raw = (
+    funda_mod
+    .filter(
+        pl.col("at").is_not_null(),
+        pl.col("pddur") == 12,
+        ~pl.col("sic").is_between(6000, 6999),
+    )
+    .with_columns(
+        pl.col("che", "dlc", "sale", "rect")
+        .fill_null(0),
+    )
+    .select(
+        "gvkey", "datadate", "fyear", "at", "ib",
+        "dp", "rect", "ppegt", "ni", "sale",
+        "act", "che", "lct", "dlc", "sic",
+    )
+    .filter(pl.col("fyear").is_between(1950, 1991))
+    .sort("gvkey", "fyear")
+    .collect()
+)
+```
+
+```{python}
+#| include: false
+#| eval: true
+test_sample = (
+    calc_accruals(acc_data_raw)
+    .filter(
+        pl.col("lag_at") > 0,
+        pl.col("sale") > 0,
+        pl.col("ppegt") > 0,
+        pl.col("acc_raw").is_not_null(),
+        pl.col("d_rev").is_not_null(),
+        pl.col("d_rec").is_not_null(),
+        pl.col("ppegt").is_not_null(),
+    )
+    .with_columns(n_obs=pl.len().over("gvkey"))
+    .filter(pl.col("n_obs") >= 11)
+    .sort("gvkey", "fyear")
+    .select("gvkey", "fyear")
+)
+```
+
+```{python}
+#| include: false
+#| eval: true
+rng = np.random.default_rng(2022)
+
+sample_1_firm_years = (
+    test_sample
+    .with_columns(
+        min_fyear=pl.col("fyear").min().over("gvkey"),
+        rand=pl.Series("rand", rng.normal(size=test_sample.height)),
+    )
+    .filter(pl.col("fyear") > pl.col("min_fyear"))
+    .sort(["gvkey", "rand"])
+    .group_by("gvkey")
+    .first()
+    .sort("rand", descending=True)
+    .head(1000)
+    .select("gvkey", "fyear")
+    .with_columns(part=True)
+)
+
+sample_1 = (
+    test_sample
+    .join(
+        sample_1_firm_years.select("gvkey").unique(),
+        on="gvkey",
+        how="inner",
+    )
+    .join(sample_1_firm_years, on=["gvkey", "fyear"], how="left")
+    .with_columns(part=pl.col("part").fill_null(False))
+)
+
+merged_sample_1 = sample_1.join(
+    acc_data_raw, on=["gvkey", "fyear"], how="inner"
+)
+```
+
+```{python}
+#| include: false
+#| eval: true
+def predict_ols(
+    df: pl.DataFrame,
+    *,
+    y_col: str,
+    x_cols: list[str],
+    add_intercept: bool = False,
+) -> pl.Series:
+    train = (
+        df
+        .filter(~pl.col("part"))
+        .select(y_col, *x_cols)
+        .drop_nulls()
+    )
+
+    if train.height == 0:
+        return pl.Series([None] * df.height, dtype=pl.Float64)
+
+    full = df.select(*x_cols)
+    valid = full.select(pl.all_horizontal(pl.all().is_not_null())).to_series()
+    out = np.full(df.height, np.nan)
+
+    X = train.select(x_cols).to_numpy()
+    y = train[y_col].to_numpy()
+    X_pred = full.filter(valid).to_numpy()
+
+    if add_intercept:
+        X = np.column_stack([np.ones(train.height), X])
+        X_pred = np.column_stack([np.ones(X_pred.shape[0]), X_pred])
+
+    beta, *_ = np.linalg.lstsq(X, y, rcond=None)
+    out[valid.to_numpy()] = X_pred @ beta
+    return pl.Series(out)
+
+
+def fit_jones(df: pl.DataFrame) -> pl.DataFrame:
+    return (
+        df
+        .select("gvkey", "fyear", "acc_at")
+        .with_columns(
+            nda_jones=predict_ols(
+                df,
+                y_col="acc_at",
+                x_cols=["one_at", "d_rev_at", "ppe_at"],
+            )
+        )
+        .with_columns(da_jones=pl.col("acc_at") - pl.col("nda_jones"))
+        .select("gvkey", "fyear", "nda_jones", "da_jones")
+    )
+
+
+def fit_mod_jones(df: pl.DataFrame) -> pl.DataFrame:
+    return (
+        df
+        .select("gvkey", "fyear", "acc_at")
+        .with_columns(
+            nda_mod_jones=predict_ols(
+                df,
+                y_col="acc_at",
+                x_cols=["one_at", "d_rev_alt_at", "ppe_at"],
+            )
+        )
+        .with_columns(
+            da_mod_jones=pl.col("acc_at") - pl.col("nda_mod_jones")
+        )
+        .select("gvkey", "fyear", "nda_mod_jones", "da_mod_jones")
+    )
+
+
+def fit_industry(df: pl.DataFrame) -> pl.DataFrame:
+    return (
+        df
+        .select("gvkey", "fyear", "acc_at")
+        .with_columns(
+            nda_industry=predict_ols(
+                df,
+                y_col="acc_at",
+                x_cols=["acc_ind"],
+                add_intercept=True,
+            )
+        )
+        .with_columns(da_industry=pl.col("acc_at") -
+                                  pl.col("nda_industry"))
+        .select("gvkey", "fyear", "nda_industry", "da_industry")
+    )
+
+
+def get_nda(df: pl.DataFrame) -> pl.DataFrame:
+    df_mod = (
+        calc_accruals(df)
+        .with_columns(
+            sic2=(
+                pl.col("sic")
+                .cast(pl.Int32, strict=False)
+                .cast(pl.Utf8)
+                .str.slice(0, 2)
+            ),
+            acc_at=pl.col("acc_raw") / pl.col("lag_at"),
+            one_at=1 / pl.col("lag_at"),
+            d_rev_at=pl.col("d_rev") / pl.col("lag_at"),
+            d_rev_alt_at=(
+                pl.col("d_rev") - pl.col("d_rec")
+            ) / pl.col("lag_at"),
+            ppe_at=pl.col("ppegt") / pl.col("lag_at"),
+        )
+        .with_columns(
+            acc_ind=(
+                pl.when(~pl.col("part"))
+                .then(pl.col("acc_at"))
+                .otherwise(None)
+                .median()
+                .over("sic2")
+            )
+        )
+    )
+
+    da_healy = (
+        df_mod
+        .sort(["gvkey", "fyear"])
+        .with_columns(
+            nda_healy=(
+                pl.when(~pl.col("part"))
+                .then(pl.col("acc_at"))
+                .otherwise(None)
+                .mean()
+                .over("gvkey")
+            ),
+            nda_deangelo=pl.col("acc_at").shift(1).over("gvkey"),
+        )
+        .with_columns(
+            da_healy=pl.col("acc_at") - pl.col("nda_healy"),
+            da_deangelo=pl.col("acc_at") - pl.col("nda_deangelo"),
+        )
+        .select(
+            "gvkey", "fyear", "part", "nda_healy",
+            "da_healy", "nda_deangelo", "da_deangelo"
+        )
+    )
+
+    by_firm = df_mod.partition_by("gvkey", as_dict=False)
+    jones_rows = []
+    mod_jones_rows = []
+    industry_rows = []
+    for subdf in by_firm:
+        jones_rows.append(fit_jones(subdf))
+        mod_jones_rows.append(fit_mod_jones(subdf))
+        industry_rows.append(fit_industry(subdf))
+
+    df_jones = pl.concat(jones_rows, how="vertical")
+    df_mod_jones = pl.concat(mod_jones_rows, how="vertical")
+    df_industry = pl.concat(industry_rows, how="vertical")
+
+    return (
+        da_healy
+        .join(df_jones, on=["gvkey", "fyear"], how="left")
+        .join(df_mod_jones, on=["gvkey", "fyear"], how="left")
+        .join(df_industry, on=["gvkey", "fyear"], how="left")
+    )
+```
+
+```{python}
+#| include: false
+#| eval: true
+reg_data = get_nda(merged_sample_1)
+```
+
+```{python}
+#| include: false
+#| eval: true
+def fit_model(subdf: pl.DataFrame, measure: str = "healy") -> pl.DataFrame:
+    fit_data = (
+        subdf
+        .select("gvkey", f"da_{measure}", "part")
+        .with_columns(part_i=pl.col("part").cast(pl.Int8))
+        .drop_nulls([f"da_{measure}", "part_i"])
+    )
+    if fit_data.height <= 2:
+        return pl.DataFrame()
+
+    y = fit_data[f"da_{measure}"].to_numpy()
+    part_i = fit_data["part_i"].to_numpy()
+    y0 = y[part_i == 0]
+    y1 = y[part_i == 1]
+    n0 = len(y0)
+    n1 = len(y1)
+
+    if n0 == 0 or n1 == 0:
+        return pl.DataFrame()
+
+    mean0 = y0.mean()
+    mean1 = y1.mean()
+    estimate = mean1 - mean0
+    df_resid = n0 + n1 - 2
+    resid_ss = ((y0 - mean0) ** 2).sum() + ((y1 - mean1) ** 2).sum()
+    std_error = np.sqrt((resid_ss / df_resid) * ((1 / n0) + (1 / n1)))
+    statistic = estimate / std_error
+    pvalue = 2 * stats.t.sf(np.abs(statistic), df=df_resid)
+
+    return pl.DataFrame(
+        {
+            "gvkey": pl.Series([int(subdf["gvkey"][0])], dtype=pl.Int32),
+            "measure": [measure],
+            "estimate": [float(estimate)],
+            "std_error": [float(std_error)],
+            "statistic": [float(statistic)],
+            "pvalue": [float(pvalue)],
+            "df_resid": [float(df_resid)],
+        }
+    )
+
+
+def multi_fit(df: pl.DataFrame) -> pl.DataFrame:
+    return pl.concat(
+        [
+            fit_model(subdf, measure)
+            for subdf in df.partition_by("gvkey", as_dict=False)
+            for measure in ["healy", "deangelo", "jones", "mod_jones",
+                            "industry"]
+        ],
+        how="diagonal",
+    )
+```
+
+```{python}
+#| include: false
+#| eval: true
+results = multi_fit(reg_data)
+```
+
+```{python}
+#| include: false
+#| eval: true
+tbl_em_1_stats = (
+    results
+    .unpivot(
+        index=["measure"],
+        on=["estimate", "std_error", "statistic"],
+        variable_name="stat",
+        value_name="value",
+    )
+    .group_by("measure", "stat")
+    .agg(
+        mean=pl.col("value").mean(),
+        sd=pl.col("value").std(),
+        q1=pl.col("value").quantile(0.25),
+        median=pl.col("value").median(),
+        q3=pl.col("value").quantile(0.75),
+    )
+    .sort(["measure", "stat"])
+)
+```
+
+```{python}
+#| include: false
+#| eval: true
+def h_test(t_stat: float | None, df_resid: float | None) -> dict[str, bool | None]:
+    if t_stat is None or df_resid is None:
+        return {
+            "neg_p01": None, "neg_p05": None,
+            "pos_p01": None, "pos_p05": None
+        }
+    return {
+        "neg_p01": bool(stats.t.cdf(t_stat, df=df_resid) < 0.01),
+        "neg_p05": bool(stats.t.cdf(t_stat, df=df_resid) < 0.05),
+        "pos_p01": bool(stats.t.sf(t_stat, df=df_resid) < 0.01),
+        "pos_p05": bool(stats.t.sf(t_stat, df=df_resid) < 0.05),
+    }
+
+test_results = results.hstack(
+    pl.DataFrame(
+        [
+            h_test(row["statistic"], row["df_resid"])
+            for row in results.iter_rows(named=True)
+        ]
+    )
+)
+
+num_cols = ["neg_p01", "neg_p05", "pos_p01", "pos_p05"]
+
+def binom_test(x: pl.Series, p: float) -> float:
+    values = x.drop_nulls()
+    if len(values) == 0:
+        return float("nan")
+    n_success = int(values.cast(pl.Int8).sum())
+    return float(stats.binomtest(k=n_success, n=len(values), p=p).pvalue)
+```
+
+```{python}
+#| include: false
+#| eval: true
+earn_deciles = (
+    acc_data_raw
+    .join(test_sample, on=["gvkey", "fyear"], how="inner")
+    .sort("gvkey", "fyear")
+    .with_columns(earn=pl.col("ib") / pl.col("at").shift(1).over("gvkey"))
+    .with_columns(pl.col("earn").era.ntile(10).alias("earn_dec"))
+    .select("gvkey", "fyear", "earn_dec")
+)
+
+sample_2_firm_years = (
+    earn_deciles
+    .filter(pl.col("earn_dec") == 10)
+    .with_columns(
+        min_fyear=pl.col("fyear").min().over("gvkey"),
+        rand=pl.Series(
+            "rand",
+            rng.normal(
+                size=earn_deciles.filter(pl.col("earn_dec") == 10).height
+            ),
+        ),
+    )
+    .filter(pl.col("fyear") > pl.col("min_fyear"))
+    .sort(["gvkey", "rand"])
+    .group_by("gvkey")
+    .first()
+    .sort("rand", descending=True)
+    .head(1000)
+    .select("gvkey", "fyear")
+    .with_columns(part=True)
+)
+
+sample_2 = (
+    test_sample
+    .join(
+        sample_2_firm_years.select("gvkey").unique(),
+        on="gvkey",
+        how="inner",
+    )
+    .join(sample_2_firm_years, on=["gvkey", "fyear"], how="left")
+    .with_columns(part=pl.col("part").fill_null(False))
+)
+
+merged_sample_2 = (
+    sample_2
+    .join(acc_data_raw,
+          on=["gvkey", "fyear"], how="inner"
+    )
+)
+```
+
+```{python}
+#| include: false
+#| eval: true
+one_gvkey = (
+    merged_sample_1
+    .group_by("gvkey")
+    .len()
+    .filter(pl.col("len") == 20)
+    .select("gvkey")
+    .to_series()
+    .sort()
+    .item(0)
+)
+
+df_test = merged_sample_1.filter(pl.col("gvkey") == one_gvkey)
+
+df_mod = (
+    calc_accruals(df_test)
+    .with_columns(
+        acc_at=pl.col("acc_raw") / pl.col("lag_at"),
+        one_at=1 / pl.col("lag_at"),
+        d_rev_at=pl.col("d_rev") / pl.col("lag_at"),
+        d_rev_alt_at=(
+            pl.col("d_rev") - pl.col("d_rec")
+        ) / pl.col("lag_at"),
+        ppe_at=pl.col("ppegt") / pl.col("lag_at"),
+        part_i=pl.col("part").cast(pl.Int8),
+    )
+)
+
+fm1a = smf.ols(
+    "acc_at ~ one_at + d_rev_at + ppe_at",
+    data=df_mod.filter(~pl.col("part")).to_pandas(),
+).fit()
+
+res1 = (
+    df_mod
+    .with_columns(
+        nda_jones=pl.Series(
+            "nda_jones",
+            fm1a.predict(
+                df_mod.select("one_at", "d_rev_at", "ppe_at").to_pandas()
+            ),
+        )
+    )
+    .select("fyear", "part", "part_i", "acc_at", "nda_jones")
+    .with_columns(da_jones=pl.col("acc_at") - pl.col("nda_jones"))
+)
+
+fm2a = smf.ols("da_jones ~ part_i", data=res1.to_pandas()).fit()
+
+fm2 = smf.ols(
+    "acc_at ~ one_at + d_rev_at + ppe_at + part_i",
+    data=df_mod.to_pandas(),
+).fit()
+```
+
+```{python}
+#| include: false
+#| eval: true
+def h_test_5(t_stat: float | None, df_resid: float | None) -> bool | None:
+    if t_stat is None or df_resid is None:
+        return None
+    return bool(stats.t.sf(t_stat, df=df_resid) < 0.05)
+```
+
+```{python}
+#| include: false
+#| eval: true
+def manipulate(
+    df: pl.DataFrame,
+    level: float = 0.0,
+    type: str = "expense",
+) -> pl.DataFrame:
+    df_mod = (
+        df
+        .sort(["gvkey", "datadate"])
+        .with_columns(
+            ni_ratio=(
+                pl.when(~pl.col("part"))
+                .then(pl.col("ni") / pl.col("sale"))
+                .otherwise(None)
+                .median()
+                .over("gvkey")
+            ),
+            lag_at=pl.col("at").shift(1).over("gvkey"),
+        )
+        .with_columns(
+            manip_amt=pl.col("lag_at") * level,
+        )
+        .with_columns(
+            manip_amt_gross=pl.col("manip_amt") / pl.col("ni_ratio"),
+            part_lag=(
+                pl.col("part").shift(1).over("gvkey").fill_null(False)
+            ),
+        )
+    )
+
+    if type == "expense":
+        return df_mod.with_columns(
+            lct=(
+                pl.when(pl.col("part"))
+                .then(pl.col("lct") - pl.col("manip_amt"))
+                .otherwise(pl.col("lct"))
+            )
+        ).drop("part_lag")
+
+    if type == "revenue":
+        return (
+            df_mod
+            .with_columns(
+                sale=(
+                    pl.when(pl.col("part"))
+                    .then(pl.col("sale") + pl.col("manip_amt"))
+                    .when(pl.col("part_lag"))
+                    .then(pl.col("sale") - pl.col("manip_amt"))
+                    .otherwise(pl.col("sale"))
+                ),
+                rect=(
+                    pl.when(pl.col("part"))
+                    .then(pl.col("rect") + pl.col("manip_amt"))
+                    .otherwise(pl.col("rect"))
+                ),
+                act=(
+                    pl.when(pl.col("part"))
+                    .then(pl.col("act") + pl.col("manip_amt"))
+                    .otherwise(pl.col("act"))
+                ),
+            )
+            .drop("part_lag")
+        )
+
+    if type == "margin":
+        cond = pl.col("part") & (pl.col("ni_ratio") > 0)
+        cond_lag = pl.col("part_lag") & (pl.col("ni_ratio") > 0)
+        return (
+            df_mod
+            .with_columns(
+                sale=(
+                    pl.when(cond)
+                    .then(pl.col("sale") + pl.col("manip_amt_gross"))
+                    .when(cond_lag)
+                    .then(pl.col("sale") - pl.col("manip_amt_gross"))
+                    .otherwise(pl.col("sale"))
+                ),
+                rect=(
+                    pl.when(cond)
+                    .then(pl.col("rect") + pl.col("manip_amt_gross"))
+                    .otherwise(pl.col("rect"))
+                ),
+                act=(
+                    pl.when(cond)
+                    .then(pl.col("act") + pl.col("manip_amt_gross"))
+                    .otherwise(pl.col("act"))
+                ),
+                lct=(
+                    pl.when(cond)
+                    .then(
+                        pl.col("lct") + pl.col("manip_amt_gross")
+                        - pl.col("manip_amt")
+                    )
+                    .otherwise(pl.col("lct"))
+                ),
+            )
+            .drop("part_lag")
+        )
+
+    return df_mod.drop("part_lag")
+```
+
+```{python}
+#| include: false
+#| eval: false
+# Long-running: iterates over a grid of 33 (level, type) combinations,
+# calling get_nda() and multi_fit() for each — takes several minutes.
+grid = [
+    (level, manip_type)
+    for level in np.arange(0, 1.01, 0.1)
+    for manip_type in ["expense", "revenue", "margin"]
+]
+
+with ptime():
+    power_rows = []
+    for level, manip_type in grid:
+        results_df = multi_fit(
+            get_nda(
+                manipulate(
+                    merged_sample_1,
+                    level=level,
+                    type=manip_type,
+                )
+            )
+        )
+        summary_df = (
+            results_df
+            .with_columns(
+                rej_null=pl.Series(
+                    "rej_null",
+                    [
+                        h_test_5(row["statistic"], row["df_resid"])
+                        for row in results_df.iter_rows(named=True)
+                    ],
+                    dtype=pl.Boolean,
+                )
+            )
+            .group_by("measure")
+            .agg(
+                prop_reject=pl.col("rej_null")
+                .cast(pl.Float64, strict=False)
+                .mean()
+            )
+            .with_columns(
+                level=pl.lit(float(level)),
+                manip_type=pl.lit(manip_type),
+            )
+            .select("level", "manip_type", "measure", "prop_reject")
+        )
+        power_rows.append(summary_df)
+
+power_plot_data = pl.concat(power_rows, how="vertical")
+```
+
+```{python}
+#| include: false
+#| eval: false
+# Depends on power_plot_data above (eval: false).
+(
+    power_plot_data
+    .ggplot()
+    .aes(x="level", y="prop_reject")
+    .geom_line()
+    .facet_grid("measure ~ manip_type")
+)
+```
+
+## Measuring earnings management
+
+### Discussion questions
+
+1. @Jones:1991vx focuses on a small number of firms.
+Why does @Jones:1991vx have such a small sample?
+What are the disadvantages of a small sample?
+Are there advantages of a smaller sample or narrower focus?
+
+```{python}
+#| include: true
+
+```
+
+2. What are the primary conclusions of @Jones:1991vx?
+Which table presents the main results of @Jones:1991vx?
+Describe the empirical test used in that table.
+Can you suggest an alternative approach?
+What do you see as the primary challenges to the conclusions of @Jones:1991vx?
+
+```{python}
+#| include: true
+
+```
+
+3. Can you think of refinements to the broad research question?
+What tests might you use to examine these?
+
+```{python}
+#| include: true
+
+```
+
+4. @McNichols:1988vq state at the outset that their paper "examines whether managers manipulate earnings."
+Is this a good statement of the main research question of @McNichols:1988vq?
+If not, suggest an alternative summary of the research questions of @McNichols:1988vq.
+
+```{python}
+#| include: true
+
+```
+
+5. What do @McNichols:1988vq mean by "nondiscretionary accruals"?
+How "operationalizable" is this concept?^[See <https://en.wiktionary.org/wiki/operationalizable#English>.]
+
+```{python}
+#| include: true
+
+```
+
+6. @McNichols:1988vq say "if $\mathit{DA}$ were observable, accrual-based tests of earnings management would be expressed in terms of the following regression:
+
+$$ \mathit{DA} = \alpha + \beta \textit{PART} + \epsilon $$
+where $\textit{PART}$ is a dummy variable that partitions the data into two groups for which earnings management predictions are specified".
+@Healy:1985jg points out that bonus plans can give managers incentives to increase earnings or decrease earnings depending on the situation.
+How is this problematic for the formulation of @McNichols:1988vq above?
+How might a researcher address this?
+
+```{python}
+#| include: true
+
+```
+
+7. What are the benefits and costs of focusing on a single item (bad debt expense) in a study of earnings management?
+
+```{python}
+#| include: true
+
+```
+
+8. The main results of @McNichols:1988vq are in Tables 6 and 7.
+How persuasive do you find the evidence of earnings management found in the "residual provision" columns of those tables?
+
+```{python}
+#| include: true
+
+```
+
+9. How well does the $\mathit{PART}$ framework apply to @Jones:1991vx?
+Does the framework require modification for this paper?
+In which periods would $\mathit{PART}$ be set to one in @Jones:1991vx?
+
+```{python}
+#| include: true
+
+```
+
+## Evaluating measures of earnings management
+
+### Discussion questions and exercises
+
+```{python}
+#| echo: false
+(
+    tbl_em_1_stats
+    .style.
+    fmt_number(columns=["mean", "sd", "q1", "median", "q3"],
+               decimals=3
+    )
+)
+```
+
+1. What interpretation do @Dechow:1995wr provide for their Table 1 results?
+
+```{python}
+#| include: true
+
+```
+
+2. Compare the results in the table above with those in Table 1 of @Dechow:1995wr.
+What differences appear to be significant?
+
+```{python}
+#| include: true
+
+```
+
+3. Compare the values in the standard deviation column of Table 1 of @Dechow:1995wr with other statistics.
+Do these differences make sense?
+Or do they suggest anomalies in the underlying data?
+
+```{python}
+#| include: true
+
+```
+
+4. Compare the values in the standard deviation column of the "earnings management" rows of Table 1 of @Dechow:1995wr with the values in the mean column of the standard error rows.
+What is the relationship between these values?
+What would you expect the relationship between these values to be?
+Do you observe similar relations in the table above?
+
+```{python}
+#| include: true
+
+```
+
+```{python}
+#| echo: false
+(
+    test_results
+    .group_by("measure")
+    .agg(
+        pl.col(num_cols).mean(),
+    )
+    .style
+    .fmt_number(columns=num_cols, decimals=3)
+)
+```
+
+5. Focusing on the Healy Model, DeAngelo Model, and the Industry Model, compare the rejection rates in the table above with those presented in Table 2 of @Dechow:1995wr.
+What might explain any differences?
+Could these be attributed to differences between our results and those reported in Table 1 of @Dechow:1995wr?
+Or do you expect that these differences have another cause?
+
+```{python}
+#| include: true
+
+```
+
+```{python}
+#| echo: false
+(
+    test_results
+    .group_by("measure")
+    .map_groups(
+        lambda df: pl.DataFrame(
+            {
+                "measure": [df["measure"][0]],
+                "neg_p01": [binom_test(df["neg_p01"], p=0.01)],
+                "neg_p05": [binom_test(df["neg_p05"], p=0.05)],
+                "pos_p01": [binom_test(df["pos_p01"], p=0.01)],
+                "pos_p05": [binom_test(df["pos_p05"], p=0.05)],
+            }
+        )
+    )
+    .style
+    .fmt_number(
+        columns=["neg_p01", "neg_p05", "pos_p01", "pos_p05"],
+        decimals=3
+    )
+)
+```
+
+6. How do you interpret the results from `binom_test()` reported in the table above?
+Does it make sense to interpret each of the columns independent of the others?
+
+```{python}
+#| include: true
+
+```
+
+7. Confirm that the coefficient on $\textit{PART}$ from the regression in `fm2a` can be recovered from the regression in `fm2`.
+Are the standard errors the same?
+
+```{python}
+#| include: true
+
+```
+
+8. Modify the code above to check that the same holds for the Modified Jones Model.
+
+```{python}
+#| include: true
+
+```
+
+9. We described the Jones Model above as "a (differently) modified Jones Model".
+In what way is the model different from the Jones Model estimated in `fit_jones()` above?
+Does the @Salkever:1976ue equivalence hold if we use the Jones Model from `fit_jones()`?
+If so, why?
+If not, how might this affect how you would use the Jones Model and the @Salkever:1976ue approach?
+(For example, do we expect the "(differently) modified Jones Model" to produce materially different results from the Jones Model?)
+
+```{python}
+#| include: true
+
+```
+
+10. Do the issues related to a first and second stage apply to either the Healy Model or the DeAngelo Model or both?
+If so, could we apply the @Salkever:1976ue approach to address these issues?
+If not, are there "one-stage" equivalents to the Healy Model and DeAngelo Model approaches as implemented above?
+
+```{python}
+#| include: true
+
+```
+
+11. Produce an equivalent of Table 3 from @Dechow:1995wr by adapting the code used above to create `merged_sample_2` and the Type I error rate table above.
+(*Challenge version:* Implement the approach of @Salkever:1976ue in doing so.)
+
+```{python}
+#| include: true
+
+```
+
+12. Produce an equivalent of Table 4 from @Dechow:1995wr by adapting the code used above to create `merged_sample_2` and the Type I error rate table above.
+
+```{python}
+#| include: true
+
+```
+
+## Power of tests of earnings management
+
+### Discussion questions
+
+1. How do the results in the power figure (produced by the code above) compare with those in Figure 4 of @Dechow:1995wr?
+
+```{python}
+#| include: true
+
+```
+
+2. According to the [SEC's filing](https://www.sec.gov/litigation/admin/3439329.txt) referenced above related to B&L, "B&L recognized, in contravention of GAAP and the Company's own revenue recognition policies, \$42.1 million of revenue, resulting in at least a \$17.6 million, or 11%, overstatement of the net income originally reported for its 1993 fiscal year."
+According to [a subsequent SEC filing,](https://www.sec.gov/Archives/edgar/data/10427/0000010427-95-000006.txt) B&L's total assets for 1994 were \$2,457,731,000 (it seems reasonable to assume that the 1993 value was not radically different from this).
+Based on this information (plus any information in the SEC's filing), which of @Dechow:1995wr's three categories did B&L's earnings management fall into?
+What is the approximate magnitude relative to the $x$-axes of the plots in Figure 4 of @Dechow:1995wr (or the equivalent above)?
+Based on these data points, what is the approximate estimated probability of the various models detecting earnings management of this magnitude?
+
+```{python}
+#| include: true
+
+```
+
+3. What do you view as the implications of the power analysis conducted above for research on earnings management?
+Are these implications consistent with the extensive literature on earnings management subsequent to @Dechow:1995wr?
+If so, explain why.
+If not, how would you reconcile the inconsistencies?
+
+```{python}
+#| include: true
+
+```
+
+4. Does each of the three forms of earnings management implemented in `manipulate()` above agree precisely with the corresponding description in @Dechow:1995wr [pp. 201--202]?
+If not, does one approach seem more correct than the other?
+(Note that *one* issue arises with negative or zero net income ratio.
+How are such cases handled by @Dechow:1995wr and by `manipulate()`?)
+
+```{python}
+#| include: true
+
+```

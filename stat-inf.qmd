@@ -48,8 +48,8 @@ More details on using Quarto markdown are provided on the [Quarto website](https
 
 ```{python}
 #| include: false
-import plotnine_polars as p9p
-p9p.theme_set(p9p.theme_matplotlib())
+import plotnine_polars as p9
+p9.theme_set(p9.theme_matplotlib())
 ```
 
 ```{python}
@@ -59,7 +59,7 @@ import numpy as np
 import polars as pl
 from scipy import stats
 from era_pl import get_got_data, show_typst
-import plotnine_polars as p9p
+import plotnine_polars as p9
 from plotnine_polars import aes, after_stat
 from linearmodels.panel import FamaMacBeth, PanelOLS
 import statsmodels.formula.api as smf

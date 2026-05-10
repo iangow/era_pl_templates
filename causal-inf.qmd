@@ -47,7 +47,7 @@ More details on using Quarto markdown are provided on the [Quarto website](https
 #| include: false
 import numpy as np
 import polars as pl
-import plotnine_polars as p9p
+import plotnine_polars as p9
 import statsmodels.formula.api as smf
 from maketables import ETable
 ```

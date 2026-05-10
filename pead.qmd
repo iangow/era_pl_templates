@@ -1,0 +1,1119 @@
+---
+title: "Post-earnings announcement drift"
+subtitle: "Responses to exercise questions"
+author: Put your name here
+bibliography: references.bib
+engine: jupyter
+jupyter: python3
+format:
+  typst: default
+---
+
+:::{.content-visible when-format="markdown"}
+## Instructions
+
+This document assumes that you have completed the instructions [here](https://github.com/iangow/era_pl_templates/blob/main/README.md).
+Note that this chapter uses CRSP and Compustat data from a local Parquet repository, which means you will need to complete **Step 5: Get data from WRDS** before running any code.
+
+This template extracts the visible code and exercises from [Chapter 14](https://iangow.github.io/era_pl_book/pead.html) of the Python Polars edition of *Empirical Research in Accounting: Tools and Methods*.
+This template includes all the code from the book chapter.
+
+Within Positron, you can run the code below in two ways.
+
+In the first way, you can treat this file as a notebook of sorts and just run the code interactively.
+In Positron, you will see "Run Cell" and (for cells after the first cell) "Run Above".
+You might choose to go through the cells in order and click "Run Cell" on each one to see its output.
+Alternatively, you might jump ahead to a cell of interest, and click "Run Above" so that any prior code needed for your chosen cell has been executed, then "Run Cell" on the cell of interest.
+
+Note that some cells contain multiple lines and to see the output from each, you may need to execute them one at a time.
+You can run code interactively from a .qmd file in Positron without rendering the whole document.
+On macOS, place the cursor in a code cell or highlight selected lines and press `Command+Enter`; on Windows and Linux, use `Ctrl+Enter` instead.
+
+In the second way, you have Quarto "render" the document as PDF.
+In Positron, you can accomplish this by clicking the "Preview" button at the top of the edit window.
+Note that many of the cells below will not appear in the created PDF.
+This document uses Quarto chunk options to control that behaviour.
+(Quarto seems to use the words "cell" and "chunk" interchangeably.)
+In particular, chunks with `#| include: false` are executed without either the code or the output being shown in the rendered document.
+Other chunk options include `#| echo` to show or hide the code and `#| output` to hide or show the output.
+
+Some cells are marked `#| eval: false` because they involve long-running computations (fitting models across many firm-quarters).
+These cells will not run automatically when the document is rendered.
+To see their output, run them interactively after running all prior cells.
+
+To answer the questions below, you are likely to play around with code interactively (the first way) until you are ready to render your answers (using the second way) and submit them to your course instructor.
+
+Note that you can type text outside code cells and these will be rendered as markdown.
+More details on using Quarto markdown are provided on the [Quarto website](https://quarto.org).
+
+:::
+
+```{python}
+#| include: false
+import plotnine_polars as p9
+p9.theme_set(p9.theme_matplotlib())
+```
+
+```{python}
+#| include: false
+#| eval: true
+import polars as pl
+import numpy as np
+from maketables import ETable
+import statsmodels.formula.api as smf
+from era_pl import (load_parquet, ptime,
+                    get_annc_dates, get_trading_dates)
+
+from plotnine_polars import aes, element_text
+```
+
+```{python}
+#| include: false
+#| eval: true
+funda = load_parquet("funda", "comp")
+fundq = load_parquet("fundq", "comp")
+company = load_parquet("company", "comp")
+ccmxpf_lnkhist = load_parquet("ccmxpf_lnkhist", "crsp")
+```
+
+```{python}
+#| include: false
+#| eval: true
+funda_mod = (
+    funda
+    .filter(
+        pl.col("indfmt") == "INDL",
+        pl.col("datafmt") == "STD",
+        pl.col("consol") == "C",
+        pl.col("popsrc") == "D"
+    )
+)
+
+fundq_mod = (
+    fundq
+    .filter(
+        pl.col("indfmt") == "INDL",
+        pl.col("datafmt") == "STD",
+        pl.col("consol") == "C",
+        pl.col("popsrc") == "D"
+    )
+)
+```
+
+```{python}
+#| include: false
+#| eval: true
+apple_dates = (
+    funda_mod
+    .filter(pl.col("gvkey") == "001690")
+    .select(pl.col(pl.Date))
+)
+```
+
+```{python}
+#| include: false
+#| eval: true
+fyear_data = (
+    funda_mod
+    .select("fyear", "datadate")
+    .unique()
+    .filter(pl.col("fyear").is_not_null())
+    .with_columns(
+        month=pl.col("datadate").dt.month(),
+        year=pl.col("datadate").dt.year(),
+    )
+    .collect()
+)
+
+def ols_fit(formula, data):
+    return smf.ols(formula, data=data.to_pandas()).fit()
+
+fms = [ols_fit(form, fyear_data)
+       for form in ["fyear ~ C(month) + year - 1",
+                    "fyear ~ month + year"]]
+
+fyear_plot_data = (
+    fyear_data
+    .with_columns(
+        pred_1=pl.Series("pred_1", fms[0].predict(fyear_data.to_pandas())),
+        pred_2=pl.Series("pred_2", fms[1].predict(fyear_data.to_pandas())),
+    )
+    .with_columns(
+        resid_1=pl.col("pred_1") - pl.col("fyear"),
+        resid_2=pl.col("pred_2") - pl.col("fyear"),
+    )
+)
+```
+
+```{python}
+#| include: false
+#| eval: true
+fundq_probs = (
+    fundq_mod
+    .with_columns(num_rows=pl.len().over("gvkey", "datadate"))
+    .filter(pl.col("num_rows") > 1)
+    .select("gvkey", "datadate", "fyearq", "fqtr", "fyr", "rdq")
+    .sort("gvkey", "datadate")
+    .collect()
+)
+
+link_table = (
+    fundq_mod
+    .rename({"datadate": "datadateq"})
+    .select("gvkey", "datadateq", "fyearq", "fqtr", "fyr")
+    .with_columns(
+        year=pl.when(pl.col("fyr") <= 5)
+             .then(pl.col("fyearq") + 1)
+             .otherwise(pl.col("fyearq")),
+        month=pl.col("fyr").cast(pl.Int32),
+    )
+    .with_columns(
+        datadate=pl.date(pl.col("year"), pl.col("month"), 1)
+                 .dt.month_end()
+    )
+    .drop("month", "year", "fqtr")
+)
+```
+
+```{python}
+#| include: false
+#| eval: true
+ni_annual = (
+    funda_mod
+    .select("gvkey", "datadate", "fyr", "sale", "ni")
+)
+
+ni_qtrly = (
+    fundq_mod
+    .select("gvkey", "datadate", "fyr", "fqtr",
+            "saleq", "niq", "ibq")
+    .rename({"datadate": "datadateq"})
+)
+
+ni_merged = (
+    ni_annual
+    .join(link_table,
+          on=["gvkey", "datadate", "fyr"],
+          how="inner")
+    .join(ni_qtrly,
+          on=["gvkey", "fyr", "datadateq"],
+          how="inner")
+)
+
+fyr_plot_data = (
+    ni_merged
+    .with_columns(
+        decade=((pl.col("fyearq") // 10) * 10)
+                .cast(pl.String) + pl.lit("s")
+    )
+    .filter(pl.col("fqtr").is_not_null(),
+            pl.col("fyearq") < 2020
+    )
+    .group_by("decade", "fqtr")
+    .agg(
+        prop_ni=pl.col("niq").sum() / pl.col("ni").sum(),
+        prop_sale=pl.col("saleq").sum() / pl.col("sale").sum(),
+    )
+    .with_columns(pl.col("fqtr").cast(pl.String))
+    .unpivot(index=["decade", "fqtr"],
+             on=["prop_ni", "prop_sale"],
+             variable_name="metric",
+             value_name="value")
+    .collect()
+)
+```
+
+```{python}
+#| include: false
+#| eval: true
+n_qtrs = 20
+n_firms = 70
+focus_years = [1974, 2019]
+sic2s = [f"{x:02d}" for x in [29, 49, 28, 35, 32, 33,
+                              37, 20, 26, 10, 36, 59]]
+
+companies = (
+    company
+    .with_columns(sic2=pl.col("sic").cast(pl.String).str.slice(0, 2))
+    .filter(pl.col("sic2").is_in(sic2s))
+    .select("gvkey", "sic2")
+)
+
+fundq_merged = (
+    fundq_mod
+    .join(companies.select("gvkey"), on="gvkey", how="semi")
+    .filter(pl.col("saleq") > 0,
+            pl.col("saleq").is_not_null()
+    )
+    .select("gvkey", "datadate", "fyr", "fqtr", "fyearq",
+            "rdq", "niq", "saleq", "ibq")
+    .rename({"datadate": "datadateq"})
+)
+
+firm_years = (
+    funda_mod
+    .select("gvkey", "datadate")
+)
+
+merged_data = (
+    firm_years
+    .join(link_table,
+          on=["gvkey", "datadate"],
+          how="inner")
+    .join(fundq_merged,
+          on=["gvkey", "datadateq", "fyearq", "fyr"],
+          how="inner")
+)
+
+qtr_num = (
+    merged_data
+    .group_by("gvkey", "datadate")
+    .agg(num_quarters=pl.len())
+)
+
+regular_fyears = (
+    firm_years
+    .join(qtr_num, on=["gvkey", "datadate"], how="inner")
+    .sort("gvkey", "datadate")
+    .with_columns(
+        fyear_length=(pl.col("datadate") - pl.col("datadate")
+                      .shift(1).over("gvkey"))
+                      .dt.total_days()
+    )
+    .with_columns(
+        regular_year=(
+            (pl.col("num_quarters") == 4)
+            & (pl.col("fyear_length").is_null() |
+                  pl.col("fyear_length").is_in([365, 366]))
+        )
+    )
+    .filter(pl.col("regular_year"))
+    .select("gvkey", "datadate")
+)
+
+reg_data = (
+    merged_data
+    .join(companies.select("gvkey"), on="gvkey", how="semi")
+    .join(regular_fyears, on=["gvkey", "datadate"], how="semi")
+    .select("gvkey", "datadateq", "fyearq", "rdq", "niq", "saleq")
+    .sort("gvkey", "datadateq")
+    .with_columns(
+        sale_lag_1=pl.col("saleq").shift(1).over("gvkey"),
+        sale_lag_4=pl.col("saleq").shift(4).over("gvkey"),
+        sale_lag_5=pl.col("saleq").shift(5).over("gvkey"),
+        ni_lag_1=pl.col("niq").shift(1).over("gvkey"),
+        ni_lag_4=pl.col("niq").shift(4).over("gvkey"),
+        ni_lag_5=pl.col("niq").shift(5).over("gvkey"),
+    )
+    .with_columns(
+        sale_diff=pl.col("saleq") - pl.col("sale_lag_1"),
+        sale_seas_diff=pl.col("saleq") - pl.col("sale_lag_4"),
+        ni_diff=pl.col("niq") - pl.col("ni_lag_1"),
+        ni_seas_diff=pl.col("niq") - pl.col("ni_lag_4"),
+    )
+    .with_columns(
+        lag_sale_seas_diff=pl.col("sale_seas_diff").shift(1).over("gvkey"),
+        lag_ni_seas_diff=pl.col("ni_seas_diff").shift(1).over("gvkey"),
+    )
+    .collect()
+)
+```
+
+```{python}
+#| include: false
+#| eval: true
+def fit_model(gvkey, datadateq):
+
+    firm_data = (
+        reg_data
+        .filter(pl.col("gvkey") == gvkey)
+        .sort("datadateq")
+    )
+
+    train_data = (
+        firm_data
+        .filter(pl.col("datadateq") < datadateq)
+        .tail(n_qtrs)
+    )
+    if train_data.height < n_qtrs:
+        return None
+
+    test_data = firm_data.filter(pl.col("datadateq") == datadateq)
+    if test_data.height == 0:
+        return None
+
+    model_24 = train_data.select(
+        pl.col("sale_diff", "ni_diff", "sale_seas_diff", "ni_seas_diff")
+        .mean()
+    ).to_dicts()[0]
+
+    df = test_data.with_columns(
+        ni_m1=pl.col("ni_lag_4"),
+        sale_m1=pl.col("sale_lag_4"),
+        ni_m2=pl.col("ni_lag_4") + pl.lit(model_24["ni_seas_diff"]),
+        sale_m2=pl.col("sale_lag_4") + pl.lit(model_24["sale_seas_diff"]),
+        ni_m3=pl.col("ni_lag_1"),
+        sale_m3=pl.col("sale_lag_1"),
+        ni_m4=pl.col("ni_lag_1") + pl.lit(model_24["ni_diff"]),
+        sale_m4=pl.col("sale_lag_1") + pl.lit(model_24["sale_diff"]),
+    )
+
+    try:
+        train_pd = train_data.to_pandas()
+        test_pd = test_data.to_pandas()
+        sale_fm5 = smf.ols("sale_seas_diff ~ lag_sale_seas_diff",
+                           data=train_pd).fit()
+        ni_fm5 = smf.ols("ni_seas_diff ~ lag_ni_seas_diff",
+                         data=train_pd).fit()
+        sale_fm6 = smf.ols("saleq ~ sale_lag_1 + sale_lag_4 + sale_lag_5",
+                           data=train_pd).fit()
+        ni_fm6 = smf.ols("niq ~ ni_lag_1 + ni_lag_4 + ni_lag_5",
+                         data=train_pd).fit()
+    except Exception:
+        return None
+
+    df = df.with_columns(
+        ni_m5=pl.col("ni_lag_4") +
+                  pl.Series("ni_m5_pred", ni_fm5.predict(test_pd)),
+        sale_m5=pl.col("sale_lag_4") +
+                    pl.Series("sale_m5_pred", sale_fm5.predict(test_pd)),
+        ni_m6=pl.Series("ni_m6_pred", ni_fm6.predict(test_pd)),
+        sale_m6=pl.Series("sale_m6_pred", sale_fm6.predict(test_pd)),
+    )
+
+    out = (
+        df.select(["gvkey", "datadateq", "fyearq", "niq", "saleq"] +
+                  [f"{x}_m{i}" for i in range(1, 7)
+                   for x in ["ni", "sale"]])
+        .unpivot(
+            index=["gvkey", "datadateq", "fyearq", "niq", "saleq"],
+            on=[f"{x}_m{i}" for i in range(1, 7)
+                for x in ["ni", "sale"]],
+            variable_name="item_model",
+            value_name="predicted",
+        )
+        .with_columns(
+            item=pl.col("item_model").str.split("_m").list.get(0),
+            model=pl.col("item_model").str.split("_m").list.get(1),
+        )
+        .with_columns(
+            actual=pl.when(pl.col("item") == "ni")
+                     .then(pl.col("niq"))
+                     .otherwise(pl.col("saleq")),
+        )
+        .with_columns(
+            abe=(pl.col("predicted") - pl.col("actual")).abs() /
+                    pl.col("predicted"),
+        )
+        .with_columns(
+            se=(pl.col("abe") ** 2) * pl.col("predicted").sign(),
+        )
+        .drop("niq", "saleq", "item_model")
+    )
+    return out
+
+top_firms = (
+    reg_data
+    .filter(pl.col("fyearq").is_in(focus_years))
+    .group_by("gvkey", "fyearq")
+    .agg(total_sales=pl.col("saleq").sum())
+    .sort("fyearq", "total_sales", descending=[False, True])
+    .group_by("fyearq", maintain_order=True)
+    .head(n_firms)
+)
+
+test_years = (
+    reg_data
+    .join(top_firms.select("gvkey", "fyearq"),
+          on=["gvkey", "fyearq"], how="semi")
+    .select("gvkey", "datadateq")
+    .unique()
+)
+```
+
+```{python}
+#| include: false
+#| eval: false
+# Long-running: fits Foster (1977) models for ~70 firms × 2 years
+with ptime():
+    results_list = [
+        fit_model(row["gvkey"], row["datadateq"])
+        for row in test_years.iter_rows(named=True)
+    ]
+
+results = pl.concat([x for x in results_list if x is not None],
+                    how="vertical")
+```
+
+```{python}
+#| include: false
+#| eval: true
+def fix_outliers(expr: pl.Expr) -> pl.Expr:
+    return (
+        pl.when((expr < 0) | (expr > 1))
+        .then(1.0)
+        .otherwise(expr)
+        .name.keep()
+    )
+```
+
+```{python}
+#| include: false
+#| eval: false
+# Depends on results from the long-running cell above
+model_ranks = (
+    results
+    .sort("gvkey", "datadateq", "item", "abe")
+    .with_columns(
+        rank=(
+            pl.col("abe")
+            .rank("ordinal")
+            .over(["gvkey", "datadateq", "item"])
+        )
+    )
+    .group_by("fyearq", "item", "model")
+    .agg(avg_rank=pl.col("rank").mean())
+    .pivot(on="model", index=["fyearq", "item"], values="avg_rank")
+    .sort("fyearq", "item")
+)
+
+results_summ = (
+    results
+    .with_columns(fix_outliers(pl.col("abe", "se")))
+    .group_by("fyearq", "item", "model")
+    .agg(pl.col("abe", "se").mean().name.prefix("m"))
+    .sort("fyearq", "item", "model")
+)
+```
+
+```{python}
+#| include: false
+#| eval: true
+reg_data_fos = (
+    merged_data
+    .join(regular_fyears, on=["gvkey", "datadate"], how="semi")
+    .select("gvkey", "datadateq", "fyearq", "rdq", "ibq")
+    .sort("gvkey", "datadateq")
+    .with_columns(
+        ib_lag_4=pl.col("ibq").shift(4).over("gvkey"),
+    )
+    .with_columns(
+        ib_seas_diff=pl.col("ibq") - pl.col("ib_lag_4"),
+        qtr=(
+            pl.col("datadateq").dt.year()
+            + pl.col("datadateq").dt.quarter() / 10
+        ),
+    )
+    .with_columns(
+        lag_ib_seas_diff=pl.col("ib_seas_diff").shift(1).over("gvkey"),
+    )
+    .collect()
+)
+
+def fast_ols_predict(train_df, test_df, y_col, x_col):
+    train_clean = train_df.select(y_col, x_col).drop_nulls()
+    if train_clean.height == 0:
+        return None
+
+    y = train_clean[y_col].to_numpy()
+    x = train_clean[x_col].to_numpy()
+    y_mean = y.mean()
+
+    if train_clean.height == 1 or np.all(x == x[0]):
+        return pl.Series("pred", np.full(test_df.height, y_mean),
+                         nan_to_null=True)
+
+    X = np.column_stack([np.ones_like(x), x])
+    beta, *_ = np.linalg.lstsq(X, y, rcond=None)
+
+    test_x = test_df[x_col].to_numpy()
+    X_test = np.column_stack([np.ones_like(test_x, dtype=float), test_x])
+    pred = X_test @ beta
+    pred[np.isnan(test_x)] = np.nan
+
+    return pl.Series("pred", pred, nan_to_null=True)
+
+
+def fit_model_fos(gvkey, quarter):
+    n_qtrs = 24
+    min_qtrs_fos = 16
+    min_qtrs = 10
+
+    firm_data = (
+        reg_data_fos
+        .filter(pl.col("gvkey") == gvkey)
+        .sort("datadateq")
+    )
+
+    train_data = (
+        firm_data
+        .filter(pl.col("qtr") < quarter)
+        .tail(n_qtrs)
+    )
+    if train_data.height < min_qtrs:
+        return None
+
+    test_data = firm_data.filter(pl.col("qtr") == quarter)
+
+    if train_data.height >= min_qtrs_fos:
+        train_results = train_data.with_columns(
+            fib=pl.col("ib_lag_4") + fast_ols_predict(
+                    train_data, train_data,
+                    "ib_seas_diff", "lag_ib_seas_diff"
+                )
+        )
+        test_results = test_data.with_columns(
+            fib=pl.col("ib_lag_4") + fast_ols_predict(
+                    train_data, test_data,
+                    "ib_seas_diff", "lag_ib_seas_diff"
+                )
+        )
+    else:
+        train_results = train_data.with_columns(fib=pl.col("ib_lag_4"))
+        test_results = test_data.with_columns(fib=pl.col("ib_lag_4"))
+
+    denom_m2 = (
+        train_results
+        .select(
+            pl.when((pl.col("ibq") - pl.col("fib")).is_null().any())
+            .then(None)
+            .otherwise((pl.col("ibq") - pl.col("fib")).std())
+        )
+        .item()
+    )
+    out = test_results.with_columns(
+        fe1=(pl.col("ibq") - pl.col("fib")) / pl.col("ibq").abs(),
+        fe2=(pl.col("ibq") - pl.col("fib")) / pl.lit(denom_m2),
+    )
+    return out.with_columns(
+        pl.col("fib", "fe1", "fe2").fill_nan(None)
+    )
+
+quarters = (
+    reg_data_fos
+    .filter(pl.col("qtr") >= 1974, pl.col("qtr") < 1987)
+    .select("qtr")
+    .unique()
+    .sort("qtr")
+    .to_series()
+    .to_list()
+)
+
+def get_results(quarter):
+    gvkeys = (
+        reg_data_fos
+        .filter(pl.col("qtr") == quarter)
+        .select("gvkey")
+        .unique()
+        .to_series()
+        .to_list()
+    )
+    out = [fit_model_fos(gvkey, quarter) for gvkey in gvkeys]
+    out = [x for x in out if x is not None and x.height > 0]
+    if len(out) == 0:
+        return None
+    return pl.concat(out, how="vertical")
+```
+
+```{python}
+#| include: false
+#| eval: false
+# Long-running: fits PEAD models for all firms across 1974-1986 quarters
+# Only run this if you want to explore the PEAD results interactively.
+from concurrent.futures import ThreadPoolExecutor
+
+with ptime():
+    with ThreadPoolExecutor() as executor:
+        results = pl.concat(
+            [x for x in executor.map(get_results, quarters)],
+            how="vertical")
+```
+
+```{python}
+#| include: false
+#| eval: false
+# All cells below this point depend on the long-running PEAD results above
+deciles_inner = list(range(1, 10))
+
+decile_ranges = (
+    results
+    .unpivot(
+        on=["fe1", "fe2"],
+        index="qtr",
+        variable_name="measure",
+        value_name="value",
+    )
+    .group_by("qtr", "measure")
+    .agg(
+        decile=[0] + deciles_inner + [10],
+        cutoff=pl.concat_list([
+            float("-inf"),
+            *[pl.col("value").quantile(d / 10) for d in deciles_inner],
+            float("inf"),
+        ]),
+    )
+    .explode("decile", "cutoff")
+    .sort("measure", "decile", "qtr")
+    .with_columns(
+        cutoff=pl.col("cutoff").shift(1).over("measure", "decile"),
+    )
+    .sort("qtr", "measure", "decile")
+    .with_columns(
+        minimum=pl.col("cutoff").shift(1).over("qtr", "measure"),
+        maximum=pl.col("cutoff"),
+    )
+    .filter(pl.col("decile") > 0,
+            pl.col("minimum").is_not_null())
+    .select("qtr", "measure", "decile", "minimum", "maximum")
+)
+
+results_deciles = (
+    results
+    .select("gvkey", "datadateq", "qtr", "rdq", "fe1", "fe2")
+    .unpivot(
+        index=["gvkey", "datadateq", "qtr", "rdq"],
+        on=["fe1", "fe2"],
+        variable_name="measure",
+        value_name="value",
+    )
+    .filter(pl.col("value").is_not_null())
+    .join_where(
+        decile_ranges,
+        pl.col("qtr") == pl.col("qtr_right"),
+        pl.col("measure") == pl.col("measure_right"),
+        pl.col("value") > pl.col("minimum"),
+        pl.col("value") <= pl.col("maximum"),
+    )
+    .select(
+        "gvkey", "datadateq", "qtr", "rdq",
+        "measure", "value", "decile"
+    )
+    .pivot(
+        on="measure",
+        index=["gvkey", "datadateq", "qtr", "rdq"],
+        values=["value", "decile"],
+    )
+    .rename({
+        "value_fe1": "fe1",
+        "value_fe2": "fe2",
+        "decile_fe1": "fe1_decile",
+        "decile_fe2": "fe2_decile",
+    })
+    .lazy()
+)
+
+ccm_link = (
+    ccmxpf_lnkhist
+    .filter(
+        pl.col("linktype").is_in(["LC", "LU", "LS"])
+        & pl.col("linkprim").is_in(["C", "P"])
+    )
+    .with_columns(linkenddt=pl.col("linkenddt")
+                            .fill_null(pl.col("linkenddt").max()))
+    .rename({"lpermno": "permno"})
+    .select("gvkey", "permno", "linkdt", "linkenddt")
+)
+
+pead_link = (
+    results_deciles
+    .select("gvkey", "rdq")
+    .unique()
+    .join(ccm_link, on="gvkey", how="inner")
+    .filter(pl.col("rdq").is_between(pl.col("linkdt"),
+                                     pl.col("linkenddt")))
+    .select("gvkey", "rdq", "permno")
+)
+
+def get_event_rets(df, event_date, win_start=-1, win_end=1):
+
+    dsf = load_parquet("dsf", "crsp")
+    dsedelist = load_parquet("dsedelist", "crsp")
+    erdport1 = load_parquet("erdport1", "crsp")
+
+    trading_dates = get_trading_dates()
+
+    annc_dates = (
+        get_annc_dates()
+        .select(
+                pl.col("annc_date").alias(event_date),
+                pl.col("td").alias("event_td"),
+        )
+    )
+
+    dsedel_data = (
+        dsedelist
+        .rename({"dlstdt": "date"})
+        .select("permno", "date", "dlret")
+        .filter(pl.col("dlret").is_not_null())
+    )
+
+    rets_w_td = (
+        dsf
+        .select("permno", "date", "ret")
+        .join(dsedel_data, on=["permno", "date"], how="full")
+        .with_columns(
+            ret=(
+                (1 + pl.coalesce(pl.col("ret"), 0))
+                * (1 + pl.coalesce(pl.col("dlret"), 0))
+                - 1
+            )
+        )
+        .join(erdport1, on=["permno", "date"], how="left")
+        .select("permno", "date", "ret", "decret")
+        .join(trading_dates, on="date", how="inner")
+    )
+
+    rets_data = (
+        df.lazy()
+        .join(annc_dates, on=event_date, how="inner")
+        .join(rets_w_td, on="permno", how="inner")
+        .with_columns(relative_td=pl.col("td") - pl.col("event_td"))
+        .filter(pl.col("relative_td").is_between(win_start, win_end))
+        .select(event_date, "permno", "date", "relative_td", "ret", "decret")
+    )
+
+    return rets_data
+
+rets = get_event_rets(pead_link, event_date="rdq",
+                      win_start=-60, win_end=60)
+
+with ptime():
+    plot_data = (
+        results_deciles
+        .filter(pl.col("rdq").is_not_null())
+        .sort("gvkey", "rdq", "datadateq")
+        .unique(subset=["gvkey", "rdq"],
+                keep="last", maintain_order=True)
+        .with_columns(decile=pl.col("fe2_decile"))
+        .join(pead_link, on=["gvkey", "rdq"], how="inner")
+        .join(rets, on=["rdq", "permno"], how="inner")
+        .group_by("decile", "relative_td")
+        .agg(ar=(pl.col("ret") - pl.col("decret")).mean())
+        .collect()
+    )
+```
+
+## Fiscal years
+
+```{python}
+#| echo: false
+#| label: tbl-fyear
+#| tbl-cap: "Regression of `fyear` on month indicators"
+ETable(
+    fms,
+    model_heads=["fyear ~ C(month) + year - 1", "fyear ~ month + year"],
+    head_order="h",
+    coef_fmt="b:.3f",
+    model_stats=["r2"],
+)
+```
+
+### Exercises
+
+1. What is different between the first and second models in `fms`?
+What is `C()` doing here?
+
+```{python}
+#| include: true
+
+```
+
+2. What does the inclusion of `- 1` do in the first model in `fms`?
+Would the omission of `- 1` affect the fit of that model?
+Would it affect the interpretability of results?
+Would the inclusion of `- 1` affect the fit of the second model in `fms`?
+Would it affect the interpretability of results?
+
+```{python}
+#| include: true
+
+```
+
+3. Does @fig-plot-sample help you understand what's going on?
+Why did we focus on a relatively short period in @fig-plot-sample?
+(*Hint:* What happens if you remove the line `.filter(pl.col("year").is_in([2001, 2002]))` from the code?)
+
+```{python}
+#| echo: false
+#| label: fig-plot-sample
+#| fig-height: 3
+#| fig-cap: Plot of fyear against datadate for sample values
+#| fig-alt: "Plot of fyear against datadate. Plot shows scatterplot of actual data plus predicted values from two models. One model does a relatively poor job and the other model perfectly predicts fyear given datadate."
+(
+    fyear_plot_data
+    .filter(pl.col("year").is_in([2001, 2002]))
+    .select("datadate", "fyear", "pred_1", "pred_2")
+    .unique()
+    .sort("datadate")
+    .ggplot(aes(x="datadate"))
+    .geom_point(aes(y="fyear", color='"fyear"'))
+    .geom_line(aes(y="pred_1", color='"pred_1"'))
+    .geom_line(aes(y="pred_2", color='"pred_2"'))
+    .scale_x_date(date_breaks="1 month")
+    .add_theme(axis_text_x=element_text(rotation=90))
+)
+```
+
+```{python}
+#| include: true
+
+```
+
+4. Using `.dt.year()` and `.dt.month()`, add some code along the lines of `.with_columns(fyear_calc = ...)` to *calculate* `fyear`.
+Use this code to create a function `fiscal_year(datadate)`.
+Check that you match `fyear` in each case.
+
+```{python}
+#| include: true
+
+```
+
+## Quarterly data
+
+### Exercises
+
+1. Pick a couple of `gvkey` values from `fundq_probs`.
+Is it possible to construct a "clean" sequence of consecutive quarterly earnings announcements for each of these firms?
+(Here "clean" means that, at the very least, each quarter shows up just once in the series.)
+What challenges does one face in this task?
+
+```{python}
+#| include: true
+
+```
+
+2. The code below produces @fig-ni-annual.
+From @fig-ni-annual, it seems that Q2 has been the most profitable on average over the last three decades, while in all decades, Q4 has seen the most sales.
+Can you speculate as to what might explain these facts?
+
+```{python}
+#| echo: false
+#| label: fig-ni-annual
+#| fig-cap: Sales and net income by quarter over decades
+#| fig-alt: "Plot shows the average proportion of sales and net income by quarter for each decade from the 1960s to the 2010s. Net income is generally highest in the second quarter. Sales are generally highest in the fourth quarter and next highest in the second quarter."
+(
+    fyr_plot_data
+    .ggplot(aes(x="fqtr", y="value", fill="fqtr"))
+    .geom_bar(stat="identity")
+    .facet_grid("metric ~ decade")
+    .add_theme(legend_position="none")
+)
+```
+
+```{python}
+#| include: true
+
+```
+
+3. Create another plot using data in `ni_merged` that you think might be interesting.
+(Feel free to add variables to `ni_annual` or `ni_qtrly` before merging.)
+
+```{python}
+#| include: true
+
+```
+
+## Time-series properties of earnings
+
+### Exercises
+
+1. How do the denominators in our calculations of `abe` and `se` differ from those in the analogous calculations in @Foster:1977wy?
+Is one approach to the denominator more correct than the other?
+
+```{python}
+#| include: true
+
+```
+
+2. What does `fix_outliers()` do?
+Does @Foster:1977wy do anything to address outliers?
+If so, how does the approach in @Foster:1977wy compare to that of `fix_outliers()`?
+Do you agree with the approach taken in `fix_outliers()`?
+What would you do differently?
+
+```{python}
+#| include: true
+
+```
+
+3. How do the results in @fig-table-3 compare with those in @Foster:1977wy?
+
+```{python}
+#| echo: false
+#| eval: false
+#| label: fig-abe-histo
+#| fig-cap: Histograms of abe
+#| fig-alt: "Histograms of abnormal earnings by model for six models discussed in the text by year (either 1974 or 2019)."
+(
+    results
+    .filter(pl.col("item") == "ni", pl.col("abe").is_not_null())
+    .with_columns(fix_outliers(pl.col("abe")))
+    .ggplot(aes(x="abe"))
+    .geom_histogram(bins=40)
+    .facet_grid("model ~ fyearq")
+)
+```
+
+```{python}
+#| echo: false
+#| eval: false
+#| label: fig-table-3
+#| fig-cap: Plot of results like Table 3 of Foster (1977)
+#| fig-alt: "Plots of results analogous to those in Table 3 of Foster (1977). Plots show that Model 5 generally performs best for both net income and sales."
+(
+    results_summ
+    .unpivot(index=["fyearq", "item", "model"],
+                on=["mabe", "mse"],
+                variable_name="metric",
+                value_name="value")
+    .ggplot(aes(x="model", y="value", fill="model"))
+    .geom_bar(stat="identity")
+    .facet_grid("fyearq ~ item + metric")
+    .add_theme(legend_position="none")
+)
+```
+
+```{python}
+#| include: true
+
+```
+
+4. What do you make of the significantly "worse" performance of models predicting `ni` than those predicting `sale`?
+Does this imply that `ni` is simply more difficult to forecast?
+Can you suggest an alternative approach to measuring performance that might place these models on a more "level playing field"?
+
+```{python}
+#| include: true
+
+```
+
+## Post-earnings announcement drift
+
+```{python}
+#| echo: false
+#| eval: false
+#| label: fig-pre
+#| fig-cap: Pre-announcement returns
+#| fig-alt: "Plot of cumulative abnormal returns over 60 days prior to earnings announcement by earnings surprise decile."
+(
+    plot_data
+    .filter(pl.col("relative_td") <= 0)
+    .filter(pl.col("decile").is_not_null())
+    .with_columns(decile=pl.col("decile").cast(pl.String))
+    .sort("decile", "relative_td")
+    .with_columns(
+        not_first_day=pl.col("relative_td") !=
+                        pl.col("relative_td").min().over("decile"),
+        last_day=pl.col("relative_td") ==
+                        pl.col("relative_td").max().over("decile"),
+    )
+    .with_columns(
+        pl.when("not_first_day").then("ar").otherwise(0.0)
+    )
+    .with_columns(
+        pl.col("ar").cum_sum().over("decile").alias("car"),
+        pl.when("last_day").then("decile").alias("label")
+    )
+    .ggplot(aes(x="relative_td", y="car",
+                group="decile", color="decile"))
+    .geom_line()
+    .geom_label(aes(label="label"), na_rm=True)
+    .add_theme(legend_position="none")
+)
+```
+
+```{python}
+#| echo: false
+#| eval: false
+#| label: fig-post
+#| fig-cap: Post-announcement returns
+#| fig-alt: "Plot of cumulative abnormal returns over 60 days after earnings announcement by earnings surprise decile."
+(
+    plot_data
+    .filter(pl.col("relative_td") >= 0)
+    .filter(pl.col("decile").is_not_null())
+    .with_columns(decile=pl.col("decile").cast(pl.String))
+    .sort("decile", "relative_td")
+     .with_columns(
+        not_first_day=pl.col("relative_td") !=
+                        pl.col("relative_td").min().over("decile"),
+        last_day=pl.col("relative_td") ==
+                        pl.col("relative_td").max().over("decile"),
+    )
+    .with_columns(
+        pl.when("not_first_day").then("ar").otherwise(0.0)
+    )
+    .with_columns(
+        pl.col("ar").cum_sum().over("decile").alias("car"),
+        pl.when("last_day").then("decile").alias("label")
+    )
+    .ggplot(aes(x="relative_td", y="car",
+                group="decile", color="decile"))
+    .geom_line()
+    .geom_label(aes(label="label"), na_rm=True)
+    .add_theme(legend_position="none")
+)
+```
+
+### Discussion questions
+
+1. Both @Bernard:1989uu and @Ball:1968ub were addressing issues with "conventional wisdom" at their respective times.
+How had conventional wisdom changed in the years between 1968 and 1989?
+
+```{python}
+#| include: true
+
+```
+
+2. Evaluate the introduction of @Bernard:1989uu.
+How clear is the research question to you from reading this?
+How would you compare this introduction with other papers you have read in this course or elsewhere?
+
+```{python}
+#| include: true
+
+```
+
+3. How persuasive do you find @Bernard:1989uu to be?
+What evidence and arguments do you find persuasive or not persuasive?
+(Answering this question requires you to read the paper fairly closely.)
+
+```{python}
+#| include: true
+
+```
+
+4. The analysis underlying @fig-post considers the 13-year period from 1974 to 1986.
+What changes would you need to make to the code to run the analysis for the 13-year period from 2007 to 2019?
+(If you choose to make this change and run the code, what do you notice about the profile of returns in the post-announcement period?
+Does it seem necessary to make an additional tweak to the code to address this?)
+
+```{python}
+#| include: true
+
+```
+
+5. Considering a single stock, what trading strategy is implicit in calculating `ar` as `ret - decret`?
+
+```{python}
+#| include: true
+
+```
+
+6. In calculating mean returns by `decile` and `relative_td` (i.e., first using `group_by("decile", "relative_td")` and then calculating `ar` by aggregating the mean of `ret - decret`), are we making assumptions about the trading strategy?
+What issues are created by this trading strategy?
+Can you suggest an alternative trading strategy?
+What changes to the code would be needed to implement this alternative?
+
+```{python}
+#| include: true
+
+```
+
+7. Is it appropriate to *add* returns to get cumulative abnormal returns as is done in `car = pl.col("ar").cum_sum()`?
+What would be one alternative approach?
+
+```{python}
+#| include: true
+
+```

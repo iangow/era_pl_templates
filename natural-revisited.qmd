@@ -1,0 +1,1497 @@
+---
+title: "Natural experiments revisited"
+subtitle: "Responses to exercise questions"
+author: Put your name here
+bibliography: references.bib
+engine: jupyter
+jupyter: python3
+format:
+  typst: default
+---
+
+:::{.content-visible when-format="markdown"}
+## Instructions
+
+This document assumes that you have completed the instructions [here](https://github.com/iangow/era_pl_templates/blob/main/README.md).
+
+This template extracts the visible code and exercises from [Chapter 19](https://iangow.github.io/era_pl_book/natural-revisited.html) of the Python Polars edition of *Empirical Research in Accounting: Tools and Methods*.
+This template includes all the code from the book chapter.
+
+WRDS data is required: `funda` (Compustat), and `mse`, `msf`, `stocknames`, `dseexchdates`, `ccmxpf_lnkhist`, `dsf` (CRSP).
+
+Within Positron, you can run the code below in two ways.
+
+In the first way, you can treat this file as a notebook of sorts and just run the code interactively.
+In Positron, you will see "Run Cell" and (for cells after the first cell) "Run Above".
+You might choose to go through the cells in order and click "Run Cell" on each one to see its output.
+Alternatively, you might jump ahead to a cell of interest, and click "Run Above" so that any prior code needed for your chosen cell has been executed, then "Run Cell" on the cell of interest.
+
+Note that some cells contain multiple lines and to see the output from each, you may need to execute them one at a time.
+You can run code interactively from a .qmd file in Positron without rendering the whole document.
+On macOS, place the cursor in a code cell or highlight selected lines and press `Command+Enter`; on Windows and Linux, use `Ctrl+Enter` instead.
+
+In the second way, you have Quarto "render" the document as PDF.
+In Positron, you can accomplish this by clicking the "Preview" button at the top of the edit window.
+Note that many of the cells below will not appear in the created PDF.
+This document uses Quarto chunk options to control that behaviour.
+(Quarto seems to use the words "cell" and "chunk" interchangeably.)
+In particular, chunks with `#| include: false` are executed without either the code or the output being shown in the rendered document.
+Other chunk options include `#| echo` to show or hide the code and `#| output` to hide or show the output.
+
+To answer the questions below, you are likely to play around with code interactively (the first way) until you are ready to render your answers (using the second way) and submit them to your course instructor.
+
+Note that you can type text outside code cells and these will be rendered as markdown.
+More details on using Quarto markdown are provided on the [Quarto website](https://quarto.org).
+
+:::
+
+```{python}
+#| include: false
+#| eval: true
+import warnings
+import numpy as np
+import polars as pl
+import pyfixest as pf
+import plotnine_polars as p9p
+from plotnine_polars import aes
+from maketables import ETable
+
+from era_pl import (
+    get_ff_ind, load_data, load_parquet,
+    ptime, show_typst,
+)
+
+p9p.theme_set(p9p.theme_matplotlib())
+```
+
+```{python}
+#| include: false
+#| eval: true
+sho_tickers = load_data("sho_tickers")
+sho_r3000 = load_data("sho_r3000")
+
+mse = load_parquet("mse", "crsp")
+msf = load_parquet("msf", "crsp")
+stocknames = load_parquet("stocknames", "crsp")
+dseexchdates = load_parquet("dseexchdates", "crsp")
+ccmxpf_lnkhist = load_parquet("ccmxpf_lnkhist", "crsp")
+```
+
+```{python}
+#| include: false
+#| eval: true
+regex = r"^(.*)\.([AB])$"
+
+def clean_ticker(col: str) -> pl.Expr:
+    return (
+        pl.when(
+            (pl.col(col).str.len_chars() == 5)
+            & (pl.col(col).str.slice(4, 1) == "E")
+        )
+        .then(pl.col(col).str.slice(0, 4))
+        .when(pl.col(col).str.contains(regex))
+        .then(pl.col(col).str.replace(regex, "${1}"))
+        .otherwise(pl.col(col))
+    )
+
+def get_shrcls(col: str) -> pl.Expr:
+    return pl.col(col).str.extract(regex, group_index=2)
+
+sho_r3000_tickers = (
+    sho_r3000
+    .select("russell_ticker", "russell_name")
+    .with_columns(
+        ticker=clean_ticker("russell_ticker"),
+        shrcls=get_shrcls("russell_ticker"),
+    )
+)
+
+crsp_sample = (
+    stocknames
+    .with_columns(test_date=pl.date(2004, 6, 25))
+    .filter(
+        (pl.col("test_date") >= pl.col("namedt"))
+        & (pl.col("test_date") <= pl.col("nameenddt"))
+    )
+    .select("permno", "permco", "ticker", "shrcls")
+    .unique()
+    .collect()
+)
+
+sho_r3000_merged = (
+    sho_r3000_tickers
+    .join(crsp_sample, on="ticker", how="inner", suffix="_crsp")
+    .filter(
+        pl.col("shrcls").is_null()
+        | (pl.col("shrcls") == pl.col("shrcls_crsp"))
+    )
+    .select("russell_ticker", "permco", "permno")
+)
+
+trading_vol = (
+    msf
+    .filter(pl.col("date") == pl.date(2004, 6, 30))
+    .with_columns(
+        dollar_vol=(pl.col("prc").abs() * pl.col("vol")).fill_null(0)
+    )
+    .select("permno", "dollar_vol")
+    .collect()
+)
+
+sho_r3000_merged = (
+    sho_r3000_tickers
+    .join(crsp_sample, on="ticker", how="inner", suffix="_crsp")
+    .filter(
+        pl.col("shrcls").is_null()
+        | (pl.col("shrcls") == pl.col("shrcls_crsp"))
+    )
+    .join(trading_vol, on="permno", how="inner")
+    .sort(["russell_ticker", "dollar_vol"], descending=[False, True])
+    .unique(subset=["russell_ticker"], keep="first")
+    .select("russell_ticker", "permno")
+)
+
+nmsind_data = (
+    mse
+    .filter(
+        pl.col("date") <= pl.date(2004, 6, 28),
+        pl.col("event") == "NASDIN"
+    )
+    .filter(pl.col("date") == pl.col("date").max().over("permno"))
+    .select("permno", "date", "nmsind")
+    .collect()
+)
+
+exchcd_data = (
+    stocknames
+    .filter(pl.col("exchcd") > 0)
+    .with_columns(pl.date(2004, 6, 28).alias("test_date"))
+    .filter(
+        pl.col("test_date").is_between(
+            "namedt", "nameenddt", closed="both"
+        )
+    )
+    .select("permno", "exchcd")
+    .unique()
+    .collect()
+)
+
+ipo_dates = (
+    dseexchdates
+    .select("permno", "begexchdate")
+    .unique()
+    .collect()
+)
+
+recent_delistings = (
+    mse
+    .filter(
+        pl.col("event") == "DELIST",
+        pl.col("date").is_between(pl.date(2004, 6, 25),
+                                  pl.date(2004, 6, 28)),
+    )
+    .rename({"date": "delist_date"})
+    .select("permno", "delist_date")
+    .collect()
+)
+
+sho_r3000_permno = (
+    sho_r3000_merged
+    .join(nmsind_data, on="permno", how="left")
+    .join(exchcd_data, on="permno", how="left")
+    .join(ipo_dates, on="permno", how="left")
+    .join(recent_delistings, on="permno", how="left")
+    .with_columns(
+        nasdaq_small=
+            (pl.col("nmsind") == 3).and_(pl.col("exchcd") == 3)
+            .fill_null(False),
+        recent_listing=pl.col("begexchdate") > pl.date(2004, 4, 30),
+        delisted=pl.col("delist_date").is_not_null()
+    )
+    .with_columns(
+        keep=pl.all_horizontal(
+            ~pl.col("nasdaq_small"),
+            ~pl.col("recent_listing"),
+            ~pl.col("delisted"),
+        )
+    )
+)
+
+sho_r3000_sample = (
+    sho_r3000_permno
+    .filter(pl.col("keep"))
+    .rename({"russell_ticker": "ticker"})
+    .join(sho_tickers, on="ticker", how="left")
+    .with_columns(pilot=pl.col("co_name").is_not_null())
+    .select("ticker", "permno", "pilot")
+)
+
+ccm_link = (
+    ccmxpf_lnkhist
+    .filter(
+        pl.col("linktype").is_in(["LC", "LU", "LS"]),
+        pl.col("linkprim").is_in(["C", "P"]),
+    )
+    .rename({"lpermno": "permno"})
+    .with_columns(
+        pl.col("linkenddt")
+        .fill_null(pl.col("linkenddt").max())
+    )
+    .select("gvkey", "permno", "linkdt", "linkenddt")
+)
+
+gvkeys = (
+    ccm_link
+    .with_columns(test_date=pl.date(2004, 6, 28))
+    .filter(pl.col("test_date").is_between("linkdt", "linkenddt"))
+    .select("gvkey", "permno")
+    .collect()
+)
+
+sho_r3000_gvkeys = (
+    sho_r3000_sample
+    .join(gvkeys, on="permno", how="inner")
+)
+
+fhk_pilot = load_data("fhk_pilot")
+
+sho_data = (
+    fhk_pilot
+    .select("gvkey", "pilot")
+    .unique()
+    .filter(pl.len().over("gvkey") == 1)
+    .join(fhk_pilot, on=["gvkey", "pilot"], how="inner")
+)
+```
+
+```{python}
+#| include: false
+#| eval: true
+def get_outcomes(rho: float = 0.0, periods: int = 7) -> pl.DataFrame:
+    e = np.random.normal(size=periods)
+    y = np.empty(periods, dtype=float)
+    y[0] = e[0]
+    for i in range(1, periods):
+        y[i] = rho * y[i - 1] + e[i]
+    return pl.DataFrame(
+        {
+            "t": np.arange(1, periods + 1),
+            "y": y,
+        }
+    )
+
+def get_sample(n: int = 100, rho: float = 0.0,
+               periods: int = 7, effect: float = 0.0) -> pl.DataFrame:
+    treat = set(np.random.choice(np.arange(1, n + 1),
+                size=n // 2, replace=False).tolist())
+    t_effects = pl.DataFrame({
+        "t": np.arange(1, periods + 1),
+        "t_effect": np.random.normal(size=periods),
+    })
+    df = pl.concat(
+        [
+            get_outcomes(rho=rho, periods=periods)
+            .with_columns(pl.lit(i).alias("id"))
+            for i in range(1, n + 1)
+        ],
+        how="vertical",
+    )
+    return (
+        df
+        .join(t_effects, on="t", how="inner")
+        .with_columns(
+            pl.col("id").is_in(list(treat)).alias("treat"),
+            (pl.col("t") > (periods / 2)).alias("post"),
+        )
+        .with_columns(
+            (
+                pl.col("y")
+                + pl.when(pl.col("treat") & pl.col("post"))
+                .then(effect)
+                .otherwise(0.0)
+                + pl.col("t_effect")
+            ).alias("y")
+        )
+        .select(pl.exclude("t_effect"))
+    )
+
+def _ols_coef(y: pl.Series, X: pl.DataFrame, coef_idx: int) -> float:
+    y_np = y.to_numpy()
+    X_np = X.to_numpy()
+    X_np = np.column_stack([np.ones(len(y_np)), X_np])
+    beta = np.linalg.lstsq(X_np, y_np, rcond=None)[0]
+    return float(beta[coef_idx])
+
+def est_effect(df: pl.DataFrame) -> pl.DataFrame:
+    did_df = df.with_columns(
+        (
+            (pl.col("treat") & pl.col("post"))
+            .cast(pl.Float64)
+            .alias("treat_post")
+        ),
+        pl.col("treat").cast(pl.Float64).alias("treat_f"),
+        pl.col("post").cast(pl.Float64).alias("post_f"),
+    )
+    est_did = _ols_coef(
+        did_df["y"],
+        did_df.select("treat_f", "post_f", "treat_post"),
+        coef_idx=3,
+    )
+    df_post = (
+        df.filter(pl.col("post"))
+        .group_by("id", "treat")
+        .agg(pl.col("y").mean().alias("y"))
+        .with_columns(pl.col("treat").cast(pl.Float64).alias("treat_f"))
+    )
+    est_post = _ols_coef(df_post["y"], df_post.select("treat_f"), coef_idx=1)
+    df_change = (
+        df.group_by("id", "treat", "post")
+        .agg(pl.col("y").mean().alias("y"))
+        .pivot(values="y", index=["id", "treat"], on="post")
+        .rename({"false": "y_pre", "true": "y_post"})
+        .with_columns(
+            (pl.col("y_post") - pl.col("y_pre")).alias("y_change"),
+            pl.col("treat").cast(pl.Float64).alias("treat_f"),
+        )
+    )
+    est_change = _ols_coef(df_change["y_change"], df_change.select("treat_f"), coef_idx=1)
+    est_ancova = _ols_coef(df_change["y_post"], df_change.select("y_pre", "treat_f"), coef_idx=2)
+    return pl.DataFrame(
+        {
+            "est_DiD": [est_did],
+            "est_POST": [est_post],
+            "est_CHANGE": [est_change],
+            "est_ANCOVA": [est_ancova],
+        }
+    )
+
+def run_sim(i: int, n: int = 100, rho: float = 0.0,
+            periods: int = 7, effect: float = 0.0) -> pl.DataFrame:
+    df = get_sample(n=n, rho=rho, periods=periods, effect=effect)
+    return est_effect(df).with_columns(pl.lit(i).alias("i")).select(
+        "i", "est_DiD", "est_POST", "est_CHANGE", "est_ANCOVA"
+    )
+
+rhos = np.linspace(0.0, 0.9, 6)
+effects = np.linspace(0.0, 1.0, 5)
+
+def run_sim_n(effect: float, rho: float, **kwargs) -> pl.DataFrame:
+    n_sims = 1000
+    np.random.seed(2021)
+    res = pl.concat(
+        [run_sim(x, rho=rho, effect=effect, **kwargs)
+         for x in range(n_sims)],
+        how="vertical",
+    )
+    return (
+        res.with_columns(
+            pl.lit(effect).alias("effect"),
+            pl.lit(rho).alias("rho"),
+        )
+        .select("effect", "rho", "i",
+                "est_DiD", "est_POST", "est_CHANGE", "est_ANCOVA")
+    )
+```
+
+```{python}
+#| include: false
+#| eval: false
+# Long-running: iterates over all combinations of effect and rho values,
+# running 1000 simulations each — takes several minutes.
+from itertools import product
+
+with ptime():
+    results = pl.concat(
+        [run_sim_n(effect=effect, rho=rho)
+         for effect, rho in product(effects, rhos)],
+        how="vertical")
+```
+
+```{python}
+#| include: false
+#| eval: false
+(
+    results
+    .filter((pl.col("est_DiD") - pl.col("est_CHANGE")).abs() > 1e-5)
+    .height
+)
+
+tidy_results = (
+    results
+    .unpivot(
+        index=["rho", "effect"],
+        on=pl.selectors.starts_with("est"),
+        variable_name="method",
+        value_name="est",
+    )
+    .with_columns(
+        pl.col("method").str.replace(r"^est[_\.](.*)$", r"$1")
+    )
+    .filter(pl.col("method") != "CHANGE")
+)
+```
+
+```{python}
+#| echo: false
+#| eval: false
+(
+    tidy_results
+    .group_by("rho", "method")
+    .agg((pl.col("est") - pl.col("effect")).mean().alias("bias"))
+    .ggplot()
+    .aes(x="rho", y="bias", color="method", linetype="method")
+    .geom_line()
+    .ylim(-0.1, 0.1)
+)
+```
+
+```{python}
+#| echo: false
+#| eval: false
+(
+    tidy_results
+    .filter(pl.col("effect") == 0.5)
+    .group_by("method", "rho")
+    .agg(pl.col("est").std().alias("se"))
+    .ggplot()
+    .aes(x="rho", y="se", color="method", linetype="method")
+    .geom_line()
+)
+```
+
+```{python}
+#| include: false
+#| eval: true
+dsf = load_parquet("dsf", "crsp")
+
+spreads = (
+    dsf
+    .with_columns(
+        spread=100 * (pl.col("ask") - pl.col("bid")) /
+                     ((pl.col("ask") + pl.col("bid")) / 2),
+        quarter=pl.col("date").dt.truncate("1q"),
+    )
+    .group_by("permno", "quarter")
+    .agg(pl.col("spread").mean().alias("spread"))
+    .with_columns(post=pl.col("quarter") >= pl.date(2004, 1, 1))
+    .filter(
+        pl.col("spread").is_not_null(),
+        pl.col("quarter").is_between(pl.date(2000, 1, 1),
+                                     pl.date(2008, 1, 1))
+    )
+    .collect()
+)
+
+rng = np.random.default_rng(2021)
+
+treatment = (
+    spreads
+    .filter(~pl.col("post"))
+    .group_by("permno")
+    .agg(pl.col("spread").mean().alias("spread"))
+    .with_columns(
+        pl.when(pl.col("spread") > pl.col("spread").median())
+        .then(0.55)
+        .otherwise(0.45)
+        .alias("treat_prob")
+    )
+    .pipe(lambda df: df.with_columns(rand=rng.random(df.height)))
+    .with_columns(treat=pl.col("rand") < pl.col("treat_prob"))
+    .select("permno", "treat")
+)
+
+reg_data = spreads.join(treatment, on="permno", how="inner")
+
+fm_placebo = pf.feols(
+    "spread ~ post * treat",
+    vcov={"CRV1": "permno"},
+    data=reg_data.to_pandas(),
+)
+```
+
+```{python}
+#| echo: false
+show_typst(ETable(
+    [fm_placebo],
+    coef_fmt="b:.3f*",
+    signif_code=[0.01, 0.05, 0.10],
+    model_stats=["N"],
+))
+```
+
+```{python}
+#| include: false
+#| eval: true
+funda = load_parquet("funda", "comp")
+
+compustat_annual = (
+    funda
+    .filter(
+        pl.col("indfmt") == "INDL",
+        pl.col("datafmt") == "STD",
+        pl.col("popsrc") == "D",
+        pl.col("consol") == "C",
+        pl.col("fyear").is_between(1999, 2012),
+        ~pl.col("sich").is_between(6000, 6999),
+        ~pl.col("sich").is_between(4900, 4949),
+    )
+    .select(
+        "gvkey", "fyear", "datadate", "fyr", "sich", "dltt",
+        "dlc", "seq", "oibdp", "ib", "ibc", "oancf", "xidoc",
+        "at", "ppegt", "sale", "rect", "ceq", "csho", "prcc_f",
+    )
+    .with_columns(fyear=pl.col("fyear").cast(pl.Int32))
+    .collect()
+)
+
+controls_raw = (
+    compustat_annual
+    .sort(["gvkey", "fyear"])
+    .with_columns(lag_fyear=pl.col("fyear").shift(1).over("gvkey"))
+    .with_columns(
+        mtob=
+            pl.when(pl.col("ceq").shift(1).over("gvkey") != 0)
+            .then(
+                pl.col("csho").shift(1).over("gvkey")
+                * pl.col("prcc_f").shift(1).over("gvkey")
+                / pl.col("ceq").shift(1).over("gvkey")
+            ),
+        leverage=
+            pl.when((pl.col("dltt") + pl.col("dlc") + pl.col("seq")) != 0)
+            .then((pl.col("dltt") + pl.col("dlc")) /
+                  (pl.col("dltt") + pl.col("dlc") + pl.col("seq"))),
+        roa=
+            pl.when(pl.col("at").shift(1).over("gvkey") > 0)
+            .then(pl.col("oibdp") / pl.col("at").shift(1).over("gvkey")),
+    )
+    .filter(pl.col("fyear") == (pl.col("lag_fyear") + 1))
+    .select("gvkey", "datadate", "fyear", "at", "mtob", "leverage", "roa")
+)
+
+controls_filled = (
+    controls_raw
+    .sort(["gvkey", "fyear"])
+    .with_columns(
+        pl.col("mtob", "leverage", "roa")
+        .forward_fill()
+        .over("gvkey")
+    )
+)
+
+controls_fyear_avg = (
+    controls_filled
+    .group_by("fyear")
+    .agg(
+        pl.col("mtob", "leverage", "roa").mean().name.suffix("_avg")
+    )
+)
+
+df_controls = (
+    controls_filled
+    .join(controls_fyear_avg, on="fyear", how="left")
+    .with_columns(
+        pl.col("mtob").fill_null(pl.col("mtob_avg")),
+        pl.col("leverage").fill_null(pl.col("leverage_avg")),
+        pl.col("roa").fill_null(pl.col("roa_avg")),
+    )
+    .select("gvkey", "datadate", "fyear", "at", "mtob", "leverage", "roa")
+)
+```
+
+```{python}
+#| include: false
+#| eval: true
+WIN_VARS = ["at", "mtob", "leverage", "roa", "da_adj", "acc_at"]
+
+def fit_mod_jones(g: pl.DataFrame) -> pl.DataFrame:
+    y = g["acc_at"].to_numpy()
+    X = np.c_[np.ones(g.height),
+              g.select(["one_at", "sale_c_at", "ppe_at"]).to_numpy()]
+    beta, *_ = np.linalg.lstsq(X, y, rcond=None)
+    coef_names = ["b_intercept", "b_one_at", "b_sale_c_at", "b_ppe_at"]
+    return pl.DataFrame(dict(zip(coef_names, beta)))
+
+def get_das(compustat: pl.DataFrame,
+            drop_extreme: bool = True) -> pl.DataFrame:
+    for_disc_accruals = (
+        compustat
+        .join_where(
+            get_ff_ind(48),
+            (pl.col("sich") >= pl.col("sic_min")) &
+            (pl.col("sich") <= pl.col("sic_max")),
+        )
+        .sort(["gvkey", "fyr", "fyear"])
+        .with_columns(lag_at=pl.col("at").shift(1).over(["gvkey", "fyr"]))
+        .filter(pl.col("lag_at") > 0)
+        .with_columns(
+            lag_fyear=pl.col("fyear").shift(1).over(["gvkey", "fyr"]),
+            lag_sale=pl.col("sale").shift(1).over(["gvkey", "fyr"]),
+            lag_rect=pl.col("rect").shift(1).over(["gvkey", "fyr"]),
+        )
+        .with_columns(
+            acc_at=(pl.col("ibc") - (pl.col("oancf") - pl.col("xidoc"))) /
+                        pl.col("lag_at"),
+            one_at=1 / pl.col("lag_at"),
+            ppe_at=pl.col("ppegt") / pl.col("lag_at"),
+            sale_c_at=(
+                pl.col("sale") - pl.col("lag_sale")
+            ) / pl.col("lag_at"),
+            salerect_c_at=((pl.col("sale") - pl.col("lag_sale")) -
+                           (pl.col("rect") - pl.col("lag_rect"))) /
+                            pl.col("lag_at"),
+        )
+        .with_columns(
+            _keep=pl.when(pl.lit(drop_extreme))
+            .then(pl.col("acc_at").abs() <= 1)
+            .otherwise(True)
+        )
+        .filter(
+            pl.col("_keep"),
+            pl.col("fyear") == (pl.col("lag_fyear") + 1),
+            pl.col("salerect_c_at").is_not_null(),
+            pl.col("acc_at").is_not_null(),
+            pl.col("ppe_at").is_not_null()
+        )
+        .drop("_keep")
+        .with_columns(num_obs=pl.len().over(["ff_ind", "fyear"]))
+        .filter(pl.col("num_obs") >= 10)
+    )
+    fm_da = (
+        for_disc_accruals
+        .era.map_by(["ff_ind", "fyear"], fit_mod_jones)
+    )
+    return (
+        for_disc_accruals
+        .join(fm_da, on=["ff_ind", "fyear"], how="left")
+        .with_columns(
+            nda=pl.col("b_intercept")
+            + pl.col("one_at") * pl.col("b_one_at")
+            + pl.col("ppe_at") * pl.col("b_ppe_at")
+            + pl.col("salerect_c_at") * pl.col("b_sale_c_at")
+        )
+        .with_columns(da=pl.col("acc_at") - pl.col("nda"))
+        .select("gvkey", "fyear", "ff_ind", "acc_at", "da")
+    )
+
+def get_pm(
+    compustat: pl.DataFrame,
+    pm_lag: bool = True,
+    drop_extreme: bool = True,
+) -> pl.DataFrame:
+    das = get_das(compustat, drop_extreme=drop_extreme)
+    if pm_lag:
+        ib_at_expr = pl.col("lag_ib").era.div_if_pos("lag_at")
+    else:
+        ib_at_expr = pl.col("ib").era.div_if_pos("at")
+    perf = (
+        compustat
+        .with_columns(
+            pl.col("at", "ib")
+            .shift(1)
+            .over("gvkey", order_by="fyear")
+            .name.prefix("lag_")
+        )
+        .with_columns(ib_at=ib_at_expr)
+        .join(das.select("gvkey", "fyear", "ff_ind"),
+              on=["gvkey", "fyear"], how="inner")
+        .select("gvkey", "fyear", "ff_ind", "ib_at")
+    )
+    perf_match = (
+        perf
+        .join(perf, on=["fyear", "ff_ind"], how="inner", suffix="_other")
+        .filter(pl.col("gvkey") != pl.col("gvkey_other"))
+        .with_columns(
+            perf_diff=(pl.col("ib_at") - pl.col("ib_at_other")).abs()
+        )
+        .with_columns(
+            min_perf_diff=pl.col("perf_diff")
+            .min()
+            .over(["gvkey", "fyear"])
+        )
+        .filter(pl.col("perf_diff") == pl.col("min_perf_diff"))
+        .select("gvkey", "fyear", "gvkey_other")
+    )
+    perf_matched_accruals = (
+        das
+        .rename({"gvkey": "gvkey_other", "da": "da_other"})
+        .select("fyear", "gvkey_other", "da_other")
+        .join(perf_match, on=["fyear", "gvkey_other"], how="inner")
+        .select("gvkey", "fyear", "gvkey_other", "da_other")
+    )
+    return (
+        das
+        .join(perf_matched_accruals, on=["gvkey", "fyear"], how="inner")
+        .with_columns(da_adj=pl.col("da") - pl.col("da_other"))
+        .select(
+            "gvkey", "fyear", "acc_at", "da",
+            "da_adj", "da_other", "gvkey_other"
+        )
+    )
+
+def get_pmdas(
+    compustat: pl.DataFrame,
+    pm_lag: bool = True,
+    drop_extreme: bool = True,
+) -> pl.DataFrame:
+    return (
+        get_pm(compustat, pm_lag=pm_lag, drop_extreme=drop_extreme)
+        .sort(["gvkey", "fyear"])
+        .unique(subset=["gvkey", "fyear"], keep="first")
+    )
+```
+
+```{python}
+#| include: false
+#| eval: true
+with ptime():
+    pmdas = get_pmdas(compustat_annual)
+```
+
+```{python}
+#| include: false
+#| eval: true
+fhk_firm_years = load_data("fhk_firm_years")
+
+sho_accruals = (
+    sho_data
+    .join(fhk_firm_years, on="gvkey", how="inner")
+    .select("gvkey", "datadate", "pilot")
+    .with_columns(
+        fyear=(
+            pl.col("datadate").dt.year()
+            - (pl.col("datadate").dt.month() <= 5).cast(pl.Int32)
+        )
+    )
+    .join(
+        df_controls.select(
+            "gvkey", "fyear", "at", "mtob", "leverage", "roa"
+        ),
+        on=["gvkey", "fyear"],
+        how="left",
+    )
+    .join(pmdas, on=["gvkey", "fyear"], how="left")
+    .with_columns(
+        pl.col("at", "mtob", "leverage", "roa", "da_adj", "acc_at")
+        .era.winsorize(0.01)
+        .over("fyear")
+    )
+)
+```
+
+```{python}
+#| include: false
+#| eval: true
+ctrls_list = ["np.log(at)", "mtob", "roa", "leverage"]
+
+def reg_year_fe(
+    df: pl.DataFrame,
+    dv: str = "da_adj",
+    controls: bool = True,
+    firm_fe: bool = False,
+    cl_2: bool = True,
+    post_all: bool = False,
+):
+    data = (
+        df
+        .with_columns(year=pl.col("datadate").dt.year())
+        .with_columns(
+            during=pl.col("year").is_in([2005, 2006, 2007]),
+            post=pl.col("year") >= 2008 if post_all else
+                 pl.col("year").is_in([2008, 2009, 2010]),
+        )
+    )
+    rhs = "pilot * (during + post)"
+    if controls:
+        rhs = rhs + " + " + " + ".join(ctrls_list)
+    fe = " | gvkey + year" if firm_fe else " | year"
+    formula = f"{dv} ~ {rhs}{fe}"
+    vcov = {"CRV1": "gvkey"} if not cl_2 else {"CRV1": "gvkey + year"}
+    with warnings.catch_warnings():
+        warnings.filterwarnings(
+            "ignore", category=UserWarning, module="pyfixest"
+        )
+        return pf.feols(formula, data=data, vcov=vcov,
+                        demeaner_backend="scipy")
+
+def make_reg_table(
+    df: pl.DataFrame,
+    dv: str = "da_adj",
+    cl_2: bool = True,
+    post_all: bool = False,
+):
+    specs = [
+        {"controls": False, "firm_fe": False},
+        {"controls": True,  "firm_fe": False},
+        {"controls": False, "firm_fe": True},
+        {"controls": True,  "firm_fe": True},
+    ]
+    fms = [
+        reg_year_fe(
+            df,
+            dv=dv,
+            controls=s["controls"],
+            firm_fe=s["firm_fe"],
+            cl_2=cl_2,
+            post_all=post_all,
+        )
+        for s in specs
+    ]
+    show_typst(ETable(
+        fms,
+        signif_code=[0.01, 0.05, 0.1],
+        keep=["pilot"],
+        show_fe=True,
+        felabels={"gvkey": "Firm FE", "year": "Year FE"},
+        custom_model_stats={"Controls": ["No", "Yes", "No", "Yes"]},
+    ))
+
+def fit_by_year(df: pl.DataFrame, dv: str = "da_adj",
+                controls: bool = True):
+    data = df.with_columns(year=pl.col("datadate").dt.year())
+    rhs = "C(year)*pilot - pilot - 1"
+    if controls:
+        rhs = rhs + " + " + " + ".join(ctrls_list)
+    with warnings.catch_warnings():
+        warnings.filterwarnings(
+            "ignore", category=UserWarning, module="pyfixest"
+        )
+        return pf.feols(
+            f"{dv} ~ {rhs}",
+            data=data,
+            vcov={"CRV1": "year + gvkey"},
+        )
+
+def plot_coefficients(fit):
+    return (
+        pl.from_pandas(fit.coef().reset_index())
+        .with_columns(
+            year=pl.col("Coefficient")
+                .str.extract(r"C\(year\)\[(?:T\.)?(\d+)\]", 1)
+                .cast(pl.Int32),
+            pilot=pl.col("Coefficient").str.contains(r":pilot")
+        )
+        .filter(pl.col("year").is_not_null())
+        .select("year", "pilot", "Estimate")
+        .sort("pilot", "year")
+        .ggplot()
+        .aes(x="year", y="Estimate", color="pilot", linetype="pilot")
+        .geom_line()
+        .geom_rect(
+            aes(xmin=2005, xmax=2007, ymin=-np.inf, ymax=np.inf),
+            inherit_aes=False,
+            fill="black",
+            alpha=0.01,
+        )
+        .scale_x_continuous(breaks=list(range(2000, 2013)))
+        .labs(x="Year", y="Coefficient")
+        .theme_bw()
+    )
+
+def get_coef_rand(i: int, base_df: pl.DataFrame) -> pl.DataFrame:
+    treat = (
+        base_df
+        .select("gvkey", "pilot")
+        .unique()
+        .with_columns(
+            pl.col("pilot").shuffle(seed=2021 + i).alias("pilot")
+        )
+    )
+    reg_data_alt = (
+        base_df
+        .drop("pilot")
+        .join(treat, on="gvkey", how="inner")
+    )
+    fit = reg_year_fe(
+        reg_data_alt, controls=True, firm_fe=True, cl_2=False
+    )
+    return (
+        pl.from_pandas(fit.tidy().reset_index())
+        .select("Coefficient", "Estimate")
+        .with_columns(iteration=pl.lit(i))
+        .pivot(index="iteration", on="Coefficient", values="Estimate")
+    )
+```
+
+```{python}
+#| include: false
+#| eval: true
+n_sims = 1000
+
+with ptime():
+    rand_results = pl.concat(
+        [get_coef_rand(i, sho_accruals) for i in range(n_sims)],
+        how="vertical",
+    )
+```
+
+```{python}
+#| echo: false
+n_sho_firms = f"{sho_r3000_sample.height:,}"
+n_sho_treated = f"{sho_r3000_sample['pilot'].sum():,}"
+
+from IPython.display import Markdown, display
+display(Markdown(
+    f"Focusing on the {n_sho_firms} firms that the SEC focused on as its "
+    f"initial sample, if assignment to treatment were purely random, then "
+    f"any other assignment of treatment to {n_sho_treated} was as likely as "
+    f"the one chosen. But in our case, there will be a huge number of ways "
+    f"to choose {n_sho_treated} treatment firms from {n_sho_firms} "
+    "possibilities; so a more feasible approach is to draw a random sample "
+    "of possible assignments and use the empirical distribution of the test "
+    "statistic for that random sample as an approximation for the exact "
+    "distribution."
+))
+```
+
+## A replication crisis?
+
+### Discussion questions
+
+1. @Simmons:2011ux provide a more in-depth examination of issues with the TEP discussed in @Bloomfield:2018va [pp. 318--319].
+Do you think the two experiments studied by @Simmons:2011ux are representative of how accounting research works in practice?
+What differences are likely to exist in empirical accounting research using archival data?
+
+```{python}
+#| include: true
+
+```
+
+2. @Bloomfield:2018va [pp. 326] say "we exclude @Hail:2018wo from our tabulation [of results] because it does not state formal hypotheses."
+Given the lack of formal hypotheses, do you think it made sense to include the proposal from @Hail:2018wo in the 2017 JAR conference?
+Does the REP have relevance to papers without formal hypotheses?
+Does the absence of formal hypotheses imply that @Hail:2018wo were not testing hypotheses?
+Is your answer to the last question consistent with how @Hail:2018wo [p. 650] discuss results reported in Table 5 of that paper?
+
+```{python}
+#| include: true
+
+```
+
+3. According to the analysis of @Bloomfield:2018va, there were 218 tests of 30 hypotheses and different hypotheses had different numbers of tests.
+In the following analysis, we assume 30 hypotheses with each having 7 tests (for a total of 210 tests).
+Does this analysis suggest an alternative possible interpretation of the results than the "far less strongly than is typical" conclusion offered by @Bloomfield:2018va.
+Does choosing a different value for `seed` alter the tenor of the results from this analysis?
+How might you make the analysis below more definitive?
+
+```{python}
+#| eval: false
+seed = 2021
+rng = np.random.default_rng(seed)
+
+results_raw = pl.DataFrame({
+        "hypothesis": (h := np.repeat(np.arange(1, 31), 7)),
+        "test": np.tile(np.arange(1, 8), 30),
+        "p": (p := rng.random(h.shape[0])),
+        "reject": p < 0.05
+    })
+
+results = (
+    results_raw
+    .group_by("hypothesis")
+    .agg(pl.col("reject").any().alias("reject_one"))
+    .group_by("reject_one")
+    .agg(pl.len().alias("n"))
+    .sort("reject_one")
+)
+```
+
+```{python}
+#| include: true
+
+```
+
+4. @Bloomfield:2018va [p. 326] argue "it is easy to imagine revisions of several conference papers would allow them to report results of strength comparable to those found in most papers published under TEP."
+For example, "@Li:2018vh yielded no statistically significant support for their main hypotheses.
+However, they found significant results in their planned additional analyses that are consistent with informal predictions included in the accepted proposal. ...
+[In light of this evidence] we are not ready to conclude that the studies in the issue actually provide weaker support for their predictions than most studies published under TEP." [-@Bloomfield:2018va, p. 326].
+Can these results instead be interpreted as saying something about the strength of results of studies published under TEP?
+
+```{python}
+#| include: true
+
+```
+
+5. Do you believe that it would be feasible for REP to become the dominant research paradigm in accounting research?
+What challenges would such a development face?
+
+```{python}
+#| include: true
+
+```
+
+6. A respondent to the survey conducted by @Bloomfield:2018va [p. 337] provided the remark quoted below.
+Comment on this remark.
+What do you think the respondent has in mind with regard to the "learning channel"?
+Do you agree that the REP shuts down this channel?
+
+  > "I do not find the abundance of 'null results' surprising.
+  > It could have been discovered from one's own experience.
+  > Research is an iterative process and it involves learning.
+  > I am not sure if there is anything useful that we discover in the research process by shutting down the learning channel; especially with the research questions that are very novel and we do not know much about."
+
+```{python}
+#| include: true
+
+```
+
+## The Reg SHO experiment
+
+### Exercises
+
+1. Before running the following code, can you tell from output above how many rows this query will return?
+What is this code doing?
+At what stage would code like this have been used in process of creating the sample above?
+Why is code like this not included above?
+
+```{python}
+#| eval: false
+(
+    sho_r3000
+    .join(crsp_sample, left_on="russell_ticker", right_on="ticker",
+          how="anti")
+)
+```
+
+```{python}
+#| include: true
+
+```
+
+2. Focusing on the values of `ticker` and `pilot` in `fhk_pilot`, what differences do you observe between `fhk_pilot` and `sho_r3000_sample`?
+What do you believe is the underlying cause for these discrepancies?
+
+```{python}
+#| include: true
+
+```
+
+3. What do the following observations represent?
+Choose a few observations from this output and examine whether these reveal issues in the `sho_r3000_sample` or in `fhk_pilot`.
+
+```{python}
+#| echo: false
+(
+    sho_r3000_sample
+    .join(fhk_pilot, on="ticker",
+          how="inner", suffix="_fhk")
+    .filter(pl.col("permno") != pl.col("permno_fhk"))
+)
+```
+
+```{python}
+#| include: true
+
+```
+
+4. In constructing the `pilot` indicator, FHK omit cases (`gvkey` values) where there is more than one distinct value for the indicator.
+A question is: Who are these firms?
+Why is there more than one value for `pilot` for these firms?
+And does omission of these make sense?
+(*Hint:* Identify duplicates in `fhk_pilot` and compare `sho_r3000_gvkeys` for these firms.)
+
+```{python}
+#| include: true
+
+```
+
+5. What issue is implicit in the output from the code below?
+How could you fix this issue?
+Would you expect a fix for this issue to significantly affect the regression results?
+Why or why not?
+
+```{python}
+#| echo: false
+(
+    sho_data
+    .group_by("gvkey", "ticker")
+    .len(name="n")
+    .sort("n", descending=True)
+)
+```
+
+```{python}
+#| include: true
+
+```
+
+### Early studies of Reg SHO
+
+1. Earlier we identified one feature of a randomized controlled trial (RCT) as that "proposed analyses are specified in advance", as in a registered reports process.
+Why do you think the SEC did not use a registered report for its 2007 paper?
+Do you think the analyses of the SEC would be more credible if conducted as part of a registered reports process?
+Why or why not?
+
+```{python}
+#| include: true
+
+```
+
+2. Do you have concerns that the results @Alexander:2008th have been p-hacked?
+What factors increase or reduce your concerns in this regard?
+
+```{python}
+#| include: true
+
+```
+
+3. Evaluate the hypotheses found in the section of @Diether:2009vu [pp. 41-45] entitled *Testable Hypotheses* with particular sensitivity to concerns about HARKing.
+What kind of expertise is necessary in evaluating hypotheses in this way?
+
+```{python}
+#| include: true
+
+```
+
+4. How might the SEC have conducted Reg SHO as part of a registered reports process open to outside research teams, such as @Alexander:2008th and @Diether:2009vu?
+How might such a process have been run?
+What challenges would such a process face?
+
+```{python}
+#| include: true
+
+```
+
+## Indirect effects of Reg SHO
+
+### Discussion questions and exercises
+
+1. What would be the effect of replacing the code that creates `ff_data` above with the following code?
+What changes would we need to make to the code creating `for_disc_accruals` in `get_das()` to use this modified version of `ff_data`?
+
+```{python}
+#| eval: false
+ff_data = (
+    get_ff_ind(48)
+    .with_columns(
+        sich=pl.int_ranges(
+            pl.col("sic_min"),
+            pl.col("sic_max") + 1,
+            eager=False,
+        )
+    )
+    .explode("sich")
+)
+```
+
+```{python}
+#| include: true
+
+```
+
+2. What issue is `filter(row_number() == 1)` addressing in the code above?
+What assumptions are implicit in this approach?
+Do these assumptions hold in this case?
+What would be an alternative approach to address the issue?
+
+```{python}
+#| include: true
+
+```
+
+3. Why is `filter(fyear == lag(fyear) + 1)` required in the creation of `controls_raw`?
+
+```{python}
+#| include: true
+
+```
+
+4. Does the argument for using `salerect_c_at * b_sale_c_at` in creating non-discretionary accruals make sense to you?
+How do @Kothari:2005aa explain this?
+
+```{python}
+#| include: true
+
+```
+
+5. Does the code above ensure that a performance-matched control firm is used as a control just once?
+If so, which aspect of the code ensures this is true?
+If not, how might you ensure this and does this cause problems? (Just describe the approach in general; no need to do this.)
+
+```{python}
+#| include: true
+
+```
+
+6. What are FHK doing in the creation of `controls_filled`? (*Hint:* The key step is `.forward_fill()`.)
+Does this seem appropriate?
+Does doing this make a difference?
+
+```{python}
+#| include: true
+
+```
+
+7. What are FHK doing in the creation of `df_controls` from `controls_fyear`?
+Does this seem appropriate?
+Does doing this make a difference?
+
+```{python}
+#| include: true
+
+```
+
+### FHK: Regression analysis
+
+```{python}
+#| echo: false
+make_reg_table(sho_accruals)
+```
+
+```{python}
+#| echo: false
+plot_coefficients(fit_by_year(sho_accruals))
+```
+
+### Exercises
+
+1. In words, how does `sho_accruals_alt` (defined below) differ from `sho_accruals`?
+Does using `sho_accruals_alt` in place of `sho_accruals` affect the regression results?
+
+```{python}
+#| eval: false
+firm_years = controls_raw.select("gvkey", "datadate", "fyear")
+
+sho_accruals_alt = (
+    sho_r3000_gvkeys
+    .join(firm_years, on="gvkey", how="inner")
+    .join(df_controls, on=["gvkey", "fyear"], how="left")
+    .join(pmdas, on=["gvkey", "fyear"], how="left")
+    .with_columns(
+        pl.col(WIN_VARS).era.winsorize(0.01).over("fyear")
+    )
+)
+```
+
+```{python}
+#| include: true
+
+```
+
+2. In an online appendix, BDLYY say "FHK winsorize covariates for their covariate balance table at 1/99%. We inferred that they also winsorized accruals at this level. Whether they winsorize across sample years or within each year, they do not specify."
+The code above winsorized within each year.
+How would you modify the code to winsorize "across sample years"?
+Does doing so make a difference?
+
+```{python}
+#| include: true
+
+```
+
+3. How would you modify the code to winsorize at the 2%/98% level?
+Does this make a difference to the results?
+
+```{python}
+#| include: true
+
+```
+
+4. How would you modify the code to not winsorize at all?
+Does this make a difference to the results?
+
+```{python}
+#| include: true
+
+```
+
+5. Some of the studies discussed by BDLYY exclude 2004 data from the sample.
+How would you modify the code above to do this here?
+Does excluding 2004 here make a significant difference?
+
+```{python}
+#| include: true
+
+```
+
+6. What is the range of values for `year` in `sho_accruals`?
+Does this suggest any issues with the code `post = year %in% c(2008, 2009, 2010)` above?
+If so, does fixing any issue have an impact on the results reported above?
+
+```{python}
+#| include: true
+
+```
+
+7. Would it make sense, in creating `perf` above, if we instead calculated `ib_at` as `if_else(at > 0, ib / at, None)`?
+What is the effect on the regression results if we use this modified calculation of `ib_at`?
+What do @Kothari:2005aa recommend on this point?
+(*Hint:* Use `pm_lag=False` where applicable.)
+
+```{python}
+#| include: true
+
+```
+
+8. @Fang:2019tt [p. 10] follow @Fang:2016uy, who "exclude observations for which the absolute value of total accruals-to-total assets exceeds one.
+This is a standard practice in the accounting literature because firms with such high total accruals-to-total assets are often viewed as extreme outliers.
+Nonetheless, the FHK results are robust to winsorizing the accrual measures at the 1% and 99% levels instead of excluding extreme outliers."
+Does this claim hold up in the reproduction above?
+What happens if the `filter()` on `abs(acc_at) <= 1` is removed from the code above?
+(*Hint:* Use `drop_extreme=False` where applicable.)
+
+```{python}
+#| include: true
+
+```
+
+9. Explain what each line of the function `plot_coefficients()` before the line starting with `ggplot()` is doing.
+(*Hint:* It may be helpful to store the model that is fed to the function above in the variable `model` and then run the function line by line.)
+
+```{python}
+#| include: true
+
+```
+
+## Statistical inference
+
+### Exercises
+
+1. In the function `get_coef_rand()`, we first created the data set `treatment`, then merged this with `reg_data_alt`.
+Why did we do it this way rather than simply applying the line `pilot = np.random.permutation(pilot)` directly to `reg_data_alt`?
+
+```{python}
+#| include: true
+
+```
+
+2. Using randomization inference, calculate a p-value for a one-sided alternative hypothesis that $H_1: \beta < 0$ where $\beta$ is the coefficient on $\mathit{PILOT} \times \mathit{DURING}$.
+(*Hint:* You should not need to run the randomization again; modifying the calculation of `p_value` should suffice.)
+
+```{python}
+#| include: true
+
+```
+
+3. What is the empirical standard error implied by the distribution of coefficients in `rand_results`?
+Is it closer to the two-way cluster robust standard errors obtained in estimating with `cl_2=True` or with `cl_2=False`?
+Why might it be preferable to calculate p-values under randomization inference using the empirical distribution of the test statistic, instead of calculating these from t-statistics based on the estimated coefficient and the empirical standard error?
+Would we get different p-values using the former approach?
+
+```{python}
+#| include: true
+
+```
+
+4. Why did we not use the empirical standard error implied by the distribution of coefficients in `rand_results` to calculate standard errors for the control variables (e.g., `log(at)`)?
+
+```{python}
+#| include: true
+
+```
+
+## Causal diagrams
+
+The causal diagram for this setting posits the structure: $\textit{Reg SHO} \rightarrow \textit{Accruals}$, with $\textit{Performance} \rightarrow \textit{Accruals}$, $\textit{Sales growth} \rightarrow \textit{Accruals}$, and $\textit{PP\&E} \rightarrow \textit{Accruals}$.
+
+### Discussion questions
+
+1. What features of this causal diagram imply that we do not need to control for performance, sales, and PP&E in estimating the causal effect of Reg SHO on accruals?
+What is the basis for assuming these features in the causal diagram?
+
+```{python}
+#| include: true
+
+```
+
+2. @Black:2022tz report that "over 60 papers in accounting, finance, and economics report that suspension of the price tests had wide-ranging indirect effects on pilot firms, including on earnings management, investments, leverage, acquisitions, management compensation, workplace safety, and more (see Internet Appendix, Table IA-1 for a summary)."
+In light of the Internet Appendix of @Black:2022tz, is there any evidence that Reg SHO might plausibly have an effect on performance, sales growth, or PP&E?
+If so, how would the causal diagram need to be modified to account for these consequences?
+What would be the implications of these changes on the appropriate tests for estimating the causal effects of Reg SHO on accruals?
+
+```{python}
+#| include: true
+
+```
+
+3. Produce a regression table like the baseline replication above and a plot like the coefficient plot above, but using discretionary accruals *without* performance matching instead of performance-matched discretionary accruals.
+How do you interpret these results?
+
+```{python}
+#| include: true
+
+```
+
+4. Produce a regression table and a plot like the ones in the FHK replication above, but using total accruals instead of discretionary accruals and excluding controls (so the coefficients will be simple conditional sample means).
+How do you interpret these results?
+
+```{python}
+#| include: true
+
+```
+
+5. Suppose you had been brought in by the SEC to design a study examining the research question examined by FHK in the form of a registered report.
+What analyses would you conduct to try to understand the best research design?
+For example, how would you choose between *DiD*, *POST*, *ANCOVA*, and other empirical approaches?
+What controls would you include?
+How would you decide how to include controls?
+(For example, one could control for performance by including performance as a regressor in the model of earnings management, by matching on performance, or by including performance in the main regression specification.)
+How would you calculate standard errors?
+Discuss how your proposed empirical test differs from that of FHK.
+Would you have reported similar results to what FHK reported?
+
+```{python}
+#| include: true
+
+```
+
+6. Suppose that FHK's empirical analysis had produced a positive effect of Reg SHO on earnings management?
+Would this imply a lack of support for their hypotheses?
+Do you believe that publication in the *Journal of Finance* depended on finding a negative effect?
+
+```{python}
+#| include: true
+
+```
+
+7. What implications would there have been for publication of FHK in the *Journal of Finance* if they had failed to find an effect of Reg SHO on earnings management?
+
+```{python}
+#| include: true
+
+```
+
+## Causal mechanisms
+
+### Discussion questions
+
+1. Do you agree with the assertion of @Black:2022tz that "FHK rely on the manager fear channel"?
+What causal mechanisms are suggested in @Fang:2016uy?
+What evidence do @Fang:2016uy offer in support of these mechanisms?
+
+```{python}
+#| include: true
+
+```
+
+2. Evaluate the response of @Fang:2019tt to @Black:2022tz as it relates to causal mechanisms?
+
+```{python}
+#| include: true
+
+```
+
+3. Do you think evidence of causal mechanisms is more or less important when using a natural experiment (i.e., an experiment outside the control of the researcher that is typically analysed after it has been run) than when conducting a randomized experiment?
+Explain your reasoning given the various issues raised in this chapter.
+
+```{python}
+#| include: true
+
+```
+
+## Two-step regressions
+
+### Discussion questions
+
+1. What challenges would exist in implementing the single-regression recommendation of @Chen:2018wh for a researcher using @Kothari:2005aa performance-matched discretionary accruals?
+
+```{python}
+#| include: true
+
+```
+
+2. Do you believe the issues raised by @Chen:2018wh with regard to two-step procedures also apply if using randomization inference?
+Why or why not?
+
+```{python}
+#| include: true
+
+```

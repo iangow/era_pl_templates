@@ -1,0 +1,1002 @@
+---
+title: "Accruals"
+subtitle: "Responses to exercise questions"
+author: Put your name here
+bibliography: references.bib
+engine: jupyter
+jupyter: python3
+format:
+  typst: default
+---
+
+:::{.content-visible when-format="markdown"}
+## Instructions
+
+This document assumes that you have completed the instructions [here](https://github.com/iangow/era_pl_templates/blob/main/README.md).
+Note that this chapter uses CRSP and Compustat data from a local Parquet repository, which means you will need to complete **Step 5: Get data from WRDS** before running any code.
+Some cells also fetch data from Ken French's website and require internet access.
+
+This template extracts the visible code and exercises from [Chapter 15](https://iangow.github.io/era_pl_book/accruals.html) of the Python Polars edition of *Empirical Research in Accounting: Tools and Methods*.
+This template includes all the code from the book chapter.
+
+Within Positron, you can run the code below in two ways.
+
+In the first way, you can treat this file as a notebook of sorts and just run the code interactively.
+In Positron, you will see "Run Cell" and (for cells after the first cell) "Run Above".
+You might choose to go through the cells in order and click "Run Cell" on each one to see its output.
+Alternatively, you might jump ahead to a cell of interest, and click "Run Above" so that any prior code needed for your chosen cell has been executed, then "Run Cell" on the cell of interest.
+
+Note that some cells contain multiple lines and to see the output from each, you may need to execute them one at a time.
+You can run code interactively from a .qmd file in Positron without rendering the whole document.
+On macOS, place the cursor in a code cell or highlight selected lines and press `Command+Enter`; on Windows and Linux, use `Ctrl+Enter` instead.
+
+In the second way, you have Quarto "render" the document as PDF.
+In Positron, you can accomplish this by clicking the "Preview" button at the top of the edit window.
+Note that many of the cells below will not appear in the created PDF.
+This document uses Quarto chunk options to control that behaviour.
+(Quarto seems to use the words "cell" and "chunk" interchangeably.)
+In particular, chunks with `#| include: false` are executed without either the code or the output being shown in the rendered document.
+Other chunk options include `#| echo` to show or hide the code and `#| output` to hide or show the output.
+
+Some cells in the exercises section are marked `#| eval: false` because they depend on code you must write yourself (e.g., Exercise Q5 of the simulation section).
+Run them interactively once you have filled in the required code.
+
+To answer the questions below, you are likely to play around with code interactively (the first way) until you are ready to render your answers (using the second way) and submit them to your course instructor.
+
+Note that you can type text outside code cells and these will be rendered as markdown.
+More details on using Quarto markdown are provided on the [Quarto website](https://quarto.org).
+
+:::
+
+```{python}
+#| include: false
+import plotnine_polars as p9
+p9.theme_set(p9.theme_matplotlib())
+```
+
+```{python}
+#| include: false
+#| eval: true
+import numpy as np
+import polars as pl
+import pyfixest as pf
+import statsmodels.formula.api as smf
+from maketables import ETable
+from great_tables import GT
+import plotnine_polars
+from plotnine_polars import aes
+
+from era_pl import (get_me_breakpoints, get_size_rets_monthly,
+                    load_parquet, ptime)
+```
+
+```{python}
+#| include: false
+#| eval: true
+import warnings
+from pandas.errors import ChainedAssignmentError
+
+warnings.filterwarnings(
+    "ignore",
+    category=ChainedAssignmentError,
+    module="pyfixest",
+)
+```
+
+```{python}
+#| include: false
+#| eval: true
+def get_data(
+    add_perc: float = 0.03,
+    n_years: int = 20,
+    seed: int | None = None,
+) -> pl.DataFrame:
+    local_rng = np.random.default_rng(seed)
+
+    add_true = 0.03
+    gross_margin = 0.8
+    beg_cash = 1500.0
+    beg_se = 1500.0
+    div_payout = 1.0
+    mean_sale = 1000.0
+    sd_sale = 100.0
+    rho = 0.9
+
+    sale_err = local_rng.normal(0.0, sd_sale, n_years)
+    sales = np.empty(n_years, dtype=float)
+    sales[0] = mean_sale + sale_err[0]
+    for i in range(1, n_years):
+        sales[i] = (
+            mean_sale + rho * (sales[i - 1] - mean_sale) + sale_err[i]
+        )
+
+    cogs = (1 - gross_margin) * sales
+    ar = sales.copy()
+    add = add_perc * sales
+
+    writeoffs = np.full(n_years, np.nan)
+    collect = np.full(n_years, np.nan)
+    div = np.full(n_years, np.nan)
+    se = np.full(n_years, np.nan)
+    ni = np.full(n_years, np.nan)
+    bde = np.full(n_years, np.nan)
+    cash = np.full(n_years, np.nan)
+
+    writeoffs[0] = 0.0
+    collect[0] = 0.0
+    bde[0] = add[0]
+    ni[0] = sales[0] - cogs[0] - bde[0]
+    div[0] = ni[0] * div_payout
+    cash[0] = beg_cash + collect[0] - cogs[0] - div[0]
+    se[0] = beg_se + ni[0] - div[0]
+
+    for i in range(1, n_years):
+        writeoffs[i] = add_true * ar[i - 1]
+        collect[i] = (1 - add_true) * ar[i - 1]
+        bde[i] = add[i] - add[i - 1] + writeoffs[i]
+        ni[i] = sales[i] - cogs[i] - bde[i]
+        div[i] = ni[i] * div_payout
+        cash[i] = cash[i - 1] + collect[i] - cogs[i] - div[i]
+        se[i] = se[i - 1] + ni[i] - div[i]
+
+    return pl.DataFrame(
+        {
+            "year": np.arange(1, n_years + 1, dtype=np.int64),
+            "add_perc": np.repeat(add_perc, n_years),
+            "sales": sales,
+            "writeoffs": writeoffs,
+            "collect": collect,
+            "div": div,
+            "se": se,
+            "ni": ni,
+            "bde": bde,
+            "cash": cash,
+            "cogs": cogs,
+            "ar": ar,
+            "add": add,
+        }
+    )
+
+
+def run_simulation(i: int, add_perc: float) -> pl.DataFrame:
+    return get_data(add_perc=add_perc, seed=2021 + i)
+
+
+df_1000 = get_data(n_years=1000, seed=2021)
+
+rng = np.random.default_rng(2021)
+add_percs = rng.uniform(low=0.01, high=0.05, size=5000)
+
+res_list = [
+    run_simulation(i, add_perc)
+    for i, add_perc in enumerate(add_percs, start=1)
+]
+
+res_df = pl.concat(
+    [
+        df.with_columns(id=pl.lit(i, dtype=pl.Int32))
+        for i, df in enumerate(res_list, start=1)
+    ],
+    how="vertical",
+).select("id", pl.exclude("id"))
+
+def get_coefs(df: pl.DataFrame) -> pl.DataFrame:
+    fm_data = (
+        df
+        .sort("year")
+        .with_columns(lag_ni=pl.col("ni").shift(1))
+        .drop_nulls("lag_ni")
+    )
+    x = fm_data["lag_ni"].to_numpy()
+    y = fm_data["ni"].to_numpy()
+    X = np.column_stack([np.ones(len(x)), x])
+    beta = np.linalg.lstsq(X, y, rcond=None)[0]
+    return pl.DataFrame(
+        {
+            "add_perc": [df["add_perc"].mean()],
+            "persistence": [beta[1]],
+        }
+    )
+
+results = pl.concat(
+    [
+        get_coefs(df).with_columns(id=pl.lit(i, dtype=pl.Int32))
+        for i, df in enumerate(res_list, start=1)
+    ],
+    how="vertical",
+).select("id", pl.exclude("id"))
+```
+
+```{python}
+#| include: false
+#| eval: true
+funda = load_parquet("funda", "comp")
+company = load_parquet("company", "comp")
+ccmxpf_lnkhist = load_parquet("ccmxpf_lnkhist", "crsp")
+msf = load_parquet("msf", "crsp")
+
+sics = (
+    company
+    .select("gvkey", "sic")
+    .with_columns(sic=pl.col("sic").cast(pl.Int32, strict=False))
+)
+
+funda_mod = (
+    funda
+    .filter(
+        pl.col("indfmt") == "INDL",
+        pl.col("datafmt") == "STD",
+        pl.col("consol") == "C",
+        pl.col("popsrc") == "D",
+    )
+    .join(sics, on="gvkey", how="left")
+    .with_columns(sic=pl.coalesce("sich", "sic"))
+)
+
+acc_data_raw = (
+    funda_mod
+    .filter(
+        pl.col("at").is_not_null(),
+        pl.col("pddur") == 12,
+        pl.col("exchg").is_in([11, 12]),
+    )
+    .with_columns(
+        pl.col("sic").is_between(6000, 6999).alias("finance"),
+        pl.col("che", "dlc", "txp").fill_null(0),
+    )
+    .sort("gvkey", "datadate")
+    .drop("ca")
+    .rename({"act": "ca", "che": "cash", "lct": "cl",
+             "dlc": "std", "txp": "tp"})
+    .with_columns(
+        (pl.col("at") + pl.col("at").shift(1).over("gvkey"))
+        .truediv(2).alias("avg_at"),
+        pl.col("ca", "cash", "cl", "std", "tp")
+        .diff().over("gvkey").name.prefix("d_")
+    )
+    .select(
+        "gvkey", "datadate", "fyear", "avg_at", "at",
+        "oiadp", "dp", "finance", "d_ca", "d_cash",
+        "d_cl", "d_std", "d_tp", "sic", "pddur",
+    )
+    .with_columns(
+        acc_raw=(
+            (pl.col("d_ca") - pl.col("d_cash"))
+             - (pl.col("d_cl") - pl.col("d_std") - pl.col("d_tp"))
+             - pl.col("dp")
+        )
+    )
+    .filter(
+        pl.col("fyear").is_between(1962, 1991),
+        pl.col("avg_at") > 0,
+    )
+)
+
+acc_data = (
+    acc_data_raw
+    .with_columns(
+        earn=pl.col("oiadp") / pl.col("avg_at"),
+        acc=pl.col("acc_raw") / pl.col("avg_at"),
+    )
+    .with_columns(cfo=pl.col("earn") - pl.col("acc"))
+    .sort(["gvkey", "datadate"])
+    .with_columns(lead_earn=pl.col("earn").shift(-1).over("gvkey"))
+    .filter(~pl.col("finance"), pl.col("acc").is_not_null())
+    .with_columns(
+        pl.col("acc", "earn", "cfo", "lead_earn")
+        .era.ntile(10).name.suffix("_decile"),
+        sic2=(
+            pl.col("sic").cast(pl.Int32, strict=False)
+            .cast(pl.Utf8).str.slice(0, 2)
+        ),
+    )
+)
+
+ccm_link = (
+    ccmxpf_lnkhist
+    .filter(
+        pl.col("linktype").is_in(["LC", "LU", "LS"]),
+        pl.col("linkprim").is_in(["C", "P"]),
+    )
+    .rename({"lpermno": "permno"})
+    .with_columns(
+        linkenddt=pl.col("linkenddt")
+                  .fill_null(pl.col("linkenddt").max())
+    )
+    .select("gvkey", "permno", "linkdt", "linkenddt")
+)
+
+crsp_link = (
+    acc_data_raw
+    .select("gvkey", "datadate")
+    .join(ccm_link, on="gvkey", how="inner")
+    .filter(
+        pl.col("datadate").is_between(pl.col("linkdt"),
+                                      pl.col("linkenddt"))
+    )
+    .select("gvkey", "datadate", "permno")
+    .with_columns(
+        start_month=
+            pl.col("datadate").dt.offset_by("4mo")
+            .dt.truncate("1mo"),
+        end_month=
+            pl.col("datadate").dt.offset_by("15mo")
+            .dt.truncate("1mo"),
+        month=pl.col("datadate")
+            .dt.truncate("1mo"),
+    )
+)
+
+crsp_data = (
+    msf
+    .join(crsp_link, on="permno", how="inner")
+    .filter(
+        pl.col("date").is_between(pl.col("start_month"),
+                                  pl.col("end_month"))
+    )
+    .group_by("gvkey", "permno", "datadate")
+    .agg(
+        ret=(
+            pl.when(pl.col("ret").count() > 0)
+            .then(pl.col("ret").drop_nulls().add(1).product() - 1)
+            .otherwise(None)
+        ),
+        n_months=pl.len(),
+    )
+)
+
+size_rets = get_size_rets_monthly()
+
+me_breakpoints = get_me_breakpoints()
+
+crsp_dates = (
+    msf
+    .select("date")
+    .unique()
+    .with_columns(month=pl.col("date").dt.truncate("1mo"))
+)
+
+me_values = (
+    crsp_link
+    .join(crsp_dates, on="month", how="inner")
+    .join(msf, on=["permno", "date"], how="inner")
+    .with_columns(mktcap=pl.col("prc").abs() * pl.col("shrout") / 1000)
+    .select("permno", "datadate", "month", "mktcap")
+)
+
+me_decile_assignments = (
+    me_breakpoints
+    .join(me_values, on="month", how="inner")
+    .filter(pl.col("mktcap").is_between("me_min", "me_max",
+                                        closed="left"))
+    .select("permno", "datadate", "decile")
+)
+
+cum_size_rets = (
+    me_decile_assignments
+    .select("datadate", "decile")
+    .unique()
+    .with_columns(
+        start_month=(
+            pl.col("datadate").dt.offset_by("4mo").dt.truncate("1mo")
+        ),
+        end_month=(
+            pl.col("datadate").dt.offset_by("15mo")
+        ).dt.truncate("1mo"),
+    )
+    .join(size_rets, on="decile", how="inner")
+    .filter(
+        pl.col("month").is_between(
+            pl.col("start_month"), pl.col("end_month"), closed="both"
+        )
+    )
+    .group_by("datadate", "decile")
+    .agg(
+        pl.col("ew_ret").add(1).product() - 1,
+        pl.col("vw_ret").add(1).product() - 1,
+        pl.len().alias("n_size_months"),
+    )
+)
+
+size_adj_rets = (
+    crsp_data
+    .join(me_decile_assignments, on=["permno", "datadate"], how="inner")
+    .join(cum_size_rets, on=["datadate", "decile"], how="inner")
+    .with_columns(size_adj_ret=pl.col("ret") - pl.col("vw_ret"))
+    .select(
+        "gvkey", "datadate", "size_adj_ret",
+        "n_months", "n_size_months"
+    )
+)
+
+reg_data = (
+    acc_data
+    .join(size_adj_rets,
+          on=["gvkey", "datadate"], how="inner"
+    )
+    .collect()
+)
+
+fm_earn = pf.feols("lead_earn ~ earn", data=reg_data)
+fm_earn_decile = pf.feols("lead_earn_decile ~ earn_decile", data=reg_data)
+
+def run_table_ind(
+    sic2: str,
+    lhs: str = "lead_earn",
+    rhs: str = "earn",
+) -> pl.DataFrame:
+    df = reg_data.filter(pl.col("sic2") == sic2)
+    fm = smf.ols(f"{lhs} ~ {rhs}", data=df.to_pandas()).fit()
+    params = {name: float(value) for name, value in fm.params.items()}
+    return pl.DataFrame(
+        {"sic2": [sic2], **{key: [value] for key, value in params.items()}}
+    )
+
+def stats_for_table(x: pl.Series) -> pl.DataFrame:
+    return pl.DataFrame(
+        {
+            "mean": [x.mean()],
+            "q1": [x.quantile(0.25)],
+            "median": [x.quantile(0.50)],
+            "q3": [x.quantile(0.75)],
+        }
+    )
+
+def summ_for_table(
+    lhs: str = "lead_earn",
+    rhs: str = "earn",
+    digits: int = 3,
+) -> GT:
+    coefs = pl.concat(
+        [
+            run_table_ind(sic2, lhs=lhs, rhs=rhs)
+            for sic2 in reg_data["sic2"].unique().sort()
+        ],
+        how="vertical",
+    ).drop("sic2")
+    summ = (
+        pl.concat(
+            [
+                stats_for_table(coefs[col]).with_columns(term=pl.lit(col))
+                for col in coefs.columns
+            ],
+            how="vertical",
+        )
+        .select("term", "mean", "q1", "median", "q3")
+    )
+    return summ.style.fmt_number(
+        columns=["mean", "q1", "median", "q3"], decimals=digits
+    )
+
+fm_acc = pf.feols("lead_earn ~ acc + cfo", data=reg_data)
+fm_acc_decile = pf.feols(
+    "lead_earn_decile ~ acc_decile + cfo_decile",
+    data=reg_data,
+)
+
+mms = [
+    pf.feols("size_adj_ret ~ lead_earn + acc + cfo", data=reg_data),
+    pf.feols(
+        "size_adj_ret ~ lead_earn_decile + acc_decile + cfo_decile",
+        data=reg_data,
+    ),
+]
+
+mm0_tidy = pl.from_pandas(mms[0].tidy().reset_index())
+fm_acc_tidy = pl.from_pandas(fm_acc.tidy().reset_index())
+
+beta_hat = (
+    mm0_tidy.filter(pl.col("Coefficient") == "lead_earn")
+    .select("Estimate")
+    .item()
+)
+beta_gamma_hat = (
+    -mm0_tidy.filter(pl.col("Coefficient") == "acc")
+    .select("Estimate")
+    .item()
+)
+gamma_star_hat = beta_gamma_hat / beta_hat
+gamma_hat = (
+    fm_acc_tidy.filter(pl.col("Coefficient") == "acc")
+    .select("Estimate")
+    .item()
+)
+beta_gamma_implied = beta_hat * gamma_hat
+
+eff = [
+    pf.feols("size_adj_ret ~ acc + cfo", data=reg_data),
+    pf.feols("size_adj_ret ~ acc_decile + cfo_decile", data=reg_data),
+]
+
+portfolio_rets = (
+    reg_data
+    .group_by("fyear", "acc_decile")
+    .agg(size_adj_ret=pl.col("size_adj_ret").mean())
+)
+
+fm_tbl6 = smf.ols(
+    "size_adj_ret ~ C(acc_decile) - 1",
+    data=portfolio_rets.to_pandas(),
+).fit()
+
+hedge_data = (
+    portfolio_rets
+    .with_columns(acc_decile_str=pl.col("acc_decile").cast(pl.Utf8))
+    .filter(pl.col("acc_decile_str").is_in(["1", "10"]))
+    .with_columns(
+        low_accrual=(pl.col("acc_decile_str") == "1").cast(pl.Int8)
+    )
+)
+fm_tbl6_hedge = smf.ols(
+    "size_adj_ret ~ low_accrual",
+    data=hedge_data.to_pandas(),
+).fit()
+hedge_ret = float(fm_tbl6_hedge.params["low_accrual"])
+p_val = float(fm_tbl6_hedge.pvalues["low_accrual"])
+```
+
+## @Sloan:1996wd
+
+### Discussion questions
+
+1. Read the material preceding the formal statement of H1.
+What reasons for differential persistence of earnings components does @Sloan:1996wd offer?
+How important is it for these reasons to be correct in light of the empirical support for H1 provided in Table 3?
+How important is the empirical support for H1 to H2(i)?
+
+```{python}
+#| include: true
+
+```
+
+2. Which hypothesis (if any) does Table 4 test?
+How would you interpret the results of Table 4 in words?
+
+```{python}
+#| include: true
+
+```
+
+3. Which hypothesis (if any) does Table 5 test?
+How would you interpret the results of Table 5 in words?
+
+```{python}
+#| include: true
+
+```
+
+4. Which hypothesis (if any) does Table 6 test?
+How would you interpret the results of Table 6 in words?
+There are similarities between the results of Table 6 of @Sloan:1996wd and the results in @Bernard:1989uu.
+Both involve forming portfolios of firms based on deciles of some variable [accruals in @Sloan:1996wd; earnings surprise in @Bernard:1989uu] and examining how those portfolios perform subsequently.
+Apart from the measure used to form portfolios, what are the significant differences between the analyses in the two papers that you can think of looking at Table 6?
+
+```{python}
+#| include: true
+
+```
+
+5. With which hypothesis (if any) is Figure 2 related?
+What does Figure 2 show according to @Sloan:1996wd?
+
+```{python}
+#| include: true
+
+```
+
+6. With which hypothesis (if any) is Figure 3 related?
+What does Figure 3 show according to @Sloan:1996wd?
+
+```{python}
+#| include: true
+
+```
+
+## Measuring accruals
+
+### Discussion questions
+
+1. In the equation above, why is $\Delta \mathit{Cash}$ subtracted?
+
+```{python}
+#| include: true
+
+```
+
+2. In the equation above, why is $\Delta \mathit{STDEBT}$ added?
+
+```{python}
+#| include: true
+
+```
+
+3. Is it true that mergers and divestitures have "no earnings impact"?
+Is the absence of earnings impact important to the estimation issue?
+Are there transactions that have no earnings impact, but do affect cash flow from operations?
+
+```{python}
+#| include: true
+
+```
+
+4. Are there any differences between @Hribar:2002wc ($\mathit{ACC}_{bs}$ above) and @Sloan:1996wd in their definitions of accruals?
+Which definition makes more sense to you? Why?
+
+```{python}
+#| include: true
+
+```
+
+## Simulation analysis
+
+```{python}
+#| echo: false
+#| label: fig-sales
+#| fig-cap: Sales over time for a simulated firm
+#| fig-alt: "Plot of sales over first twenty years of a simulated firm."
+(
+    df_1000
+    .filter(pl.col("year") <= 20)
+    .with_columns(
+        mean_sales=(pl.col("sales").mean())
+    )
+    .ggplot()
+    .aes(x="year")
+    .geom_line(aes(y="sales"), color="red")
+    .geom_line(aes(y="mean_sales"), color="blue")
+)
+```
+
+```{python}
+#| echo: false
+#| label: fig-persist
+#| fig-cap: Relationship between persistence and `add_perc`
+#| fig-alt: "Scatter plot of persistence against add_perc. Plot is a cloud of points and there is no apparent relationship between these variables."
+(
+    results
+    .ggplot()
+    .aes(x="add_perc", y="persistence")
+    .geom_point()
+)
+```
+
+### Exercises
+
+1. When generating simulated financial statement data, it is generally important to ensure that the generated data meet some basic requirements.
+What is one fundamental relation that we expect to hold for these data?
+Does it hold for the data in `df_1000`?
+
+```{python}
+#| include: true
+
+```
+
+2. Calculate values for cash flows from operating activities and cash flows from financing activities. (Treat payment of dividends as a financing activity. *Hint:* You may find it easier to use the **direct method** to calculate cash flows from operating activities.)
+Does the cash flow statement articulate as it should?
+
+```{python}
+#| include: true
+
+```
+
+3. How evident are the details of the underlying process generating sales from @fig-sales?
+Does looking at more data help?
+(Obviously, having a thousand years of data on a firm with a stationary process is not common.)
+
+```{python}
+#| include: true
+
+```
+
+4. What is the "correct" value of `add_perc` that should be used?
+Using the plot from `results` above, what is the relation between values of departing from that value and persistence?
+Does this agree with your intuition?
+What's going on?
+What aspects of the `add_perc`-related accounting seem unrealistic?
+(*Hint:* It may help to use variants of `get_data(0.03, seed=2021)` for various values in place of `0.03` and to examine how the earnings process is affected.)
+
+```{python}
+#| include: true
+
+```
+
+5. Does the simulation analysis speak to the underlying rationale for H1 of @Sloan:1996wd?
+If so, why?
+If not, what might be missing from the analysis?
+How might we modify the simulation to incorporate the missing elements?
+
+```{python}
+#| include: true
+
+```
+
+6. Which hypothesis does Figure 1 of @Sloan:1996wd relate to?
+What aspects of the plot make it easier or more difficult to interpret the results?
+The following code replicates a version of Figure 1 from @Sloan:1996wd using our simulated data.
+On the basis of Figures [-@fig-ni-persist]--[-@fig-acc-persist] and the arguments given in @Sloan:1996wd, is H1 true in our simulated data?
+Given the other analysis above, is H1 true in our simulated data?
+
+```{python}
+#| echo: false
+#| eval: false
+year_of_event = 10
+
+decile_data = (
+    sim_reg_data
+    .filter(pl.col("year") == year_of_event)
+    .with_columns(
+        cfo_decile=pl.col("cfo").era.ntile(10),
+        ni_decile=pl.col("ni").era.ntile(10),
+        acc_decile=pl.col("acc").era.ntile(10),
+    )
+    .select("id", pl.col("^.*_decile$"))
+)
+
+reg_data_deciles = sim_reg_data.join(decile_data, on="id", how="inner")
+```
+
+```{python}
+#| echo: false
+#| eval: false
+#| label: fig-ni-persist
+#| fig-cap: Persistence of net income by decile of income
+#| fig-alt: "Average net income from years 0 to 20 by decile for firms in the top and bottom decile of net income in year 10."
+(
+    reg_data_deciles
+    .filter(pl.col("ni_decile").is_in([1, 10]))
+    .group_by("ni_decile", "year")
+    .agg(ni=pl.col("ni").mean())
+    .with_columns(ni_decile=pl.col("ni_decile").cast(pl.Utf8))
+    .sort(["ni_decile", "year"])
+    .ggplot()
+    .aes(x="year", y="ni", group="ni_decile", color="ni_decile")
+    .geom_line()
+)
+```
+
+```{python}
+#| echo: false
+#| eval: false
+#| label: fig-cfo-persist
+#| fig-cap: Persistence of net income by decile of cash flows
+#| fig-alt: "Average net income from years 0 to 20 by decile for firms in the top and bottom decile of cash flow from operations in year 10."
+(
+    reg_data_deciles
+    .filter(pl.col("cfo_decile").is_in([1, 10]))
+    .group_by("cfo_decile", "year")
+    .agg(ni=pl.col("ni").mean())
+    .with_columns(cfo_decile=pl.col("cfo_decile").cast(pl.Utf8))
+    .sort(["cfo_decile", "year"])
+    .ggplot()
+    .aes(x="year", y="ni", group="cfo_decile", color="cfo_decile")
+    .geom_line()
+)
+```
+
+```{python}
+#| echo: false
+#| eval: false
+#| label: fig-acc-persist
+#| fig-cap: Persistence of net income by decile of accruals
+#| fig-alt: "Average net income from years 0 to 20 by decile for firms in the top and bottom decile of accruals in year 10."
+(
+    reg_data_deciles
+    .filter(pl.col("acc_decile").is_in([1, 10]))
+    .group_by("acc_decile", "year")
+    .agg(ni=pl.col("ni").mean())
+    .with_columns(acc_decile=pl.col("acc_decile").cast(pl.Utf8))
+    .sort(["acc_decile", "year"])
+    .ggplot()
+    .aes(x="year", y="ni", group="acc_decile", color="acc_decile")
+    .geom_line()
+)
+```
+
+```{python}
+#| include: true
+
+```
+
+## Replicating @Sloan:1996wd
+
+```{python}
+#| echo: false
+#| label: tbl-table-2-pooled
+#| tbl-cap: Replication of Table 2 of @Sloan:1996wd
+ETable(
+    [fm_earn, fm_earn_decile],
+    model_heads=["Lead earnings", "Lead earnings decile"],
+    head_order="h",
+    coef_fmt="b:.3f* \n (t:.3f)",
+    signif_code=[0.01, 0.05, 0.10],
+    model_stats=["N", "r2"],
+)
+```
+
+```{python}
+#| echo: false
+#| label: tbl-sloan-3
+#| tbl-cap: Replication of Table 3 of @Sloan:1996wd
+ETable(
+    [fm_acc, fm_acc_decile],
+    model_heads=["Lead earnings", "Lead earnings decile"],
+    head_order="h",
+    coef_fmt="b:.3f* \n (t:.3f)",
+    signif_code=[0.01, 0.05, 0.10],
+    model_stats=["N", "r2"],
+)
+```
+
+```{python}
+#| echo: false
+#| label: tbl-5
+#| tbl-cap: Abnormal returns, earnings, and lagged components
+ETable(
+    mms,
+    model_heads=["Levels", "Deciles"],
+    head_order="h",
+    coef_fmt="b:.3f* \n (t:.3f)",
+    signif_code=[0.01, 0.05, 0.10],
+    model_stats=["N", "r2"],
+)
+```
+
+```{python}
+#| echo: false
+#| label: tbl-rational
+#| tbl-cap: Regressions for @Abel:1983um test
+ETable(
+    eff,
+    model_heads=["Levels", "Deciles"],
+    head_order="h",
+    coef_fmt="b:.3f* \n (t:.3f)",
+    signif_code=[0.01, 0.05, 0.10],
+    model_stats=["N", "r2"],
+)
+```
+
+### Exercises
+
+1. In creating `acc_data_raw`, we used `fill_null(0)` to set the value of certain variables to zero when missing on Compustat.
+Does this seem appropriate here?
+Are the issues similar to those observed with regard to R&D in @sec-fin-state-reprise?
+It may be helpful to find some observations from recent years where this use of `fill_null(0)` has an effect and think about the issues in context of financial statements for those firm-years.
+
+```{python}
+#| include: true
+
+```
+
+2. Can you reconcile the results from the @Abel:1983um test with those from the previous regressions?
+(*Hint:* Pay attention to sample composition; you may need to tweak these regressions.)
+
+```{python}
+#| include: true
+
+```
+
+3. The equations estimated in Table 5 of @Sloan:1996wd could be viewed as a structural (causal) model.
+Can you represent this model using a causal diagram?
+In light of the apparent econometric equivalence between that structural model and the estimation approach used in @Abel:1983um, how might the coefficients from the structural model be recovered from the latter approach?
+
+```{python}
+#| include: true
+
+```
+
+4. A critique of @Sloan:1996wd made by @Kraft:2007wg is that the coefficients may be biased due to omitted variables.
+This critique implies a causal interpretation of the coefficients in @Sloan:1996wd.
+How might the critique of @Kraft:2007wg be represented on the causal diagrams above?
+How persuasive do you find the critique of @Kraft:2007wg to be?
+
+```{python}
+#| include: true
+
+```
+
+5. Apart from the different data sources used, another difference between the simulation analysis earlier in this chapter and the regression analysis in Table 3 of @Sloan:1996wd is the regression model used.
+Modify the code below to incorporate the appropriate formulas for cash flow from operating activities (`cfo`) and accruals (`acc`).
+Then replicate the pooled analysis of Panel A of Table 3 of @Sloan:1996wd using the resulting `sim_reg_data` data frame.
+What do you observe?
+
+```{python}
+#| eval: false
+sim_reg_data = (
+    res_df
+    .with_columns(
+        cfo=[PUT CALC HERE],
+        acc=[PUT CALC HERE],
+    )
+    .sort(["id", "year"])
+    .with_columns(
+        lag_cfo=pl.col("cfo").shift(1).over("id"),
+        lag_acc=pl.col("acc").shift(1).over("id"),
+    )
+)
+```
+
+```{python}
+#| include: true
+
+```
+
+## Accrual anomaly
+
+```{python}
+#| echo: false
+#| label: tbl-6
+#| tbl-cap: Partial replication of Table 6 of @Sloan:1996wd
+ETable(
+    [fm_tbl6],
+    model_heads=["Accrual deciles"],
+    head_order="h",
+    coef_fmt="b:.3f* \n (t:.3f)",
+    signif_code=[0.01, 0.05, 0.10],
+    model_stats=["N", "r2"],
+)
+```
+
+### Discussion questions
+
+1. In estimating the hedge portfolio regression, we included a line `summarize(size_adj_ret = mean(size_adj_ret))`.
+Why is this step important?
+
+```{python}
+#| include: true
+
+```
+
+2. @Green:2011wu say "the simplicity of the accruals strategy and the size of the returns it generates have led some scholars to conclude that the anomaly is illusory. For example, Khan (2008) and Wu et al. (2010) argue that the anomaly can be explained by a mis-specified risk model and the q-theory of time-varying discount rates, respectively; Desai et al. (2004) conclude that the anomaly is deceptive because it is subsumed by a different strategy; Kraft et al. (2006) attribute it to outliers and look-ahead biases; Ng (2005) proposes that the anomaly's abnormal returns are compensation for high exposure to bankruptcy risk; and Zach (2006) argues that there are firm characteristics correlated with accruals that cause the return pattern."
+Looking at @Sloan:1996wd, but without necessarily looking at each of the papers above, what evidence in @Sloan:1996wd seems inconsistent with the claims made by each paper above?
+Which do you think you would need to look more closely at the paper to understand?
+What evidence do you think Zach (2006) would need to provide to support the claim of an alternative "cause"?
+
+```{python}
+#| include: true
+
+```
+
+3. Do @Green:2011wu address the alternative explanations advanced in the quote in Q1 above?
+Do you think that they need to do so?
+
+```{python}
+#| include: true
+
+```
+
+4. How persuasive do you find the evidence regarding the role of hedge funds provided by @Green:2011wu?
+
+```{python}
+#| include: true
+
+```
+
+5. @Xie:2001th (p. 360) says that "for firm-years prior to 1988 when Compustat item #308 is unavailable, I estimate $\textit{CFO}_t$ as follows ...".
+Why would item #308 be unavailable prior to 1988?
+What is the equivalent to #308 in Compustat today?
+
+```{python}
+#| include: true
+
+```
+
+6. Study the empirical model on p. 361 of @Xie:2001th, which is labelled equation (1).
+(This is the much-used "Jones model" from @Jones:1991vx, which we examine in @sec-earnings-mgt.)
+What are the assumptions implicit in this model and the labelling of the residual as "abnormal accruals"?
+(*Hint:* Take each component of the model and identify circumstances where it would be a reasonable model of "normal" accruals.)
+
+```{python}
+#| include: true
+
+```
+
+7. What is "channel stuffing"?
+(*Hint:* Wikipedia has a decent entry on this.)
+What effect would channel stuffing have on abnormal accruals?
+(*Hint:* Think about this conceptually and with regard to equation (1).
+Do you need more information than is provided in @Xie:2001th to answer this?)
+
+```{python}
+#| include: true
+
+```
