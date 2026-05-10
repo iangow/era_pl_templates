@@ -1,0 +1,502 @@
+---
+title: "Regression fundamentals"
+subtitle: "Responses to exercise questions"
+author: Put your name here
+engine: jupyter
+jupyter: python3
+format:
+  typst: default
+---
+
+:::{.content-visible when-format="markdown"}
+## Instructions
+
+This document assumes that you have completed the instructions [here](https://github.com/iangow/era_pl_templates/blob/main/README.md).
+Note that the Frisch-Waugh-Lovell exercises require the `comp` data set, which means you will need to complete **Step 5: Get data from WRDS** for those exercises.
+
+This template extracts the visible code and exercises from [Chapter 3](https://iangow.github.io/era_pl_book/reg-basics.html) of the Python Polars edition of *Empirical Research in Accounting: Tools and Methods*.
+This template includes all the code from the book chapter.
+
+Within Positron, you can run the code below in two ways.
+
+In the first way, you can treat this file as a notebook of sorts and just run the code interactively.
+In Positron, you will see "Run Cell" and (for cells after the first cell) "Run Above".
+You might choose to go through the cells in order and click "Run Cell" on each one to see its output.
+Alternatively, you might jump ahead to a cell of interest, and click "Run Above" so that any prior code needed for your chosen cell has been executed, then "Run Cell" on the cell of interest.
+
+Note that some cells contain multiple lines and to see the output from each, you may need to execute them one at a time.
+You can run code interactively from a .qmd file in Positron without rendering the whole document.
+On macOS, place the cursor in a code cell or highlight selected lines and press `Command+Enter`; on Windows and Linux, use `Ctrl+Enter` instead.
+
+In the second way, you have Quarto "render" the document as PDF.
+In Positron, you can accomplish this by clicking the "Preview" button at the top of the edit window.
+Note that many of the cells below will not appear in the created PDF.
+This document uses Quarto chunk options to control that behaviour.
+(Quarto seems to use the words "cell" and "chunk" interchangeably.)
+In particular, chunks with `#| include: false` are executed without either the code or the output being shown in the rendered document.
+Other chunk options include `#| echo` to show or hide the code and `#| output` to hide or show the output.
+
+Note that one cell is marked with `#| eval: false`.
+This is code that takes a long time to run; you may prefer to run it interactively rather than every time you render the document.
+
+To answer the questions below, you are likely to play around with code interactively (the first way) until you are ready to render your answers (using the second way) and submit them to your course instructor.
+
+Note that you can type text outside code cells and these will be rendered as markdown.
+More details on using Quarto markdown are provided on the [Quarto website](https://quarto.org).
+
+:::
+
+```{python}
+#| include: false
+import numpy as np
+import pandas as pd
+import polars as pl
+import plotnine_polars as p9
+from plotnine_polars import aes
+import statsmodels.api as sm
+import statsmodels.formula.api as smf
+import pyfixest as pf
+from maketables import ETable
+from era_pl import load_data, ols_dropcollinear
+```
+
+```{python}
+#| include: false
+#| eval: true
+pl.Config.set_tbl_cols(200)
+pl.Config.set_tbl_width_chars(120)
+pl.Config.set_tbl_hide_dataframe_shape(True)
+pl.Config.set_tbl_hide_column_data_types(True)
+```
+
+```{python}
+#| include: false
+#| eval: true
+rng = np.random.default_rng(2021)
+N   = 1000
+x1 = rng.standard_normal(N)
+x2 = rng.standard_normal(N)
+e  = rng.normal(0, 0.2, N)
+y  = 1.0 * x1 + 2.0 * x2 + e
+```
+
+```{python}
+#| include: false
+#| eval: true
+X = np.column_stack([np.ones(N), x1, x2])
+X[:6]
+```
+
+```{python}
+#| include: false
+#| eval: true
+b = np.linalg.inv(X.T @ X) @ (X.T @ y)
+print(b)
+```
+
+```{python}
+#| include: false
+#| eval: true
+model = sm.OLS(y, X)
+fm = model.fit()
+print(fm.params)
+```
+
+```{python}
+#| include: false
+#| eval: true
+def ols_fit(data, formula, **fit_kwargs):
+    return smf.ols(formula, data=data.to_pandas(),
+                   missing="drop").fit(**fit_kwargs)
+```
+
+```{python}
+#| include: false
+#| eval: true
+df = pl.DataFrame({"y": y, "x1": x1, "x2": x2})
+fm = ols_fit(df, "y ~ x1 + x2")
+print(fm.params)
+```
+
+```{python}
+#| include: false
+#| eval: true
+fm2 = ols_fit(df, "y ~ x1 * x2")
+print(fm2.params)
+```
+
+```{python}
+#| include: false
+#| eval: true
+pl.Config.set_tbl_rows(6)
+```
+
+```{python}
+#| include: false
+#| eval: true
+test_scores = load_data("test_scores")
+test_scores
+```
+
+```{python}
+#| include: false
+#| eval: true
+camp_attendance = load_data("camp_attendance")
+camp_attendance
+```
+
+```{python}
+#| include: false
+#| eval: true
+camp_attendance.select("camp").mean()
+```
+
+```{python}
+#| include: false
+#| eval: true
+camp_scores = (
+    test_scores
+    .join(camp_attendance, on="id")
+    .rename({"camp": "treat"})
+    .with_columns((pl.col("grade") >= 7).alias("post"))
+)
+```
+
+```{python}
+#| include: false
+#| eval: true
+(
+    camp_scores
+    .group_by(["grade", "treat"])
+    .agg(pl.col("score").mean().alias("score_mean"))
+    .sort(["grade", "treat"])
+    .ggplot(aes(x="grade", y="score_mean",
+            color="treat", linetype="treat"))
+    .geom_line()
+)
+```
+
+```{python}
+#| include: false
+#| eval: true
+test_summ = (
+    camp_scores
+    .filter(pl.col("grade").is_in([6, 7]))
+    .group_by("post", "treat")
+    .agg(pl.col("score").mean())
+    .pivot(on="post", values="score")
+    .rename({"true": "post", "false": "pre"})
+    .with_columns(change=pl.col("post") - pl.col("pre"))
+)
+```
+
+```{python}
+#| include: false
+#| eval: true
+test_summ.with_columns(pl.col(pl.Float64).round(3))
+```
+
+```{python}
+#| include: false
+#| eval: true
+treat_change = test_summ.filter(pl.col("treat")).select("change").item()
+control_change = test_summ.filter(~pl.col("treat")).select("change").item()
+```
+
+```{python}
+#| include: false
+#| eval: true
+fm_dd = (
+    camp_scores
+    .filter(pl.col("grade").is_in([6, 7]))
+    .pipe(ols_fit, formula="score ~ treat * post")
+)
+fm_dd.params
+```
+
+```{python}
+#| include: false
+#| eval: true
+fm_dd_all = (
+    camp_scores
+    .pipe(ols_fit, formula="score ~ treat * post")
+)
+fm_dd_all.params
+```
+
+```{python}
+#| include: false
+#| eval: true
+fm_dd_trend = (
+    camp_scores
+    .pipe(ols_fit, formula="score ~ treat * post + grade")
+)
+print(fm_dd_trend.params)
+```
+
+```{python}
+#| include: false
+#| eval: true
+fm_grade = (
+    camp_scores
+    .pipe(ols_fit, formula="score ~ C(grade)")
+)
+fm_grade.params
+```
+
+```{python}
+#| include: false
+#| eval: true
+mean_by_grade = (
+    camp_scores
+    .group_by("grade")
+    .agg(pl.col("score").mean().round(3).alias("score"))
+    .sort("grade")
+)
+mean_by_grade
+```
+
+```{python}
+#| include: false
+#| eval: false
+fm_id = (
+    ols_dropcollinear(
+        data=camp_scores,
+        formula="score ~ treat * post + C(grade) + C(id)")
+)
+X = fm_id.model.exog
+X.shape
+```
+
+```{python}
+#| include: false
+#| eval: true
+camp_scores_demean = (
+    camp_scores
+    .with_columns(
+        pl.col("score") - pl.col("score").mean().over("id")
+    )
+    .with_columns(
+        pl.col("score") - pl.col("score").mean().over("grade")
+    )
+)
+
+fm_demean = (
+    camp_scores_demean
+    .pipe(ols_fit, "score ~ treat * post")
+)
+```
+
+```{python}
+#| include: false
+#| eval: true
+fm_dd_fe = (
+    camp_scores
+    .pipe(ols_dropcollinear,
+          formula="score ~ treat * post + C(grade)")
+)
+```
+
+```{python}
+#| include: false
+#| eval: true
+fefm = pf.feols(
+    fml="score ~ I(post * treat) | grade + id",
+    data=camp_scores
+)
+```
+
+## Running regressions in Python
+
+### Exercises
+
+1. In using `.pivot()` in creating `test_summ`, we did not supply a value for the `index` argument.
+What value was implicitly used in the code creating `test_summ`?
+
+```{python}
+#| include: true
+
+```
+
+2. What is the relation between the grade means shown below and the regression coefficients in `fm_grade`?
+
+```{python}
+#| include: false
+#| eval: true
+mean_by_grade
+```
+
+```{python}
+#| include: true
+
+```
+
+3. Why is there no estimated coefficient for `grade=5` in `fm_grade`?
+
+```{python}
+#| include: true
+
+```
+
+4. Now let's return to our earlier regression specification, except this time we include fixed effects for `grade`.
+We now have two omitted grade indicators: `grade=5` and `grade=8`.
+Why are we now losing two grade indicators, while above we lost just one?
+(*Hint:* Which variables can be expressed as linear combinations of the `grade` indicators?)
+
+```{python}
+#| echo: false
+ETable(
+    [fm_dd_fe],
+    coef_fmt="b:.3f* \n (t:.3f)",
+    signif_code=[0.01, 0.05, 0.10],
+    model_stats=["N", "r2"],
+)
+```
+
+```{python}
+#| include: true
+
+```
+
+5. In words, what are we doing to create `camp_scores_demean`?
+Intuitively, why might this affect the need to use fixed effects?
+
+```{python}
+#| include: true
+
+```
+
+6. Can you relate the coefficients from the regression stored in `fm_demean` to the numbers in the table below?
+Which of these estimated coefficients is meaningful?
+All of them? Some of them? None of them?
+
+```{python}
+#| echo: false
+(
+    camp_scores_demean
+    .group_by(["grade", "treat"])
+    .agg(pl.col("score").mean().alias("score"))
+    .sort("grade", "treat")
+    .with_columns(pl.col("score").round(3))
+)
+```
+
+```{python}
+#| include: true
+
+```
+
+7. The `feols()` function from the `pyfixest` package offers a succinct syntax for adding fixed effects and uses computationally efficient algorithms (much like our demeaning approach above) in estimating these.
+What is the same in the results below and the two specifications we estimated above?
+What is different?
+Why might these differences exist?
+What is the `I()` function doing here?
+What happens if we omit it (i.e., just include `post * treat`)?
+
+```{python}
+#| echo: false
+fefm.coef()
+```
+
+```{python}
+#| include: true
+
+```
+
+```{python}
+#| include: false
+#| eval: true
+comp = (
+    load_data("comp")
+    .with_columns(pl.col("big_n").cast(pl.Int64))
+)
+
+base = (
+    "big_n + size + lev + mtb + "
+    "C(fyear) * (inv_at + I(d_sale - d_ar) + ppe)"
+)
+
+fm = ols_fit(comp, f"ta ~ {base} + cfo")
+```
+
+```{python}
+#| include: false
+#| eval: true
+fm_aux_ta  = ols_fit(comp, f"ta  ~ {base}")
+fm_aux_cfo = ols_fit(comp, f"cfo ~ {base}")
+```
+
+```{python}
+#| include: false
+#| eval: true
+aux_data = pl.from_pandas(
+    pd.DataFrame({
+        "ta":  fm_aux_ta.resid,
+        "cfo": fm_aux_cfo.resid,
+    }).dropna()
+)
+```
+
+```{python}
+#| include: false
+#| eval: true
+fm_aux = ols_fit(aux_data, "ta ~ cfo")
+```
+
+```{python}
+#| include: false
+#| eval: true
+(
+    aux_data
+    .drop_nulls(subset=["cfo", "ta"])
+    .ggplot(aes(x="cfo", y="ta"))
+    .geom_point(size=1, color="tab:green")
+    .geom_smooth(method="lm", se=False, linetype="--", color="tab:red")
+    .geom_smooth(method="lowess", se=False, color="tab:blue")
+)
+```
+
+```{python}
+#| include: false
+#| eval: true
+(
+    aux_data
+    .drop_nulls(subset=["cfo", "ta"])
+    .filter(pl.col("ta").abs() < 1)
+    .ggplot(aes(x="cfo", y="ta"))
+    .geom_point(size=1, color="tab:green")
+    .geom_smooth(method="lm", se=False, linetype="--", color="tab:red")
+    .geom_smooth(method="lowess", se=False, color="tab:blue")
+)
+```
+
+## Frisch-Waugh-Lovell theorem
+
+### Exercises
+
+1. Verify the Frisch-Waugh-Lovell theorem using `big_n` and `lev` in place of `cfo` and produce plots like the CFO plot in the book chapter for each variable.
+Does the plot with `big_n` as the independent variable seem less helpful?
+
+```{python}
+#| include: true
+
+```
+
+2. Above we said that the standard errors of the main regression and the auxiliary regression using the Frisch-Waugh-Lovell theorem should be "very similar".
+Confirm that the standard errors are similar across the variants of `fm` and `fm_aux` that you calculated for the previous question.
+(*Hint:* `fm_aux.bse` and `fm.bse` provide the estimated standard errors, while `fm_aux.df_resid` and `fm.df_resid` provide the residual degrees of freedom.)
+Can you guess what might explain any differences?
+(*Hint:* Compare the residual degrees of freedom and perhaps use `np.sqrt()`.)
+
+```{python}
+#| include: true
+
+```
+
+3. In words, what effect does converting `fyear` into a categorical variable and interacting it with `inv_at`, `I(d_sale - d_ar)`, and `ppe` have?
+(*Hint:* It may be helpful to visually inspect the more complete regression output produced without `drop=["fyear", "ppe", "inv_at", "d_sale"]`.)
+
+```{python}
+#| include: true
+
+```
