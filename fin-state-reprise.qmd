@@ -1,0 +1,544 @@
+---
+title: "Financial statements: A second look"
+subtitle: "Responses to exercise questions"
+author: Put your name here
+engine: jupyter
+jupyter: python3
+bibliography: references.bib
+format:
+  typst: default
+---
+
+:::{.content-visible when-format="markdown"}
+## Instructions
+
+This document assumes that you have completed the instructions [here](https://github.com/iangow/era_pl_templates/blob/main/README.md).
+Note that this chapter uses Compustat data from a local Parquet repository, which means you will need to complete **Step 5: Get data from WRDS** before running any code.
+
+This template extracts the visible code and exercises from [Chapter 8](https://iangow.github.io/era_pl_book/fin-state-reprise.html) of the Python Polars edition of *Empirical Research in Accounting: Tools and Methods*.
+This template includes all the code from the book chapter.
+
+Within Positron, you can run the code below in two ways.
+
+In the first way, you can treat this file as a notebook of sorts and just run the code interactively.
+In Positron, you will see "Run Cell" and (for cells after the first cell) "Run Above".
+You might choose to go through the cells in order and click "Run Cell" on each one to see its output.
+Alternatively, you might jump ahead to a cell of interest, and click "Run Above" so that any prior code needed for your chosen cell has been executed, then "Run Cell" on the cell of interest.
+
+Note that some cells contain multiple lines and to see the output from each, you may need to execute them one at a time.
+You can run code interactively from a .qmd file in Positron without rendering the whole document.
+On macOS, place the cursor in a code cell or highlight selected lines and press `Command+Enter`; on Windows and Linux, use `Ctrl+Enter` instead.
+
+In the second way, you have Quarto "render" the document as PDF.
+In Positron, you can accomplish this by clicking the "Preview" button at the top of the edit window.
+Note that many of the cells below will not appear in the created PDF.
+This document uses Quarto chunk options to control that behaviour.
+(Quarto seems to use the words "cell" and "chunk" interchangeably.)
+In particular, chunks with `#| include: false` are executed without either the code or the output being shown in the rendered document.
+Other chunk options include `#| echo` to show or hide the code and `#| output` to hide or show the output.
+
+To answer the questions below, you are likely to play around with code interactively (the first way) until you are ready to render your answers (using the second way) and submit them to your course instructor.
+
+Note that you can type text outside code cells and these will be rendered as markdown.
+More details on using Quarto markdown are provided on the [Quarto website](https://quarto.org).
+
+:::
+
+```{python}
+#| include: false
+import plotnine_polars as p9p
+p9p.theme_set(p9p.theme_matplotlib())
+```
+
+```{python}
+#| include: false
+#| eval: true
+import polars as pl
+import plotnine_polars
+from era_pl import load_parquet
+```
+
+```{python}
+#| include: false
+#| eval: true
+pl.Config.set_tbl_cols(200)
+pl.Config.set_tbl_width_chars(120)
+pl.Config.set_tbl_hide_dataframe_shape(True)
+pl.Config.set_tbl_hide_column_data_types(True)
+```
+
+```{python}
+#| include: false
+#| eval: true
+funda = load_parquet("funda", "comp")
+company = load_parquet("company", "comp")
+```
+
+```{python}
+#| include: false
+#| eval: true
+funda_mod = (
+    funda.filter(
+        pl.col("indfmt") == "INDL",
+        pl.col("datafmt") == "STD",
+        pl.col("consol") == "C",
+        pl.col("popsrc") == "D"
+    )
+)
+```
+
+```{python}
+#| include: false
+#| eval: true
+int(
+    funda_mod
+    .filter(pl.col("at") != pl.col("lse"))
+    .select("gvkey", "datadate", "at", "lse")
+    .select(pl.len())
+    .collect()
+    .item()
+)
+```
+
+```{python}
+#| include: false
+#| eval: true
+(
+    funda_mod
+    .with_columns(
+        pl.col("at", "lse").is_null().name.prefix("missing_")
+    )
+    .group_by("missing_at", "missing_lse")
+    .agg(n=pl.len())
+    .collect()
+    .style
+    .fmt_integer(columns="n")
+)
+```
+
+```{python}
+#| include: false
+#| eval: true
+na_sample_firm_years = (
+    funda_mod
+    .filter(
+        pl.col("gvkey") == "008902",
+        pl.col("datadate") >= pl.date(2000, 1, 1)
+    )
+    .select("gvkey", "datadate")
+)
+```
+
+```{python}
+#| include: false
+#| eval: true
+at_comps = ["act", "ppent", "ivaeq", "ivao", "intan", "ao"]
+
+(
+    funda_mod
+    .join(na_sample_firm_years,
+          on=["gvkey", "datadate"], how="semi")
+    .with_columns(
+        pl.sum_horizontal(pl.col(at_comps)
+        .fill_null(0)).alias("at_calc")
+    )
+    .select("gvkey", "datadate", "at", "at_calc", *at_comps)
+    .sort("datadate")
+    .limit(5)
+    .collect()
+)
+```
+
+```{python}
+#| include: false
+#| eval: true
+tol = 1e-3
+
+funda_na_fixed = (
+    funda_mod
+    .select("gvkey", "datadate", *at_comps, "at", "dc", "aox")
+    .with_columns(
+        at_calc=pl.sum_horizontal(pl.col(at_comps).fill_null(0))
+    )
+    .with_columns(at_diff=pl.col("at_calc") - pl.col("at"))
+    .with_columns(balance=pl.col("at_diff").abs() < tol)
+)
+```
+
+```{python}
+#| include: false
+#| eval: true
+(
+    funda_na_fixed
+    .join(na_sample_firm_years,
+          on=["gvkey", "datadate"], how="semi")
+    .select("gvkey", "datadate", "at", "at_calc", "balance")
+    .sort("datadate")
+    .limit(5)
+    .collect()
+)
+```
+
+```{python}
+#| include: false
+#| eval: true
+(
+    funda_na_fixed
+    .group_by("balance")
+    .agg(n=pl.len())
+    .collect()
+)
+```
+
+## Within-statement articulation
+
+### Exercises
+
+1. What is the value in `funda_na_fixed` of `at` when `balance` is `null`?
+Is this surprising?
+
+```{python}
+#| include: true
+
+```
+
+2. Write code to calculate `decade`, the decade in which `datadate` for each observation falls.
+(*Hint:* The `.dt.year()` method and the `//` operator may be helpful.)
+
+```{python}
+#| include: true
+
+```
+
+3. Are there any cases in `funda_na_fixed` where `at_calc` is greater than zero and `at` is `null`?
+Which decades are these mostly found in?
+If you were doing research with these data, how might you handle these cases?
+
+```{python}
+#| include: true
+
+```
+
+4. Consider the firm with `gvkey` equal to `016476`.
+Write code to obtain the company name and CIK from the `company` table defined above.
+Using that CIK, find the 10-K filing for the year ending November 2003 on [the SEC's website.](https://www.sec.gov/edgar/searchedgar/companysearch.html)
+(*Note:* The 10-K will be released some time after `2003-11-30`.)
+
+```{python}
+#| include: true
+
+```
+
+5. Looking at the 10-K you just found, what seems to be going on with the observation below?
+
+```{python}
+#| echo: false
+(
+    funda_na_fixed
+    .filter(
+        pl.col("gvkey") == "016476",
+        pl.col("datadate") == pl.date(2003, 11, 30),
+    )
+    .select("datadate", "at", "at_calc", "at_diff",
+            *at_comps, "aox")
+    .collect()
+)
+```
+
+```{python}
+#| include: true
+
+```
+
+6. Using the approach above, we can find the 10-K for the observation examined in the following code on the SEC's [EDGAR site.](https://go.unimelb.edu.au/fzw8)
+What's going on with this case?
+What's the most significant difference between this case and the one above?
+(*Hint:* The following additional Compustat balancing model may help: `act = ppent + intan + ivao + ao`.)
+
+```{python}
+#| echo: false
+(
+    funda_na_fixed
+    .filter(
+        pl.col("gvkey") == "145003",
+        pl.col("datadate") == pl.date(2001, 12, 31),
+    )
+    .select("datadate", "at", "at_calc", "at_diff", *at_comps)
+    .collect()
+)
+```
+
+```{python}
+#| include: true
+
+```
+
+```{python}
+#| include: false
+#| eval: true
+(
+    funda_mod
+    .select("gvkey", "datadate", "che", "ch", "ivst")
+    .with_columns(
+        pl.col("che", "ch", "ivst").is_null()
+        .name.prefix("missing_")
+    )
+    .group_by("missing_che", "missing_ch", "missing_ivst")
+    .agg(n=pl.len())
+    .sort("missing_che", "missing_ch", "missing_ivst")
+    .collect()
+)
+```
+
+```{python}
+#| include: false
+#| eval: true
+(
+    funda_mod
+    .select("gvkey", "datadate", "che", "ch", "ivst")
+    .with_columns(
+        missing_che=pl.col("che").is_null(),
+        missing_che_comps=
+            pl.all_horizontal(pl.col("ch", "ivst").is_null()),
+        che=pl.coalesce("che", "ivst", "ch"),
+        che_calc=pl.sum_horizontal(pl.col("ch", "ivst").fill_null(0)),
+    )
+    .with_columns(che_diff=pl.col("che_calc") - pl.col("che"))
+    .with_columns(che_balance=pl.col("che_diff").abs() < tol)
+    .group_by("che_balance", "missing_che", "missing_che_comps")
+    .agg(n=pl.len())
+    .sort("n", descending=True)
+    .collect()
+)
+```
+
+```{python}
+#| include: false
+#| eval: true
+chech_comps = ["oancf", "ivncf", "fincf", "exre"]
+
+funda_cf_fixed = (
+    funda_mod
+    .select("gvkey", "datadate", *chech_comps, "chech")
+    .with_columns(
+        pl.col(chech_comps).fill_null(0),
+    )
+    .with_columns(
+        chech_calc=pl.sum_horizontal(chech_comps)
+    )
+    .with_columns(chech_diff=pl.col("chech_calc") - pl.col("chech"))
+    .with_columns(chech_balance=pl.col("chech_diff").abs() < tol)
+)
+```
+
+```{python}
+#| include: false
+#| eval: true
+(
+    funda_cf_fixed
+    .filter(pl.col("chech").is_not_null(),
+            pl.col("chech_calc") != 0)
+    .group_by("chech_balance")
+    .agg(n=pl.len())
+    .collect()
+)
+```
+
+```{python}
+#| include: false
+#| eval: true
+tol = 0.1
+
+funda_cf_balance = (
+    funda_mod
+    .select("gvkey", "datadate", *chech_comps,
+            "chech", "che", "ch", "ivst")
+    .with_columns(pl.col(chech_comps).fill_null(0))
+    .with_columns(chech_calc=pl.sum_horizontal(chech_comps))
+    .with_columns(
+        chech_balance=(
+            (pl.col("chech_calc") - pl.col("chech")).abs() < tol
+        )
+    )
+    .filter((pl.col("chech_calc") != 0) & pl.col("chech_balance"))
+    .sort(["gvkey", "datadate"])
+    .with_columns(
+        lag_datadate=pl.col("datadate").shift(1).over("gvkey"),
+        d_che=pl.col("che") - pl.col("che").shift(1).over("gvkey"),
+        d_ch=pl.col("ch") - pl.col("ch").shift(1).over("gvkey"),
+    )
+    .filter(pl.col("d_che").is_not_null() | pl.col("d_ch").is_not_null())
+    .with_columns(
+        artic_desc=(
+            pl.when(
+                ((pl.col("d_ch") - pl.col("d_che")).abs() < tol)
+                & ((pl.col("chech") - pl.col("d_che")).abs() < tol)
+            )
+            .then(pl.lit("Articulates (CHE == CH)"))
+            .when((pl.col("chech") - pl.col("d_che")).abs() < tol)
+            .then(pl.lit("Articulates using CHE"))
+            .when((pl.col("chech") - pl.col("d_ch")).abs() < tol)
+            .then(pl.lit("Articulates using CH"))
+            .when((pl.col("chech") - pl.col("d_che")).abs() >= tol)
+            .then(pl.lit("Does not articulate"))
+            .when((pl.col("chech") - pl.col("d_ch")).abs() >= tol)
+            .then(pl.lit("Does not articulate"))
+            .otherwise(pl.lit("Other"))
+        )
+    )
+)
+```
+
+```{python}
+#| include: false
+#| eval: true
+(
+    funda_cf_balance
+    .group_by("artic_desc")
+    .agg(n=pl.len())
+    .collect()
+    .rename({"artic_desc": "Description", "n": "Number of cases"})
+)
+```
+
+## Across-statement articulation
+
+### Exercises
+
+1. In checking cash flow statement articulation, we used repeated `fill_null(0)` operations on multiple variables.
+Rewrite the code to create `funda_na_fixed` above using a similarly compact approach.
+Check that you get the same results with respect to `count(balance)` as you get using the original code.
+
+```{python}
+#| include: true
+
+```
+
+2. Consider the case of American Airlines (GVKEY: `001045`) for the year ended 31 December 2020.
+Look up the relevant American Airlines 10-K on `sec.gov`.
+(*Hint:* You can get the CIK from `comp.company`.)
+What explains the gaps seen in the output below?
+
+```{python}
+#| echo: false
+(
+    funda_cf_balance
+    .filter(
+        (pl.col("datadate") == pl.date(2020, 12, 31))
+        & (pl.col("gvkey") == "001045")
+    )
+    .select("gvkey", "datadate", "chech", "d_che", "d_ch")
+    .collect()
+)
+```
+
+```{python}
+#| include: true
+
+```
+
+## Missing R&D
+
+### Discussion questions
+
+1. What is the following code doing?
+@Koh:2015vz use a similar filter.
+What is their rationale for this?
+
+```{python}
+included_firms = (
+    company
+    .with_columns(sic=pl.col("sic").cast(pl.Int32, strict=False))
+    .filter(
+        ~pl.col("sic").is_between(4900, 4999),
+        ~pl.col("sic").is_between(6000, 6999)
+    )
+    .select("gvkey")
+)
+
+rd_data = (
+    funda_mod
+    .join(included_firms, on="gvkey", how="semi")
+    .with_columns(
+        missing_rd=pl.col("xrd").is_null(),
+        zero_rd=pl.col("xrd") == 0,
+        year=pl.col("datadate").dt.year(),
+    )
+    .select("gvkey", "datadate", "year", "xrd",
+            "missing_rd", "zero_rd", "at")
+    .collect()
+)
+```
+
+```{python}
+#| include: true
+
+```
+
+2. Is there a balancing model that includes R&D spending?
+
+```{python}
+#| include: true
+
+```
+
+3. Focusing on years 1980--2019, what have been the trends in the proportion of firms not reporting R&D and the "average" amount of R&D (scaled by assets)?^[At the time of initial writing, 2020 was too incomplete to be meaningful.]
+(In calculating the "average" does it make sense to use the `mean()` or `median()`?)
+Speculate as to what might explain these trends.
+
+```{python}
+#| include: true
+
+```
+
+4. @Koh:2015vz find that many "studies in *The Accounting Review* use R&D in their analysis and code the missing values as zero, implicitly assuming that blank R&D is equal to zero R&D, [while many] articles in the *Journal of Finance* [code] ... the blank values as zero and including a dummy variable to indicate blank R&D firms. ...  In contrast, 42% of the studies in the *Strategic Management Journal* use R&D and they take a very different approach, often replacing the missing R&D values with either the industry average R&D, or a historical value from prior years."
+Why do scholars from different fields make such different choices?
+In light of @Koh:2015vz, do you think that one approach is more correct than the others?
+
+```{python}
+#| include: true
+
+```
+
+5. Consider the [10-K filing](https://go.unimelb.edu.au/3cd8) made by IHS Markit Ltd on 2021-01-22.
+Based on the information in the filing, do you think that IHS Markit engages in research and development activity?
+Does IHS Markit generate patents?
+Are there other forms of intellectual property protection that IHS Markit relies on?
+Does IHS Markit report an amount for research and development expenditure?
+Who is IHS Markit's external auditor?
+Do you think that IHS Markit is in violation of GAAP?
+Or is its reporting choice with respect to R&D a within-GAAP use of reporting discretion?
+
+```{python}
+#| include: true
+
+```
+
+6. @Koh:2015vz state that "our first set of tests compare patent activity between non-reporting R&D firms and firms that report zero R&D. ... We use both full sample and propensity score matched samples. ... While full sample tests allow for greater external validity, the matched sample tests potentially improve the local treatment effect. ... Based on the propensity score matched sample, our multivariate tests indicate that, on average, non-reporting R&D firms file about 14 times more patent applications than the matched zero R&D firms."
+In speaking of "treatment effects", @Koh:2015vz implicitly view disclosure of R&D as a treatment variable and patent applications as an outcome.
+Does this make sense to you?
+Do you think that this is really what @Koh:2015vz want to do?
+If not, what is the inference they are trying to draw?
+
+```{python}
+#| include: true
+
+```
+
+7. What exactly is the take-away from the analysis in section 4.4 of @Koh:2015vz, which uses "the rapid demise of Arthur Andersen (AA) as a quasi-natural experiment"?
+For example, what is the treatment?
+What assumptions are needed to generalize from the specific treatment to a treatment of wider applicability?
+What additional analyses can you suggest that might provide additional assurance that the results reflect a causal effect of interest?
+
+```{python}
+#| include: true
+
+```
+
+8. What are the suggested implications of the simulation analysis of section 4.5 of @Koh:2015vz?
+What are the inherent limitations in a simulation analysis like this one?
+
+```{python}
+#| include: true
+
+```

@@ -1,0 +1,593 @@
+---
+title: "Importing data"
+subtitle: "Responses to exercise questions"
+author: Put your name here
+engine: jupyter
+jupyter: python3
+format:
+  typst: default
+---
+
+:::{.content-visible when-format="markdown"}
+## Instructions
+
+This document assumes that you have completed the instructions [here](https://github.com/iangow/era_pl_templates/blob/main/README.md).
+As mentioned there, there is no need to complete **Step 5: Get data from WRDS** for this chapter.
+
+This template extracts the visible code and exercises from [Chapter 9](https://iangow.github.io/era_pl_book/web-data.html) of the Python Polars edition of *Empirical Research in Accounting: Tools and Methods*.
+This template includes all the code from the book chapter.
+
+Within Positron, you can run the code below in two ways.
+
+In the first way, you can treat this file as a notebook of sorts and just run the code interactively.
+In Positron, you will see "Run Cell" and (for cells after the first cell) "Run Above".
+You might choose to go through the cells in order and click "Run Cell" on each one to see its output.
+Alternatively, you might jump ahead to a cell of interest, and click "Run Above" so that any prior code needed for your chosen cell has been executed, then "Run Cell" on the cell of interest.
+
+Note that some cells contain multiple lines and to see the output from each, you may need to execute them one at a time.
+You can run code interactively from a .qmd file in Positron without rendering the whole document.
+On macOS, place the cursor in a code cell or highlight selected lines and press `Command+Enter`; on Windows and Linux, use `Ctrl+Enter` instead.
+
+In the second way, you have Quarto "render" the document as PDF.
+In Positron, you can accomplish this by clicking the "Preview" button at the top of the edit window.
+Note that many of the cells below will not appear in the created PDF.
+This document uses Quarto chunk options to control that behaviour.
+(Quarto seems to use the words "cell" and "chunk" interchangeably.)
+In particular, chunks with `#| include: false` are executed without either the code or the output being shown in the rendered document.
+Other chunk options include `#| echo` to show or hide the code and `#| output` to hide or show the output.
+
+To answer the questions below, you are likely to play around with code interactively (the first way) until you are ready to render your answers (using the second way) and submit them to your course instructor.
+
+Note that you can type text outside code cells and these will be rendered as markdown.
+More details on using Quarto markdown are provided on the [Quarto website](https://quarto.org).
+
+:::
+
+```{python}
+#| include: false
+import plotnine_polars as p9p
+p9p.theme_set(p9p.theme_matplotlib())
+```
+
+```{python}
+#| include: false
+#| eval: true
+import io
+import re
+import requests
+import zipfile
+import polars as pl
+import polars.selectors as cs
+import pdfplumber
+from era_py import NumberedLines
+```
+
+```{python}
+#| include: false
+#| eval: true
+pl.Config.set_tbl_rows(6)
+pl.Config.set_tbl_cols(200)
+pl.Config.set_tbl_width_chars(120)
+pl.Config.set_tbl_hide_dataframe_shape(True)
+pl.Config.set_tbl_hide_column_data_types(True)
+```
+
+```{python}
+#| include: false
+#| eval: true
+def zip_url_to_file(url):
+    resp = requests.get(url)
+    resp.raise_for_status()
+    zf = zipfile.ZipFile(io.BytesIO(resp.content))
+    return zf.open(zf.namelist()[0])
+
+
+def url_to_file(url):
+    resp = requests.get(url)
+    resp.raise_for_status()
+    return io.BytesIO(resp.content)
+```
+
+```{python}
+#| include: false
+#| eval: true
+url = ("http://mba.tuck.dartmouth.edu/pages/faculty/ken.french/"
+       "ftp/Siccodes48.zip")
+
+with zip_url_to_file(url) as f:
+    txt_raw = f.read().splitlines()
+```
+
+```{python}
+#| include: false
+#| eval: false
+def get_ff_ind_48(sic):
+    if 100 <= sic <= 299:
+        return 1
+    if sic >= 200 & sic <= 299:
+        return 1
+    return None
+```
+
+```{python}
+#| include: false
+#| eval: true
+ind = 48
+
+url = ("http://mba.tuck.dartmouth.edu/pages/faculty/ken.french/"
+       f"ftp/Siccodes{ind}.zip")
+
+with zip_url_to_file(url) as f:
+    txt_raw = f.read().splitlines()
+```
+
+```{python}
+#| include: false
+#| eval: true
+def read_fwf(file, widths, names,
+             skiprows=0, parse_dates=None, date_format=None):
+
+    pattern = "^" + "".join(
+        f"(?P<{name}>.{{{width}}})"
+        if i < len(widths) - 1
+        else f"(?P<{name}>.{{0,{width}}})"
+        for i, (name, width) in enumerate(zip(names, widths))
+    ) + "$"
+
+    df = (
+        pl.read_lines(file, name="line_text")
+        .slice(skiprows)
+        .filter(pl.col("line_text").str.strip_chars() != "")
+        .with_columns(
+            pl.col("line_text").str.extract_groups(pattern).alias("parts"))
+        .unnest("parts")
+        .with_columns(
+            pl.col(names).str.strip_chars().replace("", None)
+        )
+        .drop("line_text")
+    )
+
+    if parse_dates is not None:
+        df = df.with_columns(
+            pl.col(parse_dates).str.to_date(date_format, strict=False)
+        )
+
+    return df
+```
+
+```{python}
+#| include: false
+#| eval: true
+with zip_url_to_file(url) as f:
+    df_raw = read_fwf(
+        f,
+        widths=[3, 7, 1000],
+        names=["ff_ind", "ff_ind_short_desc", "temp"],
+    )
+```
+
+```{python}
+#| include: false
+#| eval: true
+df = (
+    df_raw
+    .with_columns(
+        ff_ind_desc=pl.when(pl.col("ff_ind").is_not_null())
+        .then(pl.col("temp")),
+        sic_range=pl.when(pl.col("ff_ind").is_null())
+        .then(pl.col("temp")),
+    )
+    .drop("temp")
+)
+```
+
+```{python}
+#| include: false
+#| eval: true
+df = df.with_columns(
+    pl.col("ff_ind", "ff_ind_short_desc", "ff_ind_desc")
+    .forward_fill()
+)
+
+df
+```
+
+```{python}
+#| include: false
+#| eval: true
+df = df.filter(pl.col("sic_range").is_not_null())
+df
+```
+
+```{python}
+#| include: false
+#| eval: true
+df = (
+    df
+    .with_columns(
+        pl.col("sic_range")
+        .str.extract_groups(
+            r"^(?P<sic_min>[0-9]+)-"
+            r"(?P<sic_max>[0-9]+)\s*"
+            r"(?P<sic_desc>.*)$"
+        )
+        .alias("sic_parts")
+    )
+    .unnest("sic_parts")
+)
+```
+
+```{python}
+#| include: false
+#| eval: true
+df.with_columns(
+    pl.col("ff_ind", "sic_min", "sic_max").cast(pl.Int32),
+)
+```
+
+```{python}
+#| include: false
+#| eval: true
+def get_ff_ind(ind):
+    url = (
+        "http://mba.tuck.dartmouth.edu"
+        f"/pages/faculty/ken.french/ftp/Siccodes{ind}.zip"
+    )
+
+    with zip_url_to_file(url) as f:
+        df = (
+            read_fwf(
+                f,
+                widths=[3, 7, 1000],
+                names=["ff_ind", "ff_ind_short_desc", "temp"],
+            )
+            .with_columns(
+                ff_ind_desc=pl.when(pl.col("ff_ind").is_not_null())
+                .then(pl.col("temp")),
+                sic_range=pl.when(pl.col("ff_ind").is_null())
+                .then(pl.col("temp")),
+            )
+            .with_columns(
+                pl.col("ff_ind", "ff_ind_short_desc", "ff_ind_desc")
+                .forward_fill(),
+            )
+            .filter(pl.col("sic_range").is_not_null())
+            .with_columns(
+                pl.col("sic_range")
+                .str.extract_groups(
+                    r"^(?P<sic_min>[0-9]+)-"
+                    r"(?P<sic_max>[0-9]+)\s*"
+                    r"(?P<sic_desc>.*)$"
+                )
+                .alias("sic_parts")
+            )
+            .unnest("sic_parts")
+            .with_columns(
+                pl.col("ff_ind", "sic_min", "sic_max").cast(pl.Int32),
+            )
+            .drop("sic_range", "temp")
+        )
+    return df
+```
+
+```{python}
+#| include: false
+#| eval: true
+get_ff_ind(48)
+```
+
+```{python}
+#| include: false
+#| eval: true
+get_ff_ind(5)
+```
+
+```{python}
+#| include: false
+#| eval: true
+get_ff_ind(12)
+```
+
+## Reading (seemingly) non-tabular data
+
+### Fama-French industry definitions
+
+### Exercises
+
+1. Follow the steps below to produce a data set where each column has the appropriate data type.
+
+    a. Go to the [MSCI GICS website.](https://www.msci.com/gics)
+    b. Get the link to the file under *historical GICS structures* that is "Effective until Sep 28, 2018".
+    c. Use `pl.read_excel()` to read the linked file directly from the URL.
+    d. Identify any variables that need to be handled like `temp` in the Fama-French data set above and process accordingly.
+    e. Use `.forward_fill()` to fill in rows as necessary.
+    f. Make sure that each column has the appropriate data type.
+
+*Hints:*
+
+  a. You may find it helpful to look at the Excel file so you can see how the data are structured.
+  b. `pl.read_excel()` requires an Excel engine package such as `fastexcel`.
+  c. `pl.read_excel()` has options that can help you skip rows and assign column names.
+  d. Your *final* column names should be `sector`, `sector_desc`, `ind_group`, `ind_group_desc`, `industry`, `industry_desc`, `sub_ind`, `sub_ind_desc`, and `sub_ind_details`.
+  e. The following code snippets *might* be useful:
+  - `df[df["sub_ind_details"].notna()]`
+  - `df[cols] = df[cols].ffill()` (where `cols` is a list of columns to forward-fill)
+  - `df.convert_dtypes()`
+
+```{python}
+#| include: true
+
+```
+
+```{python}
+#| include: false
+#| eval: true
+def pdf_url_to_text(url, start_page=0):
+    resp = requests.get(url)
+    resp.raise_for_status()
+    pdf = pdfplumber.open(io.BytesIO(resp.content))
+    return NumberedLines(page.extract_text()
+                         for page in pdf.pages[start_page:])
+```
+
+```{python}
+#| include: false
+#| eval: true
+url = (
+    "https://site.warrington.ufl.edu/ritter/files/"
+    "money-left-on-the-table-in-IPOs.pdf"
+)
+
+pdf_lines = pdf_url_to_text(url, start_page=1)
+```
+
+```{python}
+#| include: false
+#| eval: true
+pdf_lines
+```
+
+```{python}
+#| include: false
+#| eval: true
+skip_rows = min(pdf_lines.filter(re.compile(r"^\$")).index)
+```
+
+```{python}
+#| include: false
+#| eval: true
+re_page_nums = re.compile(r"^\s*\d+\s*$")
+page_nums = pdf_lines.filter(re_page_nums).index
+pdf_lines[(page_nums[0] - 3):(page_nums[0] + 3)]
+```
+
+```{python}
+#| include: false
+#| eval: true
+pdf_lines[(page_nums[1] - 3):(page_nums[1] + 3)]
+```
+
+```{python}
+#| include: false
+#| eval: true
+pdf_lines[-6:]
+```
+
+```{python}
+#| include: false
+#| eval: true
+last_row = min(pdf_lines.filter(re.compile("Source:")).index)
+```
+
+```{python}
+#| include: false
+#| eval: true
+pdf_lines[skip_rows:last_row]
+```
+
+```{python}
+#| include: false
+#| eval: true
+pdf_lines.filter(re_page_nums)
+```
+
+```{python}
+#| include: false
+#| eval: true
+filtered = (
+    pdf_lines
+    [skip_rows:last_row]
+    .filter_out(re_page_nums)
+    .reset_index()
+)
+
+filtered
+```
+
+```{python}
+#| include: false
+#| eval: true
+regex = (
+    r"^\s*"                           # Start string (then perhaps spaces)
+    r"(?P<left_on_table>[^\s]+)\s+"   # Non-space characters (then spaces)
+    r"(?P<company>.+)\s+"             # Any characters, perhaps spaces
+                                      #  (then spaces)
+    r"(?P<ipo_date>[0-9]{6})\s+"      # Six digits (then spaces)
+    r"(?P<first_close>[^\s]+)\s+"     # Non-space characters (then spaces)
+    r"(?P<offer_price>[^\s]+)\s+"     # Non-space characters (then spaces)
+    r"(?P<shares_offered>[^\s]+)\s+"  # Non-space characters (then spaces)
+    r"(?P<ticker>[^\s]+)"             # Non-space characters
+    r"\s*$"                           # Perhaps spaces, then end of string
+)
+```
+
+```{python}
+#| include: false
+#| eval: true
+(
+    pl.DataFrame({"line": list(filtered)})
+    .select(pl.col("line").str.extract_groups(regex).alias("parts"))
+    .unnest("parts")
+)
+```
+
+```{python}
+#| include: false
+#| eval: true
+ritter_data = (
+    pl.DataFrame({"line": list(filtered)})
+    .select(pl.col("line").str.extract_groups(regex).alias("parts"))
+    .unnest("parts")
+    .with_columns(
+        pl.col("company").str.strip_chars(),
+        pl.col("ipo_date").str.strptime(
+            pl.Date,
+            format="%y%m%d",
+            strict=False,
+        ),
+        pl.col("shares_offered", "left_on_table",
+               "first_close", "offer_price")
+        .str.replace_all(r"[^0-9.\-]", "")
+        .cast(pl.Float64, strict=False)
+    )
+)
+
+ritter_data
+```
+
+```{python}
+#| include: false
+#| eval: true
+ritter_data.filter(pl.any_horizontal(pl.all().is_null()))
+```
+
+## Extracting data from messy formats
+
+### Exercises
+
+1. In the PDF, Ritter states "IPOs marked with an \* also had international tranches (and probably some others, too)."
+Write code to remove this "\*" when present and create an additional column `intl_tranche` that indicates an international tranche.
+(*Hint:* The `extract_groups()` function can be used here. In a first pass, you might use named capturing groups and `regex = r"^(?P<company>.*?)(?P<intl_tranche>\\*?)$"`.
+Can you see what the `?` in `.*?` is doing?
+There is some explanation [here.](https://stackoverflow.com/questions/3075130/what-is-the-difference-between-and-regular-expressions)
+Does the regex work without this `?`?
+What does `\\*?` match?)
+
+```{python}
+#| include: true
+
+```
+
+2. Ritter defines *money left on the table* as "the difference between the closing price on the first day of trading and the offer price, multiplied by the number of shares sold."
+Can you calculate this from the data provided?
+Is the calculated amount (`amount`) equal to the amount in `left_on_table` in each case?
+What explains the differences?
+(*Hints:* There will be more than one reason. You may find it helpful to calculate `ratio = amount / left_on_table` and to focus on differences of more than 1% with `.filter(abs(ratio - 1) > 0.01)`.)
+
+```{python}
+#| include: true
+
+```
+
+3. In words, what do each of the following regular expressions *match*?
+What do they capture?
+
+    - `r"^\s*"`
+    - `r"(.+)\s+"`
+    - `r"([^\s]+)\s+"`
+    - `r"([0-9]{1,2}/[0-9]{4})\s+"`
+    - `r"([0-9,]+)\s+"`
+
+```{python}
+#| include: true
+
+```
+
+4. What happens if we parse `shares_offered` as floating-point numbers rather than integers?
+
+```{python}
+#| include: true
+
+```
+
+5. What happens if we apply `.str.extract_groups(regex)` directly to `pl.DataFrame({"line": list(pdf_lines)})`?
+
+```{python}
+#| include: true
+
+```
+
+6. The [online appendix](https://www.dropbox.com/s/58ba7d3wg9q2ijw/Huang_app.pdf?dl=1) for "The Customer Knows Best: The Investment Value of Consumer Opinions" contains Table OA.1 entitled *List of firms with customer reviews on Amazon.com*.
+Using an approach similar to that we used for `ritter_data` above, create a data frame `huang_data` with columns `company_name`, `industry`, `start`, `end`, `months`, `reviews`.
+
+    - `months` and `reviews` should be numerical values.
+    - `start` and `end` should be dates (use the first day of the month if only the month and year is specified).
+    - You can solve this by combining the partial regular expressions above into a single regular expression by joining Python raw strings, as we did for `ritter_data`.
+
+```{python}
+#| include: true
+
+```
+
+7. Using the following code, where the URL provides a sample of observations on mergers and acquisitions from SDC, create a first-pass import of the data.^[We messed with these data, so these cannot be used for research!
+    But they are a realistic representation of an actual data set.]
+    What is the first issue you see when you look at the data in `ma_sdc`?
+    (*Hint:* Look at the first few rows.)
+    Adapt the code to address this issue.
+    (*Hint:* You may have to experiment with different values for `skiprows` to get the right setting.)
+
+```{python}
+#| eval: false
+url = ("https://gist.githubusercontent.com/iangow/"
+       "eb7dfe1cd0913821429bdf0566465d41/raw/"
+       "358d60a4429f5747abc61f8acc026d335fc165f3/sap_sample.txt")
+
+def url_to_file(url):
+    resp = requests.get(url)
+    resp.raise_for_status()
+    return io.BytesIO(resp.content)
+
+with url_to_file(url) as f:
+    ma_sdc = read_fwf(
+        f,
+        widths=[13, 13, 40, 19, 37, 16, 17, 10, 10, 12, 12, 16, 21, 23, 10, 1000],
+        names=
+            ["date_announced", "date_effective", "tgt_name",
+             "tgt_nation", "acq_name", "acq_nation",
+             "status", "pct_of_shares_acq", "pct_owned_after_transaction",
+             "acq_cusip", "tgt_cusip", "value_of_transaction_mil",
+             "acq_prior_mktval", "tgt_prior_mktval",
+             "acq_nation_code", "tgt_nation_code"],
+    )
+ma_sdc
+```
+
+```{python}
+#| include: true
+
+```
+
+8. Fix the variables `date_announced` and `date_effective` so that they have type date.
+(*Hint:* Use `parse_dates=["date_announced", "date_effective"]` and `date_format="%m/%d/%y"`.)
+
+```{python}
+#| include: true
+
+```
+
+9. What are the minimum and maximum values of `date_announced` and `date_effective`?
+What explains missing values (if any) here?
+
+```{python}
+#| include: true
+
+```
+
+10. What do you observe about `acq_cusip` and `tgt_cusip`?
+Can you write some code to check that these variables have been read in correctly?
+(*Hint:* The `.str.len()` method might be useful here.)
+
+```{python}
+#| include: true
+
+```
