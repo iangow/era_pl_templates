@@ -1,0 +1,686 @@
+---
+title: "FFJR"
+subtitle: "Responses to exercise questions"
+author: Put your name here
+bibliography: references.bib
+engine: jupyter
+jupyter: python3
+format:
+  typst: default
+---
+
+:::{.content-visible when-format="markdown"}
+## Instructions
+
+This document assumes that you have completed the instructions [here](https://github.com/iangow/era_pl_templates/blob/main/README.md).
+Note that this chapter uses CRSP data from a local Parquet repository, which means you will need to complete **Step 5: Get data from WRDS** before running any code.
+
+This template extracts the visible code and exercises from [Chapter 10](https://iangow.github.io/era_pl_book/ffjr.html) of the Python Polars edition of *Empirical Research in Accounting: Tools and Methods*.
+This template includes all the code from the book chapter.
+
+Within Positron, you can run the code below in two ways.
+
+In the first way, you can treat this file as a notebook of sorts and just run the code interactively.
+In Positron, you will see "Run Cell" and (for cells after the first cell) "Run Above".
+You might choose to go through the cells in order and click "Run Cell" on each one to see its output.
+Alternatively, you might jump ahead to a cell of interest, and click "Run Above" so that any prior code needed for your chosen cell has been executed, then "Run Cell" on the cell of interest.
+
+Note that some cells contain multiple lines and to see the output from each, you may need to execute them one at a time.
+You can run code interactively from a .qmd file in Positron without rendering the whole document.
+On macOS, place the cursor in a code cell or highlight selected lines and press `Command+Enter`; on Windows and Linux, use `Ctrl+Enter` instead.
+
+In the second way, you have Quarto "render" the document as PDF.
+In Positron, you can accomplish this by clicking the "Preview" button at the top of the edit window.
+Note that many of the cells below will not appear in the created PDF.
+This document uses Quarto chunk options to control that behaviour.
+(Quarto seems to use the words "cell" and "chunk" interchangeably.)
+In particular, chunks with `#| include: false` are executed without either the code or the output being shown in the rendered document.
+Other chunk options include `#| echo` to show or hide the code and `#| output` to hide or show the output.
+
+To answer the questions below, you are likely to play around with code interactively (the first way) until you are ready to render your answers (using the second way) and submit them to your course instructor.
+
+Note that you can type text outside code cells and these will be rendered as markdown.
+More details on using Quarto markdown are provided on the [Quarto website](https://quarto.org).
+
+:::
+
+```{python}
+#| include: false
+import plotnine_polars as p9p
+p9p.theme_set(p9p.theme_matplotlib())
+```
+
+```{python}
+#| include: false
+#| eval: true
+import polars as pl
+import plotnine_polars
+from era_pl import load_parquet
+```
+
+```{python}
+#| include: false
+#| eval: true
+pl.Config.set_tbl_cols(200)
+pl.Config.set_tbl_width_chars(120)
+pl.Config.set_tbl_hide_dataframe_shape(True)
+pl.Config.set_tbl_hide_column_data_types(True)
+```
+
+```{python}
+#| include: false
+#| eval: true
+msi = load_parquet("msi", "crsp")
+msf = load_parquet("msf", "crsp")
+stocknames = load_parquet("stocknames", "crsp")
+dsedist = load_parquet("dsedist", "crsp")
+```
+
+```{python}
+#| include: false
+#| eval: true
+splits = (
+    dsedist
+    .filter(
+        pl.col("exdt").is_between(
+            pl.date(1927, 1, 1),
+            pl.date(1959, 12, 31),
+        ),
+        pl.col("distcd").is_in([5523, 5533]),
+        pl.col("facshr") >= 0.25,
+    )
+    .group_by("permno", "exdt")
+    .agg(pl.col("facshr").sum())
+    .with_columns(split=True)
+)
+```
+
+```{python}
+#| include: false
+#| eval: true
+nyse_stocks = (
+    stocknames
+    .filter(
+        pl.col("exchcd") == 1,
+        pl.col("shrcd").cast(pl.String)
+        .str.slice(0, 1) == "1"
+    )
+    .select("permno", "namedt", "nameenddt")
+)
+```
+
+```{python}
+#| include: false
+#| eval: true
+nyse_splits_raw = (
+    splits
+    .join(nyse_stocks,
+          on="permno", how="inner")
+    .filter(pl.col("exdt").is_between(pl.col("namedt"),
+                                      pl.col("nameenddt")))
+)
+```
+
+```{python}
+#| include: false
+#| eval: true
+mth_indexes = (
+    msi
+    .select("date")
+    .with_columns(month=pl.col("date").dt.truncate("1mo"))
+    .unique(subset=["month"])
+    .sort("month")
+    .with_row_index("mth_index")
+    .with_columns(pl.col("mth_index").cast(pl.Int32))
+    .select("month", "mth_index")
+)
+```
+
+```{python}
+#| include: false
+#| eval: true
+nyse_splits = (
+    nyse_splits_raw
+    .with_columns(month=pl.col("exdt").dt.truncate("1mo"))
+    .join(mth_indexes, on="month", how="inner")
+    .rename({"mth_index": "ex_mth_index"})
+    .with_columns(pl.col("ex_mth_index").cast(pl.Int32))
+    .drop("namedt", "nameenddt")
+)
+```
+
+```{python}
+#| include: false
+#| eval: true
+nyse_msf = (
+    msf
+    .filter(pl.col("ret").is_not_null())
+    .join(nyse_stocks, on="permno", how="inner")
+    .filter(
+        pl.col("date").is_between(
+            pl.col("namedt"),
+            pl.col("nameenddt"),
+        )
+    )
+    .with_columns(month=pl.col("date").dt.truncate("1mo"))
+    .join(mth_indexes, on="month", how="inner")
+    .with_columns(pl.col("mth_index").cast(pl.Int32))
+    .select("permno", "mth_index", "date", "ret")
+)
+```
+
+```{python}
+#| include: false
+#| eval: true
+split_return_data = (
+    nyse_splits
+    .join(nyse_msf, on="permno", how="left")
+    .with_columns(
+        month_rel_ex=(
+            pl.col("mth_index") - pl.col("ex_mth_index")
+        )
+    )
+    .select("permno", "exdt", "month_rel_ex", "date", "ret")
+    .unique(subset=["permno", "exdt", "month_rel_ex"],
+            keep="first",
+    )
+)
+```
+
+```{python}
+#| include: false
+#| eval: true
+(
+    split_return_data
+    .group_by(["permno", "exdt", "month_rel_ex"])
+    .agg(n=pl.len())
+    .group_by("n")
+    .agg(n_rows=pl.len())
+    .collect()
+)
+```
+
+```{python}
+#| include: false
+#| eval: true
+split_sample = (
+    split_return_data
+    .filter(pl.col("month_rel_ex").is_between(-12, 12))
+    .group_by("permno", "exdt")
+    .agg(n_obs=pl.len())
+    .filter(pl.col("n_obs") >= 25)
+    .select("permno", "exdt")
+)
+```
+
+```{python}
+#| include: false
+#| eval: true
+split_returns = (
+    split_return_data
+    .join(split_sample,
+          on=["permno", "exdt"], how="semi")
+)
+```
+
+```{python}
+#| include: false
+#| eval: true
+(
+    split_sample
+    .select("permno")
+    .unique()
+    .select(n_obs=pl.len())
+    .collect()
+)
+```
+
+```{python}
+#| include: false
+#| eval: true
+split_sample.select(n_obs=pl.len()).collect()
+```
+
+```{python}
+#| include: false
+#| eval: true
+index_returns = (msi.select("date", "vwretd", "ewretd"))
+```
+
+```{python}
+#| include: false
+#| eval: true
+omit_returns = (
+    split_returns
+    .with_columns(exclude=pl.col("month_rel_ex").is_between(-15, 0))
+    .group_by("permno", "date")
+    .agg(exclude=pl.col("exclude").any())
+)
+```
+
+```{python}
+#| include: false
+#| eval: true
+split_returns_reg = (
+    split_returns
+    .join(omit_returns,
+          on=["permno", "date"], how="inner")
+    .select("permno", "date", "ret", "exclude")
+    .unique()
+)
+```
+
+```{python}
+#| include: false
+#| eval: true
+reg_data = (
+    split_returns_reg
+    .join(index_returns, on=["date"], how="left")
+    .with_columns(
+        lpr=pl.col("ret").add(1).log(),
+        lm=pl.col("vwretd").add(1).log(),
+    )
+)
+```
+
+```{python}
+#| include: false
+#| eval: true
+coefs = (
+    reg_data
+    .with_columns(
+        x=pl.when(~pl.col("exclude")).then(pl.col("lm")),
+        y=pl.when(~pl.col("exclude")).then(pl.col("lpr")),
+    )
+    .group_by("permno")
+    .agg(
+        beta=(pl.cov("x", "y") / pl.col("x").var()),
+        alpha=(
+            pl.col("y").mean()
+            - (pl.cov("x", "y") / pl.col("x").var())
+            * pl.col("x").mean()
+        ),
+    )
+    .select("permno", "alpha", "beta")
+    .sort("permno")
+)
+```
+
+```{python}
+#| include: false
+#| eval: true
+abnormal_returns = (
+    reg_data
+    .join(coefs, on=["permno"], how="left")
+    .with_columns(
+        predicted=pl.col("alpha") + pl.col("beta") * pl.col("lm")
+    )
+    .with_columns(resid=pl.col("lpr") - pl.col("predicted"))
+    .select("permno", "date", "resid")
+)
+```
+
+```{python}
+#| include: false
+#| eval: true
+nyse_splits_join = (
+    nyse_splits
+    .with_columns(
+        start=pl.col("ex_mth_index") - 30,
+        end=pl.col("ex_mth_index") + 30,
+    )
+)
+```
+
+```{python}
+#| include: false
+#| eval: true
+table2_data = (
+    abnormal_returns
+    .with_columns(month=pl.col("date").dt.truncate("1mo"))
+    .join(mth_indexes, on="month", how="inner")
+    .join(nyse_splits_join, on="permno", how="inner")
+    .filter(pl.col("mth_index").is_between(pl.col("start"),
+                                             pl.col("end")))
+    .with_columns(
+        month_gap=pl.col("mth_index") - pl.col("ex_mth_index")
+    )
+    .select("permno", "exdt", "month_gap", "resid")
+)
+```
+
+```{python}
+#| include: false
+#| eval: true
+(
+    table2_data
+    .group_by(["permno", "exdt", "month_gap"])
+    .agg(n=pl.len())
+    .group_by("n")
+    .agg(n_rows=pl.len())
+    .collect()
+)
+```
+
+```{python}
+#| include: false
+#| eval: true
+(
+    table2_data
+    .group_by("month_gap")
+    .agg(all_u=pl.col("resid").mean())
+    .sort("month_gap")
+    .with_columns(all_U=pl.col("all_u").cum_sum())
+    .collect()
+    .ggplot()
+    .aes(x="month_gap", y="all_U")
+    .geom_point()
+)
+```
+
+```{python}
+#| include: false
+#| eval: true
+div_months = (
+    dsedist
+    .filter(pl.col("distcd").cast(pl.String).str.slice(0, 1) == "1")
+    .with_columns(month=pl.col("exdt").dt.truncate("1mo"))
+    .group_by(["permno", "month"])
+    .agg(divamt=pl.col("divamt").sum())
+)
+```
+
+```{python}
+#| include: false
+#| eval: true
+nyse_divs_raw = (
+    msf
+    .join(nyse_stocks, on=["permno"], how="inner")
+    .filter(pl.col("date").is_between(pl.col("namedt"),
+                                      pl.col("nameenddt")))
+    .with_columns(month=pl.col("date").dt.truncate("1mo"))
+    .join(div_months, on=["permno", "month"], how="left")
+    .with_columns(divamt=(pl.col("divamt") /
+                          pl.col("cfacshr")).fill_null(0))
+    .select("permno", "month", "divamt")
+)
+```
+
+```{python}
+#| include: false
+#| eval: true
+nyse_divs = (
+    nyse_divs_raw
+    .sort("permno", "month")
+    .with_columns(
+        div_trailing=pl.col("divamt")
+        .rolling_sum(window_size=12, min_samples=12)
+        .over("permno"),
+        div_forward=pl.col("divamt")
+        .shift(-1)
+        .reverse()
+        .rolling_sum(window_size=12, min_samples=12)
+        .reverse()
+        .over("permno"),
+    )
+    .select("permno", "month", "div_trailing", "div_forward")
+)
+```
+
+```{python}
+#| include: false
+#| eval: true
+split_firm_dividends = (
+    nyse_splits
+    .join(nyse_divs, on=["permno", "month"], how="left")
+    .with_columns(
+        div_ratio=pl.col("div_forward").era.div_if_pos("div_trailing")
+    )
+    .filter(pl.col("div_ratio").is_not_null())
+    .select("permno", "month", "exdt", "div_ratio")
+)
+```
+
+```{python}
+#| include: false
+#| eval: true
+div_mkt = (
+    nyse_divs
+    .group_by("month")
+    .agg(
+        pl.col("div_trailing", "div_forward")
+        .mean(),
+    )
+    .with_columns(
+        mkt_div_ratio=
+            pl.col("div_forward").era.div_if_pos("div_trailing")
+    )
+)
+```
+
+```{python}
+#| include: false
+#| eval: true
+dividends_file = (
+    split_firm_dividends
+    .join(div_mkt,
+        on=["month"], how="inner")
+    .select("permno", "exdt", "div_ratio", "mkt_div_ratio")
+    .with_columns(up_div=pl.col("div_ratio") >= pl.col("mkt_div_ratio"))
+)
+```
+
+```{python}
+#| include: false
+#| eval: true
+table2_w_divs = (
+    table2_data
+    .join(dividends_file,
+          on=["permno", "exdt"], how="left")
+)
+```
+
+```{python}
+#| include: false
+#| eval: true
+(
+    table2_w_divs
+    .filter(pl.col("up_div"))
+    .group_by("month_gap")
+    .agg(U=pl.col("resid").mean())
+    .sort("month_gap")
+    .with_columns(U=pl.col("U").cum_sum())
+    .collect()
+    .ggplot()
+    .aes(x="month_gap", y="U")
+    .geom_point()
+)
+```
+
+```{python}
+#| include: false
+#| eval: true
+(
+    table2_w_divs
+    .filter(~pl.col("up_div"))
+    .group_by("month_gap")
+    .agg(U=pl.col("resid").mean())
+    .sort("month_gap")
+    .with_columns(U=pl.col("U").cum_sum())
+    .collect()
+    .ggplot()
+    .aes(x="month_gap", y="U")
+    .geom_point()
+)
+```
+
+## Stock splits
+
+### Discussion question
+
+Consider the following alternative theories.
+
+- **Theory A**: Firms like to keep their stock price within certain bounds.
+When the stock price rises above a certain threshold, a firm may initiate a split, announcing it several weeks in advance of its effective date.
+Firms do not use splits to signal private information about firm prospects.
+- **Theory B**: Firms use splits to signal private information about firm prospects.
+A firm will announce a split several weeks in advance of its effective date.
+- **Theory C**: Capital market participants don't fully adjust for the effect of splits, tending to anchor on the pre-split price to some degree.
+Firms do not use splits to signal private information about firm prospects.
+
+Produce a set of indicative plots (e.g., drawn by hand) for the predicted behaviour of cumulative abnormal returns for assuming that the split is announced in month $-2$.
+What impact would variation in the announcement dates relative to the split effective date have on the plots?
+
+```{python}
+#| include: true
+
+```
+
+## Dividend policy
+
+### Discussion questions
+
+1. Does the research design of FFJR include the use of a control group?
+If so, how?
+What alternative methods could have been used to introduce a control group?
+
+```{python}
+#| include: true
+
+```
+
+2. @Fama:1969wc [p. 9] state "the most important empirical results of this study are summarized in Tables 2 and 3 and Figures 2 and 3."
+What does Table 3 of FFJR tell us?
+(*Hint:* Read p. 11.)
+Do you find the presentation of Table 3 to be effective?
+
+```{python}
+#| include: true
+
+```
+
+3. Consider Table 2 of FFJR.
+Is it more or less important than Table 3?
+What is the relationship between Table 2 and Figures 2 and 3?
+
+```{python}
+#| include: true
+
+```
+
+4. What statistical tests are used to test the hypotheses of the paper?
+
+```{python}
+#| include: true
+
+```
+
+## Replication of FFJR
+
+### Discussion questions and exercises
+
+1. "In the past a large fraction of stock splits have been followed closely by dividend increases---and increases greater than those experienced at the same time by other securities in the market."
+What evidence to support this claim (if any) is provided by FFJR?
+Do we see evidence consistent with this in the data underlying our replication above?
+
+```{python}
+#| include: true
+
+```
+
+2. Consider the three alternative theories below.
+Suggest tests that could distinguish which of these theories best explains observed phenomena.
+Which theory best aligns the theory proposed by FFJR?
+How would this theory need to be modified to comport better with the theory proposed by FFJR?
+
+   - **Theory $A'$**: Firms like to keep their stock price within certain bounds.
+   When the stock price rises above a certain threshold, a firm may initiate a split, announcing it several weeks in advance of its effective date.
+   Firms do not use splits to signal private information about firm prospects.
+   *Pre-split stock prices may be driven by information that suggests an imminent increase in dividends.*
+   - **Theory $B'$**: Firms use splits to signal private information about firm prospects.
+   A firm will announce a split several weeks in advance of its effective date.
+   *Firms may also use dividend changes to signal private information about firm prospects.*
+   - **Theory $B^{''}$**: *Firms use splits to signal private information about future dividend increases, which in turn signal private information about firm prospects.*
+   A firm will announce a split several weeks in advance of its effective date.
+
+```{python}
+#| include: true
+
+```
+
+3. On p. 17 of @Fama:1969wc, it is argued that "our data suggest that once the information effects of associated dividends are properly considered, a split *per se* has no net effect on common stock returns."
+Is it clear what meaning the words "per se" have in this sentence?
+Does FFJR provide persuasive evidence in support of this claim?
+Describe how you might test this claim using the richer data available today.
+What data would you use beyond that used in FFJR?
+
+```{python}
+#| include: true
+
+```
+
+4. How do the figures produced above compare with their equivalents in FFJR?
+What might account for any differences?
+
+```{python}
+#| echo: false
+(
+    table2_data
+    .group_by("month_gap")
+    .agg(all_u=pl.col("resid").mean())
+    .sort("month_gap")
+    .with_columns(all_U=pl.col("all_u").cum_sum())
+    .collect()
+    .ggplot()
+    .aes(x="month_gap", y="all_U")
+    .geom_point()
+)
+```
+
+```{python}
+#| echo: false
+(
+    table2_w_divs
+    .filter(pl.col("up_div"))
+    .group_by("month_gap")
+    .agg(U=pl.col("resid").mean())
+    .sort("month_gap")
+    .with_columns(U=pl.col("U").cum_sum())
+    .collect()
+    .ggplot()
+    .aes(x="month_gap", y="U")
+    .geom_point()
+)
+```
+
+```{python}
+#| echo: false
+(
+    table2_w_divs
+    .filter(~pl.col("up_div"))
+    .group_by("month_gap")
+    .agg(U=pl.col("resid").mean())
+    .sort("month_gap")
+    .with_columns(U=pl.col("U").cum_sum())
+    .collect()
+    .ggplot()
+    .aes(x="month_gap", y="U")
+    .geom_point()
+)
+```
+
+```{python}
+#| include: true
+
+```
+
+5. In the analysis above we used `vwretd` as the market index.
+Modify the code above to instead use `ewretd`.
+Do you observe any changes in the resulting figures?
+Which do you believe is the better market index for these plots?
+Why?
+
+```{python}
+#| include: true
+
+```

@@ -1,54 +1,72 @@
 ---
-title: "Ball and Brown (1968) template"
-subtitle: "A runnable code-focused replication"
+title: "Ball and Brown (1968)"
+subtitle: "Responses to exercise questions"
+author: Put your name here
+bibliography: references.bib
 engine: jupyter
 jupyter: python3
 format:
   typst: default
 ---
 
-# Overview
+:::{.content-visible when-format="markdown"}
+## Instructions
 
-This template extracts the visible Python code used to produce an analogue of Figure 1 from Ball and Brown (1968). The focus is on a runnable workflow rather than on the fuller book chapter discussion.
+This document assumes that you have completed the instructions [here](https://github.com/iangow/era_pl_templates/blob/main/README.md).
+Note that this chapter uses CRSP and Compustat data from a local Parquet repository, which means you will need to complete **Step 5: Get data from WRDS** before running any code.
+This chapter also downloads size-portfolio data from Ken French's website, so internet access is required.
 
-:::{.callout-tip}
-This document assumes that you have:
+This template extracts the visible code and exercises from [Chapter 11](https://iangow.github.io/era_pl_book/bb68.html) of the Python Polars edition of *Empirical Research in Accounting: Tools and Methods*.
+This template includes all the code from the book chapter.
 
-1. created a local `.venv` with `uv sync`
-2. created a local `.env` file with `WRDS_ID` and `DATA_DIR`
-3. downloaded the required WRDS tables as Parquet files using `db2pq`
+Within Positron, you can run the code below in two ways.
+
+In the first way, you can treat this file as a notebook of sorts and just run the code interactively.
+In Positron, you will see "Run Cell" and (for cells after the first cell) "Run Above".
+You might choose to go through the cells in order and click "Run Cell" on each one to see its output.
+Alternatively, you might jump ahead to a cell of interest, and click "Run Above" so that any prior code needed for your chosen cell has been executed, then "Run Cell" on the cell of interest.
+
+Note that some cells contain multiple lines and to see the output from each, you may need to execute them one at a time.
+You can run code interactively from a .qmd file in Positron without rendering the whole document.
+On macOS, place the cursor in a code cell or highlight selected lines and press `Command+Enter`; on Windows and Linux, use `Ctrl+Enter` instead.
+
+In the second way, you have Quarto "render" the document as PDF.
+In Positron, you can accomplish this by clicking the "Preview" button at the top of the edit window.
+Note that many of the cells below will not appear in the created PDF.
+This document uses Quarto chunk options to control that behaviour.
+(Quarto seems to use the words "cell" and "chunk" interchangeably.)
+In particular, chunks with `#| include: false` are executed without either the code or the output being shown in the rendered document.
+Other chunk options include `#| echo` to show or hide the code and `#| output` to hide or show the output.
+
+To answer the questions below, you are likely to play around with code interactively (the first way) until you are ready to render your answers (using the second way) and submit them to your course instructor.
+
+Note that you can type text outside code cells and these will be rendered as markdown.
+More details on using Quarto markdown are provided on the [Quarto website](https://quarto.org).
+
 :::
 
 ```{python}
+#| include: false
+import plotnine_polars as p9p
+p9p.theme_set(p9p.theme_matplotlib())
+```
+
+```{python}
+#| include: false
+#| eval: true
 import io
 import re
 import zipfile
-
-import polars as pl
 import requests
-
-from dotenv import load_dotenv
-from era_pl import load_parquet, NumberedLines, plotnine_star as p9
-
-load_dotenv()
+import polars as pl
+import polars.selectors as cs
+import plotnine_polars
+from era_pl import load_parquet, NumberedLines
 ```
 
-:::{.callout-note}
-The package imported here as `era_pl` is installed from PyPI as `era-py`.
-:::
-
-## Load WRDS data
-
-The code below expects local Parquet versions of the following WRDS tables:
-
-- `crsp.msi`
-- `crsp.msf`
-- `crsp.stocknames`
-- `crsp.ccmxpf_lnkhist`
-- `comp.funda`
-- `comp.fundq`
-
 ```{python}
+#| include: false
+#| eval: true
 msi = load_parquet("msi", "crsp")
 msf = load_parquet("msf", "crsp")
 ccmxpf_lnkhist = load_parquet("ccmxpf_lnkhist", "crsp")
@@ -58,14 +76,9 @@ funda = load_parquet("funda", "comp")
 fundq = load_parquet("fundq", "comp")
 ```
 
-:::{.callout-note}
-These objects are `pl.LazyFrame` objects, so Polars delays the actual work until a later step such as `.collect()`.
-:::
-
-## Announcement dates and return windows
-
 ```{python}
-#| label: annc_events
+#| include: false
+#| eval: true
 annc_events = (
     fundq
     .filter(
@@ -75,15 +88,12 @@ annc_events = (
         pl.col("popsrc") == "D",
         pl.col("fqtr") == 4,
         pl.col("fyr") == 12,
-        pl.col("rdq").is_not_null()
+        pl.col("rdq").is_not_null(),
     )
     .select("gvkey", "datadate", "rdq")
     .with_columns(annc_month=pl.col("rdq").dt.truncate("1mo"))
 )
-```
 
-```{python}
-#| label: crsp_dates
 crsp_dates = (
     msi
     .select("date")
@@ -94,10 +104,7 @@ crsp_dates = (
         month=pl.col("date").dt.truncate("1mo"),
     )
 )
-```
 
-```{python}
-#| label: annc_months
 annc_months = (
     crsp_dates
     .select(
@@ -109,27 +116,20 @@ annc_months = (
         end_td=pl.col("annc_td") + 6,
     )
 )
-```
 
-```{python}
-#| label: td_link
 td_link = (
     crsp_dates
     .join(annc_months, how="cross")
-    .filter(pl.col("td").is_between(pl.col("start_td"),
-                                    pl.col("end_td")))
+    .filter(pl.col("td").is_between(pl.col("start_td"), pl.col("end_td")))
     .with_columns(rel_td=pl.col("td") - pl.col("annc_td"))
     .select("annc_month", "rel_td", "date")
 )
-```
 
-```{python}
-#| label: ccm_link
 ccm_link = (
     ccmxpf_lnkhist
     .filter(
         pl.col("linktype").is_in(["LC", "LU", "LS"]),
-        pl.col("linkprim").is_in(["C", "P"])
+        pl.col("linkprim").is_in(["C", "P"]),
     )
     .with_columns(
         permno=pl.col("lpermno"),
@@ -137,21 +137,18 @@ ccm_link = (
     )
     .select("gvkey", "permno", "linkdt", "linkenddt")
 )
-```
 
-```{python}
 events_linked = (
     annc_events
     .join(td_link, on="annc_month", how="inner")
-    .join(ccm_link, on=["gvkey"], how="inner")
-    .filter(pl.col("annc_month").is_between(pl.col("linkdt"),
-                                            pl.col("linkenddt")))
+    .join(ccm_link, on="gvkey", how="inner")
+    .filter(pl.col("annc_month").is_between(pl.col("linkdt"), pl.col("linkenddt")))
 )
 ```
 
 ```{python}
-#| label: rets_all
-#| cache: false
+#| include: false
+#| eval: true
 rets_all = (
     events_linked
     .join(msf.select("permno", "date", "ret", "prc", "shrout"),
@@ -163,48 +160,26 @@ rets_all = (
         on="permno",
         how="inner",
     )
-    .filter(pl.col("date").is_between(pl.col("namedt"),
-                                      pl.col("nameenddt")))
+    .filter(pl.col("date").is_between(pl.col("namedt"), pl.col("nameenddt")))
     .select("gvkey", "datadate", "rel_td", "permno", "date", "ret")
     .filter(pl.col("datadate").dt.year().is_between(1987, 2002))
 )
-```
 
-```{python}
-#| label: full_panel
-#| cache: false
-rets_counts = (
+full_panel = (
     rets_all
     .group_by("gvkey", "datadate")
     .agg(n_obs=pl.col("ret").count())
-)
-
-full_panel = (
-    rets_counts
     .with_columns(max_n_obs=pl.col("n_obs").max())
     .filter(pl.col("n_obs") == pl.col("max_n_obs"))
     .select("gvkey", "datadate")
 )
+
+rets = rets_all.join(full_panel, on=["gvkey", "datadate"], how="semi")
 ```
 
 ```{python}
-#| label: rets
-#| cache: false
-rets = (
-    rets_all
-    .join(full_panel, on=["gvkey", "datadate"], how="inner")
-)
-```
-
-## Size-adjusted benchmark returns
-
-The template uses size-adjusted returns based on files from Ken French's data library.
-
-:::{.callout-note}
-`NumberedLines()` is a convenience wrapper for locating sections of the downloaded text file without hard-coding line numbers.
-:::
-
-```{python}
+#| include: false
+#| eval: true
 def zip_url_to_text(url):
     resp = requests.get(url)
     resp.raise_for_status()
@@ -212,39 +187,13 @@ def zip_url_to_text(url):
     inner_name = zf.namelist()[0]
     raw = zf.read(inner_name).decode("latin1")
     return NumberedLines(raw.splitlines())
-```
 
-```{python}
-url = ("https://mba.tuck.dartmouth.edu/pages/faculty/ken.french/ftp/"
-       "Portfolios_Formed_on_ME_CSV.zip")
 
-text = zip_url_to_text(url)
-```
-
-```{python}
-vw_start_regex = re.compile(r"Value Weight.*Monthly")
-vw_start = text.filter(vw_start_regex).index[0] + 1
-
-vw_end_regex = re.compile(r"Equal Weight.*Monthly")
-vw_end = text.filter(vw_end_regex).index[0]
-vw_lines = text[vw_start:vw_end].reset_index()
-
-ew_end_regex = re.compile(r"^\s+Value Weight.*Annual")
-ew_end = text.filter(ew_end_regex).index[0]
-ew_start = vw_end + 1
-ew_lines = text[ew_start:ew_end].reset_index()
-```
-
-```{python}
 def lines_to_df(lines, header="infer"):
     block = "\n".join(lines)
     has_header = header == "infer"
 
-    df_raw = pl.read_csv(
-        io.StringIO(block),
-        has_header=has_header,
-    )
-
+    df_raw = pl.read_csv(io.StringIO(block), has_header=has_header)
     value_cols = df_raw.columns[1:]
 
     df_raw = df_raw.with_columns(
@@ -256,9 +205,8 @@ def lines_to_df(lines, header="infer"):
     )
 
     return df_raw.rename({df_raw.columns[0]: "date"})
-```
 
-```{python}
+
 def read_data(lines):
     return (
         lines_to_df(lines)
@@ -272,8 +220,8 @@ def read_data(lines):
         .with_columns(
             ret=pl.col("ret") / 100.0,
             decile=(
-                pl.when(pl.col("quantile") == "Hi 10").then(pl.lit(10))
-                .when(pl.col("quantile") == "Lo 10").then(pl.lit(1))
+                pl.when(pl.col("quantile") == "Hi 10").then(10)
+                .when(pl.col("quantile") == "Lo 10").then(1)
                 .when(pl.col("quantile").str.contains("-Dec"))
                 .then(
                     pl.col("quantile")
@@ -287,20 +235,28 @@ def read_data(lines):
         .select("month", "ret", "decile")
         .sort(["month", "decile"])
     )
-```
 
-```{python}
+
+url = (
+    "https://mba.tuck.dartmouth.edu/pages/faculty/ken.french/ftp/"
+    "Portfolios_Formed_on_ME_CSV.zip"
+)
+text = zip_url_to_text(url)
+vw_start = text.filter(re.compile(r"Value Weight.*Monthly")).index[0] + 1
+vw_end = text.filter(re.compile(r"Equal Weight.*Monthly")).index[0]
+ew_start = vw_end + 1
+ew_end = text.filter(re.compile(r"^\s+Value Weight.*Annual")).index[0]
+vw_lines = text[vw_start:vw_end].reset_index()
+ew_lines = text[ew_start:ew_end].reset_index()
+
 ew_rets = read_data(ew_lines)
 vw_rets = read_data(vw_lines)
-```
 
-```{python}
 size_rets = (
     ew_rets
     .select("month", "decile", pl.col("ret").alias("ew_ret"))
     .join(
-        vw_rets
-        .select("month", "decile", pl.col("ret").alias("vw_ret")),
+        vw_rets.select("month", "decile", pl.col("ret").alias("vw_ret")),
         on=["month", "decile"],
         how="inner",
     )
@@ -309,22 +265,17 @@ size_rets = (
 ```
 
 ```{python}
-url_bp = ("https://mba.tuck.dartmouth.edu/pages/faculty/ken.french/ftp/"
-          "ME_Breakpoints_CSV.zip")
-
+#| include: false
+#| eval: true
+url_bp = (
+    "https://mba.tuck.dartmouth.edu/pages/faculty/"
+    "ken.french/ftp/ME_Breakpoints_CSV.zip"
+)
 text = zip_url_to_text(url_bp)
-```
-
-```{python}
-#| label: me_breakpoints
-#| cache: false
 me_last = text.filter(re.compile(r"^Copyright")).index[0]
-
 df_raw = lines_to_df(text[1:me_last], header=None)
-df_raw.columns = ["month", "n"] + [f"p{i}" for i in range(5, 101, 5)]
-```
+df_raw.columns = ["month", "n"] + ["p" + str(i) for i in range(5, 101, 5)]
 
-```{python}
 me_breakpoints_raw = (
     df_raw
     .with_columns(
@@ -344,9 +295,7 @@ me_breakpoints_raw = (
     .sort("month", "decile")
     .lazy()
 )
-```
 
-```{python}
 me_breakpoints = (
     me_breakpoints_raw
     .sort(["month", "decile"])
@@ -359,10 +308,7 @@ me_breakpoints = (
     .drop("cutoff")
     .sort(["month", "decile"])
 )
-```
 
-```{python}
-#| label: me_values
 me_values = (
     msf
     .with_columns(
@@ -372,33 +318,19 @@ me_values = (
     .select("permno", "date", "mktcap", "month")
     .filter(pl.col("month").dt.month() == 12)
 )
-```
 
-```{python}
-#| label: me_deciles
 me_decile_assignments = (
     me_values
-    .join(me_breakpoints, on=["month"], how="inner")
-    .filter(
-        pl.col("mktcap").is_between("me_min",
-                                    "me_max", closed="left")
-    )
-    .with_columns(
-        year=(pl.col("date").dt.year() + 1).cast(pl.Int32)
-    )
+    .join(me_breakpoints, on="month", how="inner")
+    .filter(pl.col("mktcap").is_between("me_min", "me_max", closed="left"))
+    .with_columns(year=(pl.col("date").dt.year() + 1).cast(pl.Int32))
     .select("permno", "year", "decile")
 )
 ```
 
-## Earnings news variables
-
-:::{.callout-note}
-The expressions `pl.col("earn", "cfo")`, `.era.div_if_pos("lag_at")`, and `.era.ntile(10)` keep the transformation pipeline concise while still working on lazy data.
-:::
-
 ```{python}
-#| label: news
-#| cache: false
+#| include: false
+#| eval: true
 news = (
     funda
     .filter(
@@ -406,20 +338,16 @@ news = (
         pl.col("datafmt") == "STD",
         pl.col("consol") == "C",
         pl.col("popsrc") == "D",
-        pl.col("fyr") == 12
+        pl.col("fyr") == 12,
     )
     .select(
-        "gvkey",
-        "datadate",
-        "fyear",
-        "at",
+        "gvkey", "datadate", "fyear", "at",
         pl.col("ibc").alias("earn"),
         pl.col("oancf").alias("cfo"),
     )
-    .sort(["gvkey", "datadate"])
+    .sort("gvkey", "datadate")
     .with_columns(
-        lag_at=pl.col("at").shift(1).over("gvkey"),
-        lag_fyear=pl.col("fyear").shift(1).over("gvkey"),
+        pl.col("at", "fyear").shift(1).over("gvkey").name.prefix("lag_")
     )
     .with_columns(
         pl.col("earn", "cfo")
@@ -430,18 +358,13 @@ news = (
     )
     .filter(
         pl.col("fyear").is_between(1987, 2002),
-        pl.col("lag_fyear") + 1 == pl.col("fyear")
+        pl.col("lag_fyear") + 1 == pl.col("fyear"),
     )
     .select("gvkey", "datadate", "earn_chg", "cfo_chg")
     .with_columns(
-        (pl.col("earn_chg", "cfo_chg") > 0)
-        .name.replace(r"_chg$", "_gn")
+        (pl.col("earn_chg", "cfo_chg") > 0).name.replace(r"_chg$", "_gn")
     )
-    .filter(
-        pl.all_horizontal(
-            pl.col("cfo_gn", "earn_gn").is_not_null()
-        )
-    )
+    .filter(pl.all_horizontal(pl.col("cfo_gn", "earn_gn").is_not_null()))
     .with_columns(
         pl.col("earn_chg", "cfo_chg")
         .era.ntile(10)
@@ -449,13 +372,7 @@ news = (
         .name.replace(r"_chg$", "_decile")
     )
 )
-```
 
-## Merge and plot
-
-```{python}
-#| label: merged
-#| cache: false
 merged = (
     news
     .with_columns(year=pl.col("datadate").dt.year())
@@ -463,33 +380,22 @@ merged = (
     .join(me_decile_assignments, on=["permno", "year"], how="inner")
     .with_columns(month=pl.col("date").dt.truncate("1mo"))
     .join(size_rets, on=["decile", "month"], how="inner")
-    .drop(["permno", "month"])
+    .drop("permno", "month")
 )
-```
 
-:::{.callout-note}
-The next step is where the lazy pipeline is finally materialized via `.collect()`.
-:::
-
-```{python}
-#| label: plot_data
-ret_cols = [
-    c for c in merged.collect_schema().names()
-    if c.endswith("ret")
-]
-
-plot_data = (
+plot_data_raw = (
     merged
     .filter(pl.col("ret").is_not_null())
-    .sort(["gvkey", "datadate", "rel_td"])
+    .sort("gvkey", "datadate", "rel_td")
     .with_columns(
-        **{
-            c: pl.col(c).add(1).cum_prod().over(["gvkey", "datadate"])
-            for c in ret_cols
-        }
+        cs.ends_with("ret").add(1).cum_prod().over("gvkey", "datadate")
     )
-    .group_by(["rel_td", "earn_gn"])
-    .agg(**{c: pl.col(c).mean() for c in ret_cols})
+)
+
+plot_data = (
+    plot_data_raw
+    .group_by("rel_td", "earn_gn")
+    .agg(cs.ends_with("ret").mean())
     .with_columns(
         aret_ew=pl.col("ret") - pl.col("ew_ret"),
         aret_vw=pl.col("ret") - pl.col("vw_ret"),
@@ -499,30 +405,248 @@ plot_data = (
             .otherwise(pl.lit("Bad"))
         },
     )
-    .sort(["earn_gn", "rel_td"])
     .collect()
 )
 ```
 
-:::{.callout-note}
-The `p9()` context manager temporarily imports the `plotnine` names used in the plotting code.
-:::
+```{python}
+#| include: false
+#| eval: true
+max_cutoff = (
+    me_breakpoints_raw
+    .filter(
+        pl.col("month") == pl.date(2020, 12, 1),
+        pl.col("decile") == 10,
+    )
+    .select(pl.col("cutoff").mean())
+    .collect()
+    .item()
+)
+```
+
+## Principal results of @Ball:1968ub
+
+### Discussion questions
+
+1. What is the research question of @Ball:1968ub?
+Do you find the paper to be persuasive?
 
 ```{python}
+#| include: true
+
+```
+
+2. What do you notice about the references in @Ball:1968ub [pp. 177-178]?
+
+```{python}
+#| include: true
+
+```
+
+3. Given that "the most fundamental result" of @Ball:1968ub relates to an association or correlation, is it correct to say that the paper provides no evidence on causal linkages?
+Does this also mean that @Ball:1968ub is a "merely" descriptive paper according to the taxonomy of research papers outlined in @sec-causal-inf?
+How might the results of @Ball:1968ub be represented in a causal diagram assuming that accounting information is meaningful and markets are efficient?
+Would an alternative causal diagram be assumed by a critic who viewed accounting information as meaningless?
+
+```{python}
+#| include: true
+
+```
+
+4. Describe how Figure 1 of @Ball:1968ub supports each of principal results identified by @Ball:2019wu.
+
+```{python}
+#| include: true
+
+```
+
+5. Consider the causal diagrams you created above.
+Do the results of @Ball:1968ub provide more support for one causal diagram than the other?
+
+```{python}
+#| include: true
+
+```
+
+6. Compare Figure 1 of @Ball:2019wu with Figure 1 of BB68.
+What is common between the two figures?
+What is different?
+
+```{python}
+#| include: true
+
+```
+
+7. What does "less their average" mean in the title of Figure 1 of @Ball:2019wu?
+What effect does this have on the plot?
+(Does it make this plot different from Figure 1 of BB68?
+Is information lost in the process?)
+
+```{python}
+#| include: true
+
+```
+
+8. @Ball:2019wu [p. 418] say "in this replication we address two issues with the BB68 significance tests."
+Do you understand the points being made here?
+
+```{python}
+#| include: true
+
+```
+
+9. @Ball:2019wu [p. 418] also say "the persistence of PEAD over time is evidence it does not constitute market inefficiency."
+What do you make of this argument?
+
+```{python}
+#| include: true
+
+```
+
+10. What is the minimum amount of information that our hypothetical genie needs to provide to enable formation of the portfolios underlying *TI*, *NI*, and *II*?
+What are the rules for construction of each of these portfolios?
+
+```{python}
+#| include: true
+
+```
+
+11. @Ball:1968ub observe a ratio of *NI* to *TI* of about 0.23.
+What do we expect this ratio to be?
+Does this ratio depend on the information content of accounting information?
+
+```{python}
+#| include: true
+
+```
+
+12. Consider the paragraph in @Ball:2019wu [p. 418] beginning "an innovation in BB68 was to estimate ...".
+How do the discussions of these results differ between @Ball:1968ub and @Ball:2019wu?
+
+```{python}
+#| include: true
+
+```
+
+13. Consider column (4) of Table 2 of @Ball:2019wu.
+Is an equivalent set of numbers reported in BB68?
+What is the underlying investment strategy associated with this column (this need not be feasible in practice)?
+
+```{python}
+#| include: true
+
+```
+
+14. Heading 6.3 of @Ball:2019wu is "Does 'useful' disprove 'meaningless'?"
+Do you think that "not meaningless" implies "not useless"?
+Which questions (or facts) does BB68 address in these terms?
+
+```{python}
+#| include: true
+
+```
+
+## Replicating @Ball:1968ub
+
+### Figure 1 of @Ball:1968ub
+
+```{python}
+#| echo: false
 #| label: fig-bb-1
 #| fig-cap: "Replication of Figure 1 of Ball and Brown (1968)."
-#| fig-alt: "Cumulative abnormal returns for good versus bad earnings news around annual earnings announcements."
-with p9():
-    fig = (
-        ggplot(
-            plot_data,
-            aes("rel_td", "aret_ew",
-                linetype="Earnings news", group="Earnings news"),
-        )
-        + geom_line()
-        + theme_bw()
-        + theme(legend_position="bottom")
-    )
+#| fig-alt: "Cumulative abnormal returns for good vs bad earnings news around annual earnings announcements."
+(
+    plot_data
+    .ggplot()
+    .aes(x="rel_td", y="aret_ew",
+         linetype="Earnings news", group="Earnings news")
+    .geom_line()
+    .add_theme(legend_position="bottom")
+)
+```
 
-fig
+### Exercises
+
+1. From the data below, we see that the upper bound for the tenth decile is about `{python} f"US${max_cutoff/1000:.3g}"` billion.
+How can we reconcile this with the existence of firms with market capitalizations over US\$1 trillion?
+*Bonus:* Using data from `crsp.msf`, identify the firm whose market capitalization was `{python} f"US${max_cutoff/1000:.3g}"` billion in December 2020.
+(*Hint:* For the bonus question, you can use data from `crsp.msf` and `crsp.stocknames`.
+Why do we need to group by `permco`, not `permno`, to find the answer?)
+
+```{python}
+#| echo: false
+(
+    me_breakpoints_raw
+    .filter(pl.col("month") == pl.date(2020, 12, 1))
+    .collect()
+)
+```
+
+```{python}
+#| include: true
+
+```
+
+2. To keep things straightforward, we focused on firms that have returns for each month in the $(t - 11, t+ 6)$ window.
+Can you tell what approach @Nichols:2004tb took with regard to this issue?
+
+```{python}
+#| include: true
+
+```
+
+3. Table 2 of @Nichols:2004tb measures cumulative abnormal returns as the "cumulative raw return minus cumulative size decile portfolio to which the firm begins."
+Apart from the use of a size-decile portfolio rather than some other market index, how does this measure differ from the Abnormal Performance Index (API) defined on p.168 of @Ball:1968ub?
+Adjust the measure depicted in the replication of Figure 1 to more closely reflect the API definition used in @Ball:1968ub (but retaining the size-decile as the benchmark).
+Does this tweak significantly affect the results?
+Which approach seems most appropriate?
+That of @Nichols:2004tb or that of @Ball:1968ub?
+
+```{python}
+#| include: true
+
+```
+
+4. Create an alternative version of @fig-bb-1 using the sign of "news" about cash flows in the place of income news.
+Do your results broadly line up with those in Panel A of Figure 2 of @Nichols:2004tb?
+Do these results imply that accounting income is inherently more informative than cash flows from operations?
+Why or why not?
+
+```{python}
+#| include: true
+
+```
+
+5. Create an alternative version of the figure above focused on the extreme earnings deciles in place of the good-bad news dichotomy.
+Do your results broadly line up with those in Panel B of Figure 2 of @Nichols:2004tb?
+
+```{python}
+#| include: true
+
+```
+
+6. Calculate *AI* by year following the formula on p. 175 of @Ball:1968ub (there denoted as $II_0$).
+You may find it helpful to start with the code producing `plot_data_raw` above.
+You may also find it helpful to reshape the data so that information about portfolios in each year appears in a single row.
+Note that you will only be interested in rows at $t = 0$ (e.g., `.filter(pl.col("rel_td") == 0)`).
+
+```{python}
+#| include: true
+
+```
+
+7. Calculate *NI* by year following the formula on p. 175 of @Ball:1968ub (there denoted as $NI_0$).
+Note that you will only be interested in rows at $t = 0$ (e.g., `.filter(pl.col("rel_td") == 0)`).
+
+```{python}
+#| include: true
+
+```
+
+8. Using the data on *NI* and *AI* from above, create a plot of $AI/NI$ like that in Figure 2 of @Ball:2019wu.
+Do you observe similar results to those shown in Figure 2 of @Ball:2019wu?
+
+```{python}
+#| include: true
+
 ```
