@@ -1,0 +1,471 @@
+---
+title: "Beaver (1968)"
+subtitle: "Responses to exercise questions"
+author: Put your name here
+bibliography: references.bib
+engine: jupyter
+jupyter: python3
+format:
+  typst: default
+---
+
+:::{.content-visible when-format="markdown"}
+## Instructions
+
+This document assumes that you have completed the instructions [here](https://github.com/iangow/era_pl_templates/blob/main/README.md).
+Note that this chapter uses CRSP and Compustat data from a local Parquet repository, which means you will need to complete **Step 5: Get data from WRDS** before running any code.
+
+This template extracts the visible code and exercises from [Chapter 12](https://iangow.github.io/era_pl_book/beaver68.html) of the Python Polars edition of *Empirical Research in Accounting: Tools and Methods*.
+This template includes all the code from the book chapter.
+
+Within Positron, you can run the code below in two ways.
+
+In the first way, you can treat this file as a notebook of sorts and just run the code interactively.
+In Positron, you will see "Run Cell" and (for cells after the first cell) "Run Above".
+You might choose to go through the cells in order and click "Run Cell" on each one to see its output.
+Alternatively, you might jump ahead to a cell of interest, and click "Run Above" so that any prior code needed for your chosen cell has been executed, then "Run Cell" on the cell of interest.
+
+Note that some cells contain multiple lines and to see the output from each, you may need to execute them one at a time.
+You can run code interactively from a .qmd file in Positron without rendering the whole document.
+On macOS, place the cursor in a code cell or highlight selected lines and press `Command+Enter`; on Windows and Linux, use `Ctrl+Enter` instead.
+
+In the second way, you have Quarto "render" the document as PDF.
+In Positron, you can accomplish this by clicking the "Preview" button at the top of the edit window.
+Note that many of the cells below will not appear in the created PDF.
+This document uses Quarto chunk options to control that behaviour.
+(Quarto seems to use the words "cell" and "chunk" interchangeably.)
+In particular, chunks with `#| include: false` are executed without either the code or the output being shown in the rendered document.
+Other chunk options include `#| echo` to show or hide the code and `#| output` to hide or show the output.
+
+To answer the questions below, you are likely to play around with code interactively (the first way) until you are ready to render your answers (using the second way) and submit them to your course instructor.
+
+Note that you can type text outside code cells and these will be rendered as markdown.
+More details on using Quarto markdown are provided on the [Quarto website](https://quarto.org).
+
+:::
+
+```{python}
+#| include: false
+import plotnine_polars as p9p
+p9p.theme_set(p9p.theme_matplotlib())
+```
+
+```{python}
+#| include: false
+#| eval: true
+import polars as pl
+import plotnine_polars
+from era_pl import load_parquet
+```
+
+```{python}
+#| include: false
+#| eval: true
+fundq = load_parquet("fundq", "comp")
+ccmxpf_lnkhist = load_parquet("ccmxpf_lnkhist", "crsp")
+dsi = load_parquet("dsi", "crsp")
+dsf = load_parquet("dsf", "crsp")
+stocknames = load_parquet("stocknames", "crsp")
+```
+
+```{python}
+#| include: false
+#| eval: true
+first_date = pl.date(2010, 1, 1)
+last_date = pl.date(2019, 12, 31)
+
+earn_annc_dates = (
+    fundq
+    .filter(
+        pl.col("indfmt") == "INDL",
+        pl.col("datafmt") == "STD",
+        pl.col("consol") == "C",
+        pl.col("popsrc") == "D",
+        pl.col("rdq").is_not_null(),
+        pl.col("fqtr") == 4,
+    )
+    .select("gvkey", "datadate", "rdq")
+    .filter(pl.col("datadate").is_between(first_date, last_date))
+)
+
+ccm_link = (
+    ccmxpf_lnkhist
+    .filter(
+        pl.col("linktype").is_in(["LC", "LU", "LS"]),
+        pl.col("linkprim").is_in(["C", "P"])
+    )
+    .rename({"lpermno": "permno"})
+    .with_columns(
+        linkenddt=pl.col("linkenddt").fill_null(pl.col("linkenddt").max()),
+    )
+)
+
+trading_dates = (
+    dsi
+    .select("date")
+    .sort("date")
+    .with_row_index("td", offset=1)
+    .with_columns(td=pl.col("td").cast(pl.Int32))
+)
+
+min_date = (
+    trading_dates
+    .select("date")
+    .collect()
+    .min()
+    .item()
+)
+
+max_date = (
+    trading_dates
+    .select("date")
+    .collect()
+    .max()
+    .item()
+)
+
+annc_dates = (
+    pl.DataFrame(
+        {
+            "annc_date": pl.date_range(
+                min_date,
+                max_date,
+                interval="1d",
+                eager=True,
+            )
+        }
+    )
+    .lazy()
+    .join(trading_dates, left_on="annc_date", right_on="date", how="left")
+    .sort("annc_date")
+    .with_columns(td=pl.col("td").backward_fill())
+    .with_columns(td=pl.col("td").cast(pl.Int32))
+)
+
+days_before = 20
+days_after = 20
+```
+
+```{python}
+#| include: false
+#| eval: true
+mkt_rets = (
+    dsf
+    .join(dsi, on="date", how="inner")
+    .with_columns(
+        ret_mkt=pl.col("ret") - pl.col("vwretd"),
+    )
+    .with_columns(
+        pl.col("ret", "ret_mkt", "vol").cast(pl.Float64)
+    )
+    .select("permno", "date", "ret", "ret_mkt", "vol")
+)
+```
+
+```{python}
+#| include: false
+#| eval: true
+single_event = (
+    earn_annc_dates
+    .filter(pl.col("gvkey") == "064515",
+            pl.col("rdq") == pl.date(2018, 3, 4))
+)
+
+single_event_link = (
+    single_event
+    .join(ccm_link, on="gvkey", how="inner")
+    .filter(pl.col("rdq").is_between(pl.col("linkdt"), pl.col("linkenddt")))
+    .select("gvkey", "datadate", "permno")
+)
+
+single_event_window = (
+    single_event
+    .join(annc_dates, left_on="rdq", right_on="annc_date", how="left")
+    .rename({"td": "event_td"})
+    .with_columns(
+        start_td=pl.col("event_td") - days_before,
+        end_td=pl.col("event_td") + days_after,
+    )
+    .join(
+        trading_dates.select(pl.all().name.prefix("start_")),
+        on="start_td",
+        how="inner",
+    )
+    .join(
+        trading_dates.select(pl.all().name.prefix("end_")),
+        on="end_td",
+        how="inner",
+    )
+    .drop("start_td", "end_td")
+)
+
+single_event_window_permno = (
+    single_event_window
+    .join(single_event_link, on=["gvkey", "datadate"], how="inner")
+)
+
+single_event_crsp = (
+    single_event_window_permno
+    .join(mkt_rets, on="permno", how="inner")
+    .filter(pl.col("date").is_between(pl.col("start_date"), pl.col("end_date")))
+    .select("gvkey", "datadate", "event_td", "date", "ret", "ret_mkt", "vol")
+)
+
+single_event_tds = (
+    single_event_crsp
+    .join(trading_dates, on="date", how="inner")
+    .with_columns(relative_td=pl.col("td") - pl.col("event_td"))
+    .select("relative_td", "vol")
+    .collect()
+)
+```
+
+```{python}
+#| include: false
+#| eval: true
+nyse = (
+    stocknames
+    .filter(pl.col("exchcd") == 1)
+    .select("permno", "namedt", "nameenddt")
+)
+
+earn_annc_links = (
+    earn_annc_dates
+    .join(ccm_link, on="gvkey", how="inner")
+    .filter(pl.col("rdq").is_between(pl.col("linkdt"), pl.col("linkenddt")))
+    .join(nyse, on="permno", how="inner")
+    .filter(pl.col("rdq").is_between(pl.col("namedt"), pl.col("nameenddt")))
+    .select("gvkey", "datadate", "rdq", "permno")
+)
+
+earn_annc_windows = (
+    earn_annc_dates
+    .join(annc_dates, left_on="rdq", right_on="annc_date", how="left")
+    .rename({"td": "event_td"})
+    .with_columns(
+        start_td=pl.col("event_td") - days_before,
+        end_td=pl.col("event_td") + days_after,
+    )
+    .join(
+        trading_dates.select(pl.all().name.prefix("start_")),
+        on="start_td",
+        how="inner",
+    )
+    .join(
+        trading_dates.select(pl.all().name.prefix("end_")),
+        on="end_td",
+        how="inner",
+    )
+    .drop("start_td", "end_td")
+)
+
+earn_annc_window_permnos = (
+    earn_annc_windows
+    .join(earn_annc_links, on=["gvkey", "datadate", "rdq"], how="inner")
+)
+
+earn_annc_crsp = (
+    mkt_rets
+    .join(earn_annc_window_permnos, on="permno", how="inner")
+    .filter(pl.col("date").is_between(pl.col("start_date"), pl.col("end_date")))
+    .select("gvkey", "datadate", "rdq", "event_td", "date", "ret", "ret_mkt", "vol")
+)
+
+earn_annc_rets = (
+    earn_annc_crsp
+    .join(trading_dates, on="date", how="inner")
+    .with_columns(relative_td=pl.col("td") - pl.col("event_td"))
+)
+
+earn_annc_vols = (
+    earn_annc_rets
+    .with_columns(
+        avg_vol=pl.col("vol").mean().over("gvkey", "datadate"),
+    )
+    .with_columns(
+        rel_vol=pl.col("vol") / pl.col("avg_vol"),
+        year=pl.col("datadate").dt.year(),
+    )
+)
+
+earn_annc_summ = (
+    earn_annc_vols
+    .group_by("relative_td", "year")
+    .agg(
+        pl.len().alias("obs"),
+        pl.col("ret", "ret_mkt", "rel_vol").mean().name.prefix("mean_"),
+        pl.col("ret_mkt", "rel_vol").std(ddof=1).name.prefix("sd_"),
+        pl.col("ret_mkt", "rel_vol").abs().mean().name.prefix("mad_"),
+    )
+)
+```
+
+## Market reactions to earnings announcements
+
+### Discussion questions
+
+1. How do the research questions of @Beaver:1968vf and @Ball:1968ub differ?
+If there is overlap, do you think that one paper provides superior evidence to the other?
+Or are they just different?
+
+```{python}
+#| include: true
+
+```
+
+2. What differences are there in the data (e.g., sample period) used in @Beaver:1968vf from the data used in @Ball:1968ub?
+Why do these differences exist?
+
+```{python}
+#| include: true
+
+```
+
+3. Do the reasons given by @Beaver:1968vf for his sample selection criteria seem reasonable?
+Do you think these were made prior to looking at results? (Why or why not?)
+Does it matter at what stage in the research process these decisions were made?
+
+```{python}
+#| include: true
+
+```
+
+4. Which do you think is the better variable---price or volume---for addressing the research questions of @Beaver:1968vf?
+Do you think it is helpful to have both variables?
+
+```{python}
+#| include: true
+
+```
+
+5. @Beaver:1968vf compares event-week volume and volatility with their average equivalents in non-event periods.
+@Ball:2008un "quantify the relative importance of earnings announcements in providing new information to the share market" and argue that earnings announcements provide relatively little of this information.
+If volume is a measure of information content, what does Figure 1 of @Beaver:1968vf imply regarding the proportion of information conveyed during earnings announcement weeks?
+Can this be reconciled with reported results in @Beaver:1968vf and the arguments in @Ball:2008un?
+
+```{python}
+#| include: true
+
+```
+
+6. @Beaver:1968vf discusses the statistical significance of his results on p. 77 (residual volume analysis) and pp. 81--82 (return residual analysis).
+Why do think @Beaver:1968vf uses the approaches discussed there?
+How might you evaluate statistical significance more formally if you were writing the paper today?
+
+```{python}
+#| include: true
+
+```
+
+7. The primary analyses in @Beaver:1968vf are provided in plots.
+While the cost of producing plots has surely plummeted since 1968, we generally do not see primary analyses presented as plots today.
+Why do you think this is the case?
+
+```{python}
+#| include: true
+
+```
+
+## A re-evaluation of @Beaver:1968vf
+
+```{python}
+#| echo: false
+#| label: fig-sd-rets
+#| fig-height: 3
+#| fig-cap: "Residual return volatility around earnings announcements"
+#| fig-alt: "Plot of residual return volatility in days around earnings announcements. Each year from 2011 to 2018 is represented by a different line. Plot shows a clear spike in return volatility in days 0 and 1 relative to earnings announcements."
+(
+    earn_annc_summ
+    .filter((pl.col("year") > 2010) & (pl.col("year") < 2019))
+    .with_columns(pl.col("year").cast(pl.String))
+    .collect()
+    .ggplot()
+    .aes(x="relative_td", y="sd_ret_mkt", group="year", colour="year")
+    .geom_line()
+)
+```
+
+```{python}
+#| echo: false
+#| label: fig-rel-vols
+#| fig-height: 3
+#| fig-cap: "Relative trading volume around earnings announcements"
+#| fig-alt: "Plot of trading volume in days around earnings announcements. Each year from 2011 to 2018 is represented by a different line. Plot shows clear spike in trading volume in days 0 and 1 relative to earnings announcements."
+(
+    earn_annc_summ
+    .filter((pl.col("year") > 2010) & (pl.col("year") < 2019))
+    .with_columns(pl.col("year").cast(pl.String))
+    .collect()
+    .ggplot()
+    .aes(x="relative_td", y="mean_rel_vol", group="year", colour="year")
+    .geom_line()
+)
+```
+
+## Discussion questions
+
+1. After reading @Bamber:2000wv, do the reasons given by @Beaver:1968vf for his sample selection criteria still seem reasonable?
+Why or why not?
+
+```{python}
+#| include: true
+
+```
+
+2. @Bamber:2000wv do a replication and an extension of @Beaver:1968vf.
+Why was it important to include the replication?
+What alternative approaches to extension could @Bamber:2000wv have considered?
+Does it make sense to limit extensions to the sample period, available data, and methods of @Beaver:1968vf?
+What do you think of the claim that "the first research bricks [i.e., @Beaver:1968vf] affect the whole wall [of accounting research]"?
+
+```{python}
+#| include: true
+
+```
+
+3. What's the basic conclusion from Figures [-@fig-sd-rets] and [-@fig-rel-vols] in terms of whether "earnings announcements convey new information to the market"?
+Do the results support the conclusions made by subsequent researchers based on @Beaver:1968vf?
+Or do the concerns of @Bamber:2000wv remain applicable?
+
+```{python}
+#| include: true
+
+```
+
+4. In our replication analysis above, we made a number of measurement and design choices that differed from those made by @Beaver:1968vf.
+What are those differences?
+Do you expect these to materially affect the tenor of the results?
+Do the choices we made seem appropriate if we were writing a research paper?
+
+```{python}
+#| include: true
+
+```
+
+5. Figures [-@fig-sd-rets] and [-@fig-rel-vols] use *daily* data [@Beaver:1968vf used weekly data].
+Apart from more **statistical power**, do the daily plots provide novel insights in this case?
+
+```{python}
+#| include: true
+
+```
+
+6. What does the variable `mad_ret_mkt` on the data frame `earn_annc_summ` represent?
+Do results look different if this variable is used?
+Does this address the first concern about research design that @Bamber:2000wv raise?
+If not, can you suggest (and apply) an alternative measure?
+
+```{python}
+#| include: true
+
+```
+
+7. In Figures [-@fig-sd-rets] and [-@fig-rel-vols], two filters have been applied: `year > 2010` and `year < 2019`.
+Does it make sense to remove one or the other of these filters?
+What do you observe if you remove one or both of these?
+Can you explain these observations?
+
+```{python}
+#| include: true
+
+```
