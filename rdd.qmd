@@ -1,0 +1,593 @@
+---
+title: "Regression discontinuity designs"
+subtitle: "Responses to exercise questions"
+author: Put your name here
+bibliography: references.bib
+engine: jupyter
+jupyter: python3
+format:
+  typst: default
+---
+
+:::{.content-visible when-format="markdown"}
+## Instructions
+
+This document assumes that you have completed the instructions [here](https://github.com/iangow/era_pl_templates/blob/main/README.md).
+This chapter requires WRDS data: `ccmxpf_lnkhist` and `dsf` from CRSP, `funda` from Compustat, and `factors_daily` from Ken French's data library.
+
+This template extracts the visible code and exercises from [Chapter 22](https://iangow.github.io/era_pl_book/rdd.html) of the Python Polars edition of *Empirical Research in Accounting: Tools and Methods*.
+This template includes all the code from the book chapter.
+
+Within Positron, you can run the code below in two ways.
+
+In the first way, you can treat this file as a notebook of sorts and just run the code interactively.
+In Positron, you will see "Run Cell" and (for cells after the first cell) "Run Above".
+You might choose to go through the cells in order and click "Run Cell" on each one to see its output.
+Alternatively, you might jump ahead to a cell of interest, and click "Run Above" so that any prior code needed for your chosen cell has been executed, then "Run Cell" on the cell of interest.
+
+Note that some cells contain multiple lines and to see the output from each, you may need to execute them one at a time.
+You can run code interactively from a .qmd file in Positron without rendering the whole document.
+On macOS, place the cursor in a code cell or highlight selected lines and press `Command+Enter`; on Windows and Linux, use `Ctrl+Enter` instead.
+
+In the second way, you have Quarto "render" the document as PDF.
+In Positron, you can accomplish this by clicking the "Preview" button at the top of the edit window.
+Note that many of the cells below will not appear in the created PDF.
+This document uses Quarto chunk options to control that behaviour.
+(Quarto seems to use the words "cell" and "chunk" interchangeably.)
+In particular, chunks with `#| include: false` are executed without either the code or the output being shown in the rendered document.
+Other chunk options include `#| echo` to show or hide the code and `#| output` to hide or show the output.
+
+To answer the questions below, you are likely to play around with code interactively (the first way) until you are ready to render your answers (using the second way) and submit them to your course instructor.
+
+Note that you can type text outside code cells and these will be rendered as markdown.
+More details on using Quarto markdown are provided on the [Quarto website](https://quarto.org).
+
+:::
+
+```{python}
+#| include: false
+#| eval: true
+import warnings
+
+import polars as pl
+import plotnine_polars as p9p
+import pyfixest as pf
+from maketables import ETable
+from plotnine_polars import aes, element_text
+from rdrobust import rdrobust
+
+from era_pl import load_data, load_parquet, rdplot, show_typst
+
+p9p.theme_set(p9p.theme_gray())
+
+pl.Config.set_tbl_cols(200)
+pl.Config.set_tbl_width_chars(120)
+warnings.filterwarnings("ignore", category=UserWarning, module="pyfixest")
+```
+
+```{python}
+#| include: false
+#| eval: true
+def show_etable(models, **kwargs):
+    show_typst(ETable(models=models, **kwargs))
+```
+
+```{python}
+#| include: false
+#| eval: true
+iliev_2010 = load_data("iliev_2010")
+
+mr_req_df = (
+    iliev_2010
+    .filter(
+        pl.col("fdate").is_between(
+            pl.date(2002, 11, 1), pl.date(2005, 10, 31)
+        )
+    )
+    .with_columns(
+        max_float=pl.col("publicfloat").max().over(["gvkey", "fdate"])
+    )
+    .filter(pl.col("fdate") >= pl.date(2004, 11, 15))
+    .with_columns(mr_required=pl.col("max_float") >= 75)
+)
+
+bloomfield_2021 = load_data("bloomfield_2021")
+
+float_data = (
+    iliev_2010
+    .filter(
+        pl.col("publicfloat") ==
+        pl.col("publicfloat").min().over(["gvkey", "fyear"])
+    )
+    .filter(pl.col("pfyear").is_in([2002, 2004]))
+    .group_by("gvkey", "pfyear")
+    .agg(pl.col("publicfloat").mean().alias("float"))
+    .pivot(on="pfyear", index="gvkey", values="float")
+    .select(
+        "gvkey",
+        pl.col("2002", "2004").name.prefix("float")
+    )
+)
+```
+
+```{python}
+#| include: false
+#| eval: true
+ccmxpf_lnkhist = load_parquet("ccmxpf_lnkhist", "crsp")
+
+ccm_link = (
+    ccmxpf_lnkhist
+    .filter(
+        pl.col("linktype").is_in(["LC", "LU", "LS"]),
+        pl.col("linkprim").is_in(["C", "P"]),
+    )
+    .rename({"lpermco": "permco"})
+    .select("gvkey", "permco")
+    .unique()
+    .collect()
+)
+
+float_data_linked = float_data.join(ccm_link, on="gvkey", how="inner")
+```
+
+```{python}
+#| include: false
+#| eval: true
+funda = load_parquet("funda", "comp")
+
+funda_mod = (
+    funda
+    .filter(
+        pl.col("indfmt") == "INDL",
+        pl.col("datafmt") == "STD",
+        pl.col("consol") == "C",
+        pl.col("popsrc") == "D",
+    )
+)
+
+firm_years = (
+    funda_mod
+    .select("gvkey", "fyear", "datadate", "auopic")
+    .with_columns(
+        sox=(pl.col("auopic").cast(pl.Float64) > 0).fill_null(False)
+    )
+    .select("gvkey", "fyear", "datadate", "sox")
+    .collect()
+)
+
+risk_asymm_sample = (
+    bloomfield_2021
+    .join(ccm_link, on="permco", how="inner")
+    .join(firm_years, on=["fyear", "gvkey"], how="inner")
+    .select("permco", "gvkey", "fyear", "datadate")
+    .unique()
+    .with_columns(
+        period_start=(
+            pl.col("datadate").dt.offset_by("-12mo")
+            + pl.duration(days=1)
+        )
+    )
+)
+```
+
+```{python}
+#| include: false
+#| eval: true
+factors_daily = load_parquet("factors_daily", "ff")
+
+mkt_rets = (
+    factors_daily
+    .select("date", "rf", "mktrf")
+    .collect()
+    .with_columns(pl.col("mktrf").era.truncate().alias("mktrf"))
+    .filter(pl.col("mktrf").is_not_null())
+)
+```
+
+```{python}
+#| include: false
+#| eval: true
+dsf = load_parquet("dsf", "crsp")
+
+risk_asymmetry = (
+    dsf
+    .join_where(
+        risk_asymm_sample.lazy(),
+        pl.col("permco") == pl.col("permco_right"),
+        pl.col("date") >= pl.col("period_start"),
+        pl.col("date") <= pl.col("datadate"),
+    )
+    .join(mkt_rets.lazy(), on="date", how="inner")
+    .with_columns(
+        retrf=pl.col("ret") - pl.col("rf"),
+        sign_ret=pl.col("mktrf") >= 0,
+    )
+    .filter(pl.col("retrf").is_not_null())
+    .group_by("permco", "gvkey", "datadate", "sign_ret")
+    .agg(
+        (pl.cov("retrf", "mktrf") / pl.col("mktrf").var()).alias("slope"),
+        pl.len().alias("nobs"),
+    )
+    .collect()
+    .pivot(
+        on="sign_ret",
+        index=["permco", "gvkey", "datadate"],
+        values=["slope", "nobs"],
+    )
+    .rename({
+        "slope_false": "beta_minus",
+        "slope_true": "beta_plus",
+        "nobs_false": "nobs_minus",
+        "nobs_true": "nobs_plus",
+    })
+    .with_columns(
+        nobs=pl.sum_horizontal(
+            pl.col("nobs_minus", "nobs_plus").fill_null(0)
+        )
+    )
+    .select(
+        "permco", "gvkey", "datadate",
+        "beta_minus", "beta_plus", "nobs"
+    )
+)
+```
+
+```{python}
+#| include: false
+#| eval: true
+cutoff = 75
+
+reg_data = (
+    risk_asymmetry
+    .join(
+        float_data_linked.select(
+            "permco", "gvkey", "float2002", "float2004"
+        ),
+        on=["permco", "gvkey"],
+        how="left",
+    )
+    .join(
+        firm_years.select("gvkey", "datadate", "sox"),
+        on=["gvkey", "datadate"],
+        how="left",
+    )
+    .with_columns(
+        treat=(pl.col("float2002") >= cutoff).fill_null(True),
+        post=pl.col("datadate") >= pl.date(2005, 11, 1),
+        year=pl.col("datadate").dt.year(),
+    )
+    .with_columns(pl.col("beta_minus", "beta_plus").era.winsorize())
+    .with_columns(risk_asymm=pl.col("beta_minus") - pl.col("beta_plus"))
+)
+
+fms = [
+    pf.feols("risk_asymm ~ I(treat * post)", data=reg_data, vcov="iid"),
+    pf.feols(
+        "risk_asymm ~ I(treat * post) | permco + year",
+        data=reg_data,
+        vcov="iid",
+    ),
+]
+```
+
+```{python}
+#| include: false
+#| eval: true
+reg_data_fs = reg_data.filter(pl.col("post"))
+
+rd_fs_2002 = rdrobust(
+    reg_data_fs["sox"],
+    reg_data_fs["float2002"],
+    c=cutoff,
+    masspoints="off",
+)
+
+rd_fs = rdrobust(
+    reg_data_fs["sox"],
+    reg_data_fs["float2004"],
+    c=cutoff,
+    masspoints="off",
+)
+
+rd_ss = rdrobust(
+    reg_data_fs["risk_asymm"],
+    reg_data_fs["float2004"],
+    fuzzy=reg_data_fs["sox"],
+    c=cutoff,
+    masspoints="off",
+)
+
+rd_rf = rdrobust(
+    reg_data_fs["risk_asymm"],
+    reg_data_fs["float2004"],
+    c=cutoff,
+    masspoints="off",
+)
+```
+
+## Discussion questions
+
+There are many discussion questions below and we expect that instructors will only assign a subset of these.
+You should read enough of the papers to be able to answer questions you have been assigned below.
+
+### @Hoekstra:2009wp
+
+1. What is the treatment in @Hoekstra:2009wp?
+What alternative (control) is it being compared with?
+Is identifying the "treatment" received by the control group always as difficult as it is in @Hoekstra:2009wp?
+Provide examples from other papers or settings in your answer.
+
+```{python}
+#| include: true
+
+```
+
+2. Which approach makes the most sense in @Hoekstra:2009wp? Sharp RDD? Or fuzzy RDD? Why?
+
+```{python}
+#| include: true
+
+```
+
+3. RDD inherently estimated a "local" treatment effect.
+Which group of potential students is the focus of @Hoekstra:2009wp?
+Can you think of other groups that we might be interested in learning more about?
+How might the actual treatment effects for those groups differ and why?
+
+```{python}
+#| include: true
+
+```
+
+### @Bloomfield:2021va
+
+```{python}
+#| echo: false
+#| tbl-cap: "Effect of SOX 404 on risk asymmetry"
+show_etable(
+    fms,
+    signif_code=[0.01, 0.05, 0.1],
+    custom_model_stats={"Firm and year FE": ["No", "Yes"]},
+)
+```
+
+```{python}
+#| echo: false
+#| fig-cap: SOX 404 report indicator and 2002 public float
+rdplot(
+    reg_data_fs,
+    y="sox",
+    x="float2002",
+    cutoff=cutoff,
+    y_label="SOX 404 report indicator",
+    x_label="Public float in 2002",
+)
+```
+
+```{python}
+#| echo: false
+#| fig-cap: SOX 404 report and 2004 public float
+rdplot(
+    reg_data_fs,
+    y="sox",
+    x="float2004",
+    cutoff=cutoff,
+    y_label="SOX 404 report indicator",
+    x_label="Public float in 2004",
+)
+```
+
+```{python}
+#| echo: false
+#| fig-cap: Risk asymmetry and 2004 public float
+rdplot(
+    reg_data_fs,
+    y="risk_asymm",
+    x="float2004",
+    cutoff=cutoff,
+    y_label="Risk asymmetry",
+    x_label="Public float in 2004",
+)
+```
+
+1. Compare the data in `iliev_2010` and `float_data` for the two firms shown in the output below.
+What choices has @Bloomfield:2021va made in processing the data for these two firms?
+Do these choices seem to be the best ones?
+If not, what alternative approach could be used?
+
+```{python}
+#| echo: false
+iliev_2010.filter(pl.col("gvkey") == "001728")
+```
+
+```{python}
+#| echo: false
+float_data.filter(pl.col("gvkey") == "001728")
+```
+
+```{python}
+#| echo: false
+iliev_2010.filter(pl.col("gvkey") == "028712")
+```
+
+```{python}
+#| echo: false
+float_data.filter(pl.col("gvkey") == "028712")
+```
+
+```{python}
+#| include: true
+
+```
+
+2. The code `treat = (float2002 >= cutoff).fill_null(True)` above is intended to replicate Stata code used by @Bloomfield:2021va: `generate treat = float2002 >= 75`.
+Why does the Python/Polars code appear to be more complex?
+What does Stata do that Python does not do?
+(*Hint:* If you don't have access to Stata, you may find Stata's documentation on logical expressions and missing values helpful.)
+
+```{python}
+#| include: true
+
+```
+
+3. @Bloomfield:2021va's Stata code for the `post` indicator reads `generate post = fyear - (fyr > 5 & fyr < 11) >= 2005`, where `fyear` is fiscal year from Compustat and `fyr` represents the month of the fiscal-year end.
+The code above sets `post = datadate >= "2005-11-01"`.
+Are the two approaches equivalent? Do we seem to get the right values from `post` using either approach?
+
+```{python}
+#| include: true
+
+```
+
+4. In the text of the paper, @Bloomfield:2021va claims to "use firms' 2002 public floats ... as an instrument for whether or not the firm will become treated" and to "follow Iliev's [2010] regression discontinuity methodology".
+Evaluate each of these claims, providing evidence to support your position.
+
+```{python}
+#| include: true
+
+```
+
+5. @Bloomfield:2021va, inspired by @Iliev:2010ic, uses `float2002` rather than `float2004` as the running variable for treatment.
+What issues would you be concerned about with `float2004` that might be addressed using `float2002`?
+Provide some evidence to test your concerns.
+What implications do you see for the fuzzy RDD analysis we ran above using `float2004` as the running variable?
+
+```{python}
+#| include: true
+
+```
+
+6. Why do you think @Bloomfield:2021va did not include RDD analyses along the lines of the ones we have done above in his paper?
+
+```{python}
+#| include: true
+
+```
+
+7. In Table 4, @Bloomfield:2021va [p. 884] uses "a difference-in-differences design to identify the causal effect of reporting flexibility on risk asymmetry."
+As we say in @sec-panel-data, a difference-in-differences estimator adjusts differences in post-treatment outcome values by subtracting differences in pre-treatment outcome values.
+Why might differences in pre-treatment outcome values between observations on either side of the threshold be particularly problematic in RDD?
+Does the use of firm and year fixed effects address this problem?
+Or does it just suppress it?
+
+```{python}
+#| include: true
+
+```
+
+### @Boone:2015wi
+
+1. What is the treatment in @Boone:2015wi? (*Hint:* Read the title.) Most of the analyses in the paper use a "sharp RD methodology".
+Does this make sense given the treatment?
+Why or why not?
+
+```{python}
+#| include: true
+
+```
+
+2. In Section 5, @Boone:2015wi suggest that while "pre-index assignment firm characteristics are similar around the threshold, one concern is that there could be differences in other unobservable firm factors, leading to a violation of the necessary assumptions for the sharp RD methodology."
+Is the absence of "differences in other unobservable firm factors" the requirement for sharp (rather than fuzzy) RD?
+
+```{python}
+#| include: true
+
+```
+
+3. What implications, if any, does the discussion on pp. 94--95 of @Bebchuk:2017tp have for the arguments of @Boone:2015wi?
+
+```{python}
+#| include: true
+
+```
+
+4. What is the treatment variable implied by the specification in Equation (1) in @Boone:2015wi?
+
+```{python}
+#| include: true
+
+```
+
+### @Manchiraju:2017uw
+
+1. Identify some issues in applying RDD in @Manchiraju:2017uw?
+What steps do the authors take to address these issues?
+
+```{python}
+#| include: true
+
+```
+
+2. What is the treatment in @Manchiraju:2017uw?
+Is this the same treatment variable as analysed in prior research?
+
+```{python}
+#| include: true
+
+```
+
+### @Ertimur:2015tr
+
+1. Consider Figure 3. How persuasive do you find this plot as evidence of a significant market reaction to majority support in shareholder proposals on majority voting?
+What aspects of the plot do you find persuasive or unpersuasive?
+
+```{python}
+#| include: true
+
+```
+
+2. If shareholders react to successful shareholder proposals on majority voting so positively, why do so many shareholders vote against such proposals?
+
+```{python}
+#| include: true
+
+```
+
+3. @Ertimur:2015tr [p. 38] say "our analyses suggest that high votes withheld do not increase the likelihood of a director losing their seat but often cause boards to respond to the governance problems underlying the vote, suggesting that perhaps director elections are viewed by shareholders as a means to obtain specific governance changes rather than a channel to remove a director."
+How do you interpret this statement?
+Do you find it convincing?
+
+```{python}
+#| include: true
+
+```
+
+### @Li:2018tj
+
+1. Figure 1 of @Li:2018tj presents RDD plots.
+How does the running variable in Figure 1 differ from that in other RDD analyses you have seen?
+What would you expect to be the relation between the running variable and the outcome variable?
+Would this vary from the left to the right of the cut-off?
+Do you agree with the decision of @Li:2018tj [p. 283] to "include high-order polynomials to allow for the possibility of nonlinearity around the cut off time"?
+
+```{python}
+#| include: true
+
+```
+
+2. What is the range of values of "distance to IDD adoption" reported in Figure 1?
+What is the range of possible values given the sample period of @Li:2018tj and data reported in Appendix B of @Li:2018tj [p. 304]?
+
+```{python}
+idd_dates = load_data("idd_dates")
+
+idd_dates.filter(
+    pl.col("idd_date").is_between(pl.date(1994, 1, 1), pl.date(2010, 12, 31))
+).filter(
+    (pl.col("idd_date") == pl.col("idd_date").min())
+    | (pl.col("idd_date") == pl.col("idd_date").max())
+)
+```
+
+```{python}
+#| include: true
+
+```
+
+3. @Li:2018tj [p. 283] say that "the figures in both panels show a clear discontinuity at the date of IDD adoption."
+Do you agree with this claim?
+
+```{python}
+#| include: true
+
+```

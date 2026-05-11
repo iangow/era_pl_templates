@@ -1,0 +1,647 @@
+---
+title: "Panel data"
+subtitle: "Responses to exercise questions"
+author: Put your name here
+bibliography: references.bib
+engine: jupyter
+jupyter: python3
+format:
+  typst: default
+---
+
+:::{.content-visible when-format="markdown"}
+## Instructions
+
+This document assumes that you have completed the instructions [here](https://github.com/iangow/era_pl_templates/blob/main/README.md).
+Note that this chapter requires WRDS data (`seg_customer` and `names_seg` from Compustat Segments, and `funda` from Compustat).
+
+This template extracts the exercises from [Chapter 21](https://iangow.github.io/era_pl_book/panel-data.html) of the Python Polars edition of *Empirical Research in Accounting: Tools and Methods*.
+This template includes all the code from the book chapter.
+
+Within Positron, you can run the code below in two ways.
+
+In the first way, you can treat this file as a notebook of sorts and just run the code interactively.
+In Positron, you will see "Run Cell" and (for cells after the first cell) "Run Above".
+You might choose to go through the cells in order and click "Run Cell" on each one to see its output.
+Alternatively, you might jump ahead to a cell of interest, and click "Run Above" so that any prior code needed for your chosen cell has been executed, then "Run Cell" on the cell of interest.
+
+Note that some cells contain multiple lines and to see the output from each, you may need to execute them one at a time.
+You can run code interactively from a .qmd file in Positron without rendering the whole document.
+On macOS, place the cursor in a code cell or highlight selected lines and press `Command+Enter`; on Windows and Linux, use `Ctrl+Enter` instead.
+
+In the second way, you have Quarto "render" the document as PDF.
+In Positron, you can accomplish this by clicking the "Preview" button at the top of the edit window.
+Note that many of the cells below will not appear in the created PDF.
+This document uses Quarto chunk options to control that behaviour.
+(Quarto seems to use the words "cell" and "chunk" interchangeably.)
+In particular, chunks with `#| include: false` are executed without either the code or the output being shown in the rendered document.
+Other chunk options include `#| echo` to show or hide the code and `#| output` to hide or show the output.
+
+To answer the questions below, you are likely to play around with code interactively (the first way) until you are ready to render your answers (using the second way) and submit them to your course instructor.
+
+Note that you can type text outside code cells and these will be rendered as markdown.
+More details on using Quarto markdown are provided on the [Quarto website](https://quarto.org).
+
+:::
+
+```{python}
+#| include: false
+#| eval: true
+import plotnine_polars as p9p
+
+p9p.theme_set(p9p.theme_matplotlib())
+```
+
+```{python}
+#| include: false
+#| eval: true
+import polars as pl
+import polars.selectors as cs
+import numpy as np
+import pyfixest as pf
+import plotnine_polars
+from maketables import ETable
+
+from era_pl import (
+    fit_test_score_panel, get_idd_periods, get_test_scores,
+    load_data, load_parquet, show_typst, ptime,
+)
+```
+
+```{python}
+#| include: false
+#| eval: true
+import warnings
+
+pl.Config.set_tbl_cols(200)
+pl.Config.set_tbl_width_chars(120)
+warnings.filterwarnings("ignore", category=UserWarning, module="pyfixest")
+```
+
+```{python}
+#| include: false
+#| eval: true
+def show_etable(models, **kwargs):
+    show_typst(ETable(models=models, **kwargs))
+```
+
+```{python}
+#| include: false
+#| eval: false
+# Simulated data narrative — no exercises depend on these results.
+test_scores = get_test_scores(seed=442)
+fm_id = pf.feols("score ~ I(treat * post) | grade + id", data=test_scores)
+est_effect = float(fm_id.coef()["I(treat * post)"])
+
+test_scores_alt = get_test_scores(effect_size=0, seed=442)
+fms = [
+    pf.feols(
+        "score ~ I(treat * post) | grade + id",
+        data=test_scores_alt,
+        vcov="iid",
+    ),
+    pf.feols(
+        "score ~ I(treat * post) | grade + id",
+        data=test_scores_alt,
+        vcov={"CRV1": "grade + id"},
+    ),
+]
+```
+
+```{python}
+#| include: false
+#| eval: false
+def sim_run(i: int, **kwargs) -> pl.DataFrame:
+    df = get_test_scores(effect_size=0, seed=i, **kwargs)
+    return pl.concat(
+        [
+            fit_test_score_panel(df, vcov="iid").with_columns(
+                model=pl.lit("OLS")
+            ),
+            fit_test_score_panel(
+                df, vcov={"CRV1": "grade + id"}
+            ).with_columns(model=pl.lit("CL-2")),
+        ],
+        how="vertical",
+    )
+```
+
+```{python}
+#| include: false
+#| eval: false
+# 1000-simulation runs — no exercises depend on these results.
+num_sims = 1000
+with ptime():
+    sim_results = pl.concat(
+        [sim_run(i) for i in range(num_sims)], how="vertical"
+    )
+
+sim_results_summary = (
+    sim_results
+    .group_by("model")
+    .agg(
+        pl.col("estimate").std().alias("se_obs"),
+        pl.col("se").mean().alias("se_est"),
+    )
+    .sort("model")
+)
+
+rejection_stats = (
+    sim_results
+    .filter(pl.col("model") == "OLS")
+    .select(
+        (pl.col("p_value") <= 0.01).mean().alias("prop_01"),
+        (pl.col("p_value") <= 0.05).mean().alias("prop_05"),
+    )
+)
+```
+
+```{python}
+#| include: false
+#| eval: false
+sim_results_wide = pl.concat(
+    [sim_run(i, n_grades=12) for i in range(num_sims)], how="vertical"
+)
+
+rejection_stats = (
+    sim_results_wide
+    .filter(pl.col("model") == "OLS")
+    .select(
+        (pl.col("p_value") <= 0.01).mean().alias("prop_01"),
+        (pl.col("p_value") <= 0.05).mean().alias("prop_05"),
+    )
+)
+```
+
+```{python}
+#| include: false
+#| eval: false
+sim_results_rand = pl.concat(
+    [sim_run(i, random_assignment=True) for i in range(num_sims)],
+    how="vertical",
+)
+
+rejection_stats = (
+    sim_results_rand
+    .filter(pl.col("model") == "OLS")
+    .select(
+        (pl.col("p_value") <= 0.01).mean().alias("prop_01"),
+        (pl.col("p_value") <= 0.05).mean().alias("prop_05"),
+    )
+)
+```
+
+```{python}
+#| include: false
+#| eval: true
+seg_customer = load_parquet("seg_customer", "compseg")
+names_seg = load_parquet("names_seg", "compseg")
+funda = load_parquet("funda", "comp")
+
+undisclosed_names = load_data("undisclosed_names")
+llz_2018 = load_data("llz_2018")
+state_hq = load_data("state_hq")
+idd_dates = load_data("idd_dates")
+```
+
+```{python}
+#| include: false
+#| eval: true
+sample_start = pl.date(1994, 1, 1)
+sample_end = pl.date(2010, 12, 31)
+
+disclosure_raw = (
+    seg_customer
+    .filter(
+        pl.col("ctype") == "COMPANY",
+        pl.col("datadate").is_between(sample_start, sample_end),
+    )
+    .collect()
+    .join(undisclosed_names, on="cnms", how="left")
+    .with_columns(pl.col("disclosed").fill_null(True))
+    .select("gvkey", "datadate", "cnms", "salecs", "disclosed")
+)
+
+sales = (
+    funda
+    .filter(
+        pl.col("indfmt") == "INDL",
+        pl.col("datafmt") == "STD",
+        pl.col("consol") == "C",
+        pl.col("popsrc") == "D",
+    )
+    .select("gvkey", "datadate", "sale")
+    .collect()
+)
+
+prin_custs = (
+    disclosure_raw
+    .join(sales, on=["gvkey", "datadate"], how="inner")
+    .filter(pl.col("salecs").is_not_null(), pl.col("sale") > 0)
+    .group_by("gvkey", "datadate")
+    .agg(
+        (pl.col("salecs").max() / pl.col("sale").first()).alias("prin_cust")
+    )
+    .with_columns(has_prin_cust=pl.col("prin_cust") >= 0.1)
+)
+
+disclosure = (
+    disclosure_raw
+    .join(sales, on=["gvkey", "datadate"], how="inner")
+    .join(llz_2018, on="gvkey", how="inner")
+    .group_by("gvkey", "datadate")
+    .agg(
+        pl.col("disclosed").not_().mean().alias("ratio"),
+        pl.when(pl.col("salecs").count() > 0)
+        .then(
+            (
+                pl.col("disclosed").not_().cast(pl.Float64)
+                * pl.col("salecs").fill_null(0)
+            ).sum()
+            / pl.col("salecs").fill_null(0).sum()
+        )
+        .alias("ratio_sale"),
+    )
+    .with_columns(year=pl.col("datadate").dt.year())
+)
+```
+
+```{python}
+#| include: false
+#| eval: true
+all_states = (
+    state_hq
+    .select(pl.col("ba_state").alias("state"))
+    .unique()
+)
+
+idd_periods = get_idd_periods(
+    min_date=sample_start,
+    max_date=sample_end,
+    all_states=all_states,
+)
+
+ciks = (
+    names_seg
+    .filter(pl.col("cik").is_not_null())
+    .select("gvkey", "cik")
+    .collect()
+)
+
+state_hq_linked = (
+    state_hq
+    .join(ciks, on="cik", how="inner")
+    .join(disclosure.select("gvkey", "datadate"), on="gvkey", how="inner")
+    .filter(
+        pl.col("datadate").is_between(
+            pl.col("min_date"), pl.col("max_date")
+        )
+    )
+    .select("gvkey", "datadate", "ba_state")
+    .rename({"ba_state": "state"})
+    .unique()
+)
+
+reg_data = (
+    disclosure
+    .join(prin_custs, on=["gvkey", "datadate"], how="inner")
+    .filter(pl.col("has_prin_cust"))
+    .join(state_hq_linked, on=["gvkey", "datadate"], how="inner")
+    .join(idd_periods, on="state", how="inner")
+    .filter(
+        pl.col("datadate").is_between(
+            pl.col("start_date"), pl.col("end_date")
+        )
+    )
+    .filter(pl.col("period_type") != "Post-rejection")
+    .with_columns(
+        (pl.col("period_type") == "Post-adoption")
+        .cast(pl.Int8)
+        .alias("post"),
+        pl.col("ratio", "ratio_sale").add(1).log().name.prefix("ln_"),
+    )
+    .select(pl.exclude("start_date", "end_date"))
+)
+
+switchers = (
+    reg_data
+    .select("gvkey", "post")
+    .unique()
+    .group_by("gvkey")
+    .agg(pl.len().alias("n"))
+    .filter(pl.col("n") > 1)
+    .select("gvkey")
+)
+
+reg_data_switchers = reg_data.join(switchers, on="gvkey", how="inner")
+```
+
+```{python}
+#| include: false
+#| eval: true
+def format_event_time(value):
+    if value is None:
+        return None
+    value = int(value)
+    return max(-5, min(5, value))
+
+
+def event_time_name(value):
+    return f"t_m{abs(value)}" if value < 0 else f"t_p{value}"
+
+
+def add_event_time_dummies(df, values, t_col="t"):
+    return df.with_columns(
+        [
+            (
+                (pl.col("ever_treated") == 1)
+                & (pl.col(t_col).fill_null(-999) == value)
+            )
+            .cast(pl.Int8)
+            .alias(event_time_name(value))
+            for value in values
+        ]
+    )
+
+
+def event_terms(values):
+    return " + ".join(event_time_name(value) for value in values)
+
+
+def event_labels(values):
+    return {
+        event_time_name(value): f"t = {value}"
+        for value in values
+    }
+
+
+switch_years = (
+    reg_data
+    .sort(["gvkey", "datadate"])
+    .with_columns(prev_period=pl.col("period_type").shift(1).over("gvkey"))
+    .filter(
+        pl.col("period_type") == "Post-adoption",
+        pl.col("prev_period") == "Pre-adoption",
+    )
+    .group_by("gvkey")
+    .agg(pl.col("year").min().alias("adoption_year"))
+)
+
+event_time_values = [-5, -4, -3, -2, 0, 1, 2, 3, 4, 5]
+
+reg_data_t = (
+    reg_data
+    .join(switch_years, on="gvkey", how="left")
+    .with_columns(
+        pl.col("adoption_year").is_not_null().cast(pl.Int8).alias("ever_treated"),
+        (pl.col("year") - pl.col("adoption_year"))
+        .map_elements(format_event_time, return_dtype=pl.Int64)
+        .alias("t"),
+    )
+)
+reg_data_t = add_event_time_dummies(reg_data_t, event_time_values)
+```
+
+```{python}
+#| include: false
+#| eval: true
+fms_orig = [
+    pf.feols("ln_ratio ~ post | gvkey + year", data=reg_data, vcov="iid"),
+    pf.feols("ln_ratio_sale ~ post | gvkey + year", data=reg_data, vcov="iid"),
+    pf.feols("ln_ratio ~ post | gvkey + year", data=reg_data_switchers, vcov="iid"),
+    pf.feols(
+        "ln_ratio_sale ~ post | gvkey + year",
+        data=reg_data_switchers,
+        vcov="iid",
+    ),
+]
+
+fms_year = [
+    pf.feols(
+        f"ln_ratio ~ {event_terms(event_time_values)} | gvkey + year",
+        data=reg_data_t,
+        vcov="iid",
+    ),
+    pf.feols(
+        f"ln_ratio_sale ~ {event_terms(event_time_values)} | gvkey + year",
+        data=reg_data_t,
+        vcov="iid",
+    ),
+    pf.feols(
+        f"ln_ratio ~ {event_terms(event_time_values)} | gvkey + year",
+        data=reg_data_t.filter(pl.col("t").is_not_null()),
+        vcov="iid",
+    ),
+    pf.feols(
+        f"ln_ratio_sale ~ {event_terms(event_time_values)} | gvkey + year",
+        data=reg_data_t.filter(pl.col("t").is_not_null()),
+        vcov="iid",
+    ),
+]
+
+fm_plot = pf.feols(
+    "ln_ratio ~ i(t, ever_treated, ref=-1) | gvkey + year",
+    data=reg_data_t.with_columns(pl.col("t").fill_null(0).alias("t")),
+    vcov="iid",
+)
+```
+
+## Analysis of simulated data
+
+### Exercises
+
+1. Generate a random sample of test scores using `get_test_scores()` with some value of `effect_size` and some value of `seed`.
+Assign this to the variable `df_1`.
+Estimate the model `"score ~ I(treat * post) | grade + id"` using `pf.feols()` with `data=df_1` and `vcov="iid"` and store the result in `fm`.
+Compare the output of `fm.tidy()` with that from `fit_test_score_panel(df_1, vcov="iid")`.
+What do you observe?
+
+Estimate the model `"score ~ I(treat * post) | grade + id"` using `pf.feols()` with `data=df_1` and `vcov={"CRV1": "grade + id"}` and store the result in `fm2`.
+Compare the output of `fm2.tidy()` with that from `fit_test_score_panel(df_1, vcov={"CRV1": "grade + id"})`.
+What do you observe?
+
+```{python}
+#| include: true
+
+```
+
+```{python}
+#| include: true
+
+```
+
+2. Given the above, why do you think we included `fit_test_score_panel()` rather than using `pf.feols()`?
+Develop and run a test of your hypothesis for why we did so.
+
+```{python}
+#| include: true
+
+```
+
+## Voluntary disclosure
+
+### Discussion questions
+
+```{python}
+#| label: tbl-table-2
+#| tbl-cap: Effect of IDD adoption
+#| echo: false
+show_etable(
+    fms_orig,
+    signif_code=[0.01, 0.05, 0.1],
+    coef_fmt="b* \n (se)",
+    custom_model_stats={
+        "Sample": ["All", "All", "Switchers", "Switchers"]
+    },
+)
+```
+
+1. The proprietary cost hypothesis tested by @Li:2018tj posits that increased cost of disclosure will lead to reduced supply of disclosure.
+What rival theories exist that would make alternative predictions?
+Are there other elements of disclosure theory that might be tested?
+Why do you think @Li:2018tj focused on this specific element of the proprietary cost hypothesis?
+
+```{python}
+#| include: true
+
+```
+
+2. In the analysis above, we do not include the control variables considered by @Li:2018tj.
+For example, @Li:2018tj "include R&D expenditures to sales, advertisement [sic] expenditure to sales, and intangible assets scaled by total assets to control for a firm's proprietary costs of disclosure."
+Using the approach outlined in @sec-causal-inf, in what circumstances would it be necessary to control for "a firm's proprietary costs of disclosure" in this way?
+Do these circumstances seem applicable in this setting, where the treatment is a (presumably exogenous) shock to disclosure costs and the outcome is disclosure choices?
+
+```{python}
+#| include: true
+
+```
+
+3. What differs between the regressions reported in columns (1) and (3), and (2) and (4) of @tbl-table-2, respectively?
+Does this tell you anything about what drives the regression results in this setting?
+What happens if you omit the year fixed effects from both sets of regressions?
+What does this tell you about the role of the "non-switchers" (i.e., firms not in the `switchers` data frame) in the regression?
+
+```{python}
+#| include: true
+
+```
+
+4. Would you expect the inclusion of controls (see the question above) to have a significant impact on the regression results?
+Why or why not?
+
+```{python}
+#| include: true
+
+```
+
+```{python}
+#| label: tbl-idd-by-year
+#| tbl-cap: Effect of IDD adoption by year
+#| echo: false
+show_etable(
+    fms_year,
+    signif_code=[0.01, 0.05, 0.1],
+    coef_fmt="b* \n (se)",
+    labels=event_labels(event_time_values),
+    custom_model_stats={
+        "Sample": ["All", "All", "Switchers", "Switchers"]
+    },
+)
+```
+
+5. What differs between the regressions reported in columns (1) and (3), and (2) and (4) of @tbl-idd-by-year, respectively?
+What happens if you omit the year fixed effects from both sets of regressions?
+What does this tell you about what drives the regression results in this setting?
+
+```{python}
+#| include: true
+
+```
+
+6. What patterns do you observe in the coefficients reported in @tbl-idd-by-year?
+Do these conform to what you would expect from @Li:2018tj?
+(It may be easiest to focus on these in groups, e.g., those in $t-5$ to $t-2$, those in $t + 0$ to $t+3$ and those for $t+4$ and $t+5$.)
+
+```{python}
+#| include: true
+
+```
+
+7. How do the variables in @tbl-idd-by-year differ from those used in Table 3 of @Li:2018tj?
+Modify the code above (e.g., `format_event_time()`) to produce analysis closer to that reported in Table 3 of @Li:2018tj.
+
+```{python}
+#| include: true
+
+```
+
+8. The `format_event_time()` function collapses years after $t + 5$ and before $t - 5$ into years $t + 5$ and $t - 5$, respectively.
+When would this approach make sense?
+What would be one alternative approach to handling these years?
+Does your suggested approach make a difference in this setting?
+
+```{python}
+#| include: true
+
+```
+
+```{python}
+#| label: fig-coefs-by-year
+#| fig-cap: Plot of coefficients by year
+#| fig-alt: "Plot shows estimated coefficients by year and that, while coefficients tend to be positive for periods after year zero, only in later years do they become clearly distinguishable from zero. Year -1 is the baseline, so its coefficient is zero."
+#| echo: false
+fig = fm_plot.iplot(coord_flip=False, figsize=(7, 4))
+ax = fig.axes[0]
+ax.set_xticks(range(len(event_time_values)))
+ax.set_xticklabels([str(value) for value in event_time_values])
+fig
+```
+
+9. How helpful do you find @fig-coefs-by-year (plot of the coefficients by year)?
+
+```{python}
+#| include: true
+
+```
+
+10. Describe the data set created from the following code.
+What proportion of the firms in the data set have `same_state` equal to `true`?
+For the purposes of empirical analysis, do the firms with `same_state` equal to `false` enhance, or detract from, our ability to draw causal inferences about the effect of adoption of IDD?
+
+```{python}
+switch_years_state = (
+    reg_data_switchers
+    .sort(["gvkey", "datadate"])
+    .with_columns(
+        same_state=(
+            pl.col("state") == pl.col("state").shift(1).over("gvkey")
+        ),
+        adoption_year=(
+            (pl.col("period_type") == "Post-adoption")
+            & (
+                pl.col("period_type").shift(1).over("gvkey")
+                == "Pre-adoption"
+            )
+        ),
+    )
+    .filter(pl.col("adoption_year"))
+)
+
+switch_years_state.group_by("same_state").agg(pl.len().alias("n"))
+```
+
+```{python}
+#| include: true
+
+```
+
+11. What issues might be implied by the following data? How might you address these?
+
+```{python}
+reg_data_t.group_by("t").agg(pl.len().alias("n")).sort("t")
+```
+
+```{python}
+#| include: true
+
+```

@@ -1,0 +1,634 @@
+---
+title: "Matching"
+subtitle: "Responses to exercise questions"
+author: Put your name here
+bibliography: references.bib
+engine: jupyter
+jupyter: python3
+format:
+  typst: default
+---
+
+:::{.content-visible when-format="markdown"}
+## Instructions
+
+This document assumes that you have completed the instructions [here](https://github.com/iangow/era_pl_templates/blob/main/README.md).
+This chapter requires WRDS data: `company`, `funda`, and `r_auditors` from Compustat.
+
+This template extracts the visible code and exercises from [Chapter 23](https://iangow.github.io/era_pl_book/psm.html) of the Python Polars edition of *Empirical Research in Accounting: Tools and Methods*.
+This template includes all the code from the book chapter.
+
+Within Positron, you can run the code below in two ways.
+
+In the first way, you can treat this file as a notebook of sorts and just run the code interactively.
+In Positron, you will see "Run Cell" and (for cells after the first cell) "Run Above".
+You might choose to go through the cells in order and click "Run Cell" on each one to see its output.
+Alternatively, you might jump ahead to a cell of interest, and click "Run Above" so that any prior code needed for your chosen cell has been executed, then "Run Cell" on the cell of interest.
+
+Note that some cells contain multiple lines and to see the output from each, you may need to execute them one at a time.
+You can run code interactively from a .qmd file in Positron without rendering the whole document.
+On macOS, place the cursor in a code cell or highlight selected lines and press `Command+Enter`; on Windows and Linux, use `Ctrl+Enter` instead.
+
+In the second way, you have Quarto "render" the document as PDF.
+In Positron, you can accomplish this by clicking the "Preview" button at the top of the edit window.
+Note that many of the cells below will not appear in the created PDF.
+This document uses Quarto chunk options to control that behaviour.
+(Quarto seems to use the words "cell" and "chunk" interchangeably.)
+In particular, chunks with `#| include: false` are executed without either the code or the output being shown in the rendered document.
+Other chunk options include `#| echo` to show or hide the code and `#| output` to hide or show the output.
+
+To answer the questions below, you are likely to play around with code interactively (the first way) until you are ready to render your answers (using the second way) and submit them to your course instructor.
+
+Note that you can type text outside code cells and these will be rendered as markdown.
+More details on using Quarto markdown are provided on the [Quarto website](https://quarto.org).
+
+:::
+
+```{python}
+#| include: false
+#| eval: true
+import warnings
+
+import numpy as np
+import polars as pl
+import plotnine_polars as p9p
+import pyfixest as pf
+import statsmodels.api as sm
+from causalml.match import NearestNeighborMatch
+from maketables import ETable
+
+import plotnine_polars
+
+from era_pl import load_parquet, show_typst
+
+p9p.theme_set(p9p.theme_matplotlib())
+
+pl.Config.set_tbl_cols(200)
+pl.Config.set_tbl_width_chars(120)
+warnings.filterwarnings("ignore", category=UserWarning, module="pyfixest")
+```
+
+```{python}
+#| include: false
+#| eval: true
+def show_etable(models, **kwargs):
+    show_typst(ETable(models=models, **kwargs))
+```
+
+```{python}
+#| include: false
+#| eval: true
+company = load_parquet("company", "comp")
+funda = load_parquet("funda", "comp")
+r_auditors = load_parquet("r_auditors", "comp")
+```
+
+## Background on auditor choice
+
+```{python}
+#| include: false
+#| eval: true
+size_big4 = (
+    funda
+    .filter(
+        pl.col("indfmt") == "INDL",
+        pl.col("datafmt") == "STD",
+        pl.col("consol") == "C",
+        pl.col("popsrc") == "D",
+        pl.col("sale") > 0,
+        pl.col("at") > 0,
+        pl.col("fyear") == 2019,
+        pl.col("au").is_not_null()
+    )
+    .with_columns(
+        au=pl.col("au").cast(pl.Int32),
+        mkt_cap=pl.col("prcc_f") * pl.col("csho") * 1e6,
+    )
+    .with_columns(big4=pl.col("au").is_between(1, 8))
+    .select("gvkey", "datadate", "fyear", "au", "big4", "mkt_cap")
+    .sort("gvkey", "datadate")
+)
+```
+
+## Simulation analysis
+
+```{python}
+#| include: false
+#| eval: true
+prob_big4 = (
+    size_big4
+    .filter(pl.col("mkt_cap") > 1e6)
+    .select("big4", "mkt_cap")
+    .with_columns(pl.col("mkt_cap").log10().name.prefix("log_"))
+    .with_columns(
+        bin=pl.col("log_mkt_cap").cut(
+            np.arange(6.0, 12.25 + 0.25, 0.25),
+            left_closed=False,
+        )
+    )
+    .group_by("bin")
+    .agg(
+        pl.col("big4").cast(pl.Float64).mean().alias("p_big4"),
+        pl.col("mkt_cap"),
+        pl.col("log_mkt_cap"),
+    )
+    .explode("mkt_cap", "log_mkt_cap")
+    .select("mkt_cap", "log_mkt_cap", "p_big4")
+)
+```
+
+```{python}
+#| include: false
+#| eval: true
+n_firms = 5000
+rng = np.random.default_rng(2021)
+
+sim_auditor = (
+    prob_big4
+    .collect()
+    .sample(n=n_firms, with_replacement=True, seed=2025)
+    .with_row_index("id", offset=1)
+    .with_columns(
+        pl.Series("rand", rng.random(n_firms)),
+        pl.Series("epsilon", rng.standard_normal(n_firms)),
+    )
+    .with_columns(
+        big4=(pl.col("rand") < pl.col("p_big4")),
+        audit_quality=(
+            (pl.col("mkt_cap") ** (1 / 3)) * 0.003
+            + pl.col("epsilon")
+        ),
+    )
+    .select("id", "big4", "mkt_cap", "log_mkt_cap", "audit_quality")
+)
+```
+
+The causal diagram for this simulation is $Z \rightarrow X$, $Z \rightarrow Y$, where $Z$ is market capitalization, $X$ is having a Big Four auditor, and the true coefficient on $X \rightarrow Y$ is zero (shown as a dashed arrow in the book).
+
+```{python}
+#| include: false
+#| eval: true
+fm = pf.feols(
+    "audit_quality ~ big4 + I(mkt_cap / 1e9)",
+    data=sim_auditor,
+)
+```
+
+```{python}
+#| include: false
+#| eval: true
+sim_ps_data = sim_auditor.with_columns(
+    treat=(~pl.col("big4")).cast(pl.Int8)
+)
+
+sim_fm = sm.GLM.from_formula(
+    "treat ~ mkt_cap",
+    data=sim_ps_data,
+    family=sm.families.Binomial(),
+).fit()
+
+sim_match_pscores = (
+    sim_ps_data
+    .with_columns(
+        pl.Series(
+            "pscore",
+            sim_fm.predict(sim_ps_data.to_pandas()),
+        ),
+    )
+)
+
+sim_matches = pl.from_pandas(
+    NearestNeighborMatch(
+        caliper=0.03, replace=False, ratio=1, random_state=2021
+    ).match(
+        data=sim_match_pscores.to_pandas(),
+        treatment_col="treat",
+        score_cols=["pscore"],
+    )
+).with_columns(subclass=pl.int_range(pl.len()).over("treat"))
+
+fms_sim = {
+    "MR": pf.feols("audit_quality ~ big4", data=sim_matches),
+    "MR + controls": pf.feols(
+        "audit_quality ~ big4 + I(mkt_cap / 1e9)",
+        data=sim_matches,
+    ),
+}
+```
+
+```{python}
+#| echo: false
+#| tbl-cap: Regression of audit quality using simulated data
+show_etable(
+    [fm],
+    model_heads=["OLS"],
+    head_order="h",
+    coef_fmt="b:.3f* \n (t:.3f)",
+    signif_code=[0.01, 0.05, 0.10],
+    model_stats=["N", "r2"],
+)
+```
+
+```{python}
+#| echo: false
+#| fig-height: 3
+#| fig-cap: "Propensity scores distribution: All observations"
+(
+    sim_match_pscores
+    .ggplot()
+    .aes(x="pscore", fill="big4")
+    .geom_histogram(binwidth=0.025)
+    .facet_grid("big4 ~ .")
+    .add_theme(legend_position="none")
+)
+```
+
+```{python}
+#| echo: false
+#| fig-height: 3
+#| fig-cap: "Propensity scores distribution: Matched observations"
+(
+    sim_matches
+    .ggplot()
+    .aes(x="pscore", fill="big4")
+    .geom_histogram(binwidth=0.025)
+    .facet_grid("big4 ~ .")
+    .add_theme(legend_position="none")
+)
+```
+
+```{python}
+#| echo: false
+#| tbl-cap: Relation between `big4` and audit quality (matched)
+show_etable(
+    list(fms_sim.values()),
+    model_heads=list(fms_sim.keys()),
+    head_order="h",
+    coef_fmt="b:.3f* \n (t:.3f)",
+    signif_code=[0.01, 0.05, 0.10],
+    model_stats=["N", "r2"],
+)
+```
+
+### Exercises
+
+1. What happens in the above analyses if the true effect of `big4` on audit quality is `10` instead of `0`?
+
+```{python}
+#| include: true
+
+```
+
+2. What happens in the above analyses if the caliper is reduced to `0.01` from `0.03` (but the true effect of `big4` on audit quality is still `0`)?
+
+```{python}
+#| include: true
+
+```
+
+3. What happens in the above analyses if the caliper is reduced to `0.01` from `0.03` and the true effect of `big4` on audit quality is `10`?
+
+```{python}
+#| include: true
+
+```
+
+4. Given the above, what are your conclusions about the value of propensity-score matching and OLS in causal inference?
+
+```{python}
+#| include: true
+
+```
+
+5. What regression results do you get if you repeat the analysis shown in the OLS regression above, but replace `I(mkt_cap / 1e+09)` with `I(mkt_cap^(1/3) * 0.003)`?
+Does this suggest a solution to the issues we see above?
+If so, what challenges does such a solution face?
+
+```{python}
+#| include: true
+
+```
+
+6. Was endogeneity an issue in the simulation above?
+If not, why not? If so, in what way, and what could you do to address it?
+
+```{python}
+#| include: true
+
+```
+
+## Replication of @Lawrence:2011tv
+
+```{python}
+#| include: false
+#| eval: true
+comp = (
+    funda
+    .filter(
+        pl.col("indfmt") == "INDL",
+        pl.col("datafmt") == "STD",
+        pl.col("consol") == "C",
+        pl.col("popsrc") == "D",
+        pl.col("sich").is_not_null(),
+        ~pl.col("sich").is_between(6000, 6999),
+        pl.col("sale") > 0,
+        pl.col("at") > 0,
+        (pl.col("dltt") >= 0) | pl.col("dltt").is_null(),
+        (pl.col("dlc") >= 0) | pl.col("dlc").is_null(),
+        pl.col("prcc_f") * pl.col("csho") > 0,
+        pl.col("ceq") > 0,
+        pl.col("fyear").is_between(1988, 2006),
+    )
+    .select(
+        "gvkey", "datadate", "fyear", "au", "prcc_f", "csho", "at", "ib",
+        "dltt", "dlc", "rect", "ppent", "sale",
+        "act", "lct", "sich", "oancf",
+    )
+    .sort("gvkey", "fyear")
+    .with_columns(sic2=pl.col("sich").floordiv(100))
+    .with_columns(curr=pl.col("act").era.div_if_pos("lct"))
+    .with_columns(
+        pl.col("fyear", "at", "sale", "rect", "curr")
+        .shift(1)
+        .over("gvkey")
+        .name.prefix("lag_")
+    )
+    .with_columns(
+        avg_at=(pl.col("lag_at") + pl.col("at")) / 2,
+        d_sale=pl.col("sale") - pl.col("lag_sale"),
+        d_rect=pl.col("rect") - pl.col("lag_rect"),
+        accruals=pl.col("ib") - pl.col("oancf"),
+        mkt_cap=pl.col("prcc_f") * pl.col("csho"),
+    )
+    .with_columns(
+        log_at=pl.col("at").log(),
+        aturn=pl.col("sale").era.div_if_pos("lag_at"),
+        inv_avg_at=(
+            pl.when(pl.col("avg_at") != 0)
+            .then(1 / pl.col("avg_at"))
+            .otherwise(None)
+        ),
+        d_sale_at=(
+            (pl.col("d_sale") - pl.col("d_rect"))
+            .era.div_if_pos("avg_at")
+        ),
+        ppe_at=(
+            pl.col("ppent").era.div_if_pos("avg_at")
+        ),
+        lev=(pl.col("dltt") + pl.col("dlc").fill_null(0))
+            .era.div_if_pos("avg_at"),
+        roa=pl.col("ib").era.div_if_pos("avg_at"),
+        ta=pl.col("accruals").era.div_if_pos("avg_at"),
+        log_mkt=(
+            pl.when(pl.col("mkt_cap") > 0)
+            .then(pl.col("mkt_cap").log())
+        ),
+    )
+    .with_columns(
+        pl.col("lev", "roa")
+        .shift(1)
+        .over("gvkey")
+        .name.prefix("lag_")
+    )
+    .filter(pl.col("lag_fyear") == (pl.col("fyear") - 1))
+)
+
+industries = (
+    comp
+    .group_by("fyear", "sic2")
+    .agg(n_firms=pl.len())
+    .filter(pl.col("n_firms") >= 10)
+    .select("fyear", "sic2")
+    .collect()
+)
+
+def get_klw_data(sic2: int, fyear: int) -> pl.DataFrame:
+    reg_data = (
+        comp
+        .filter(pl.col("sic2") == sic2,
+                pl.col("fyear") == fyear)
+        .select(
+            "gvkey", "fyear", "roa", "ta",
+            "inv_avg_at", "d_sale_at", "ppe_at"
+        )
+        .drop_nulls()
+        .collect()
+    )
+
+    if reg_data.height == 0:
+        return pl.DataFrame()
+
+    x = np.column_stack(
+        [
+            np.ones(reg_data.height),
+            reg_data["inv_avg_at"].to_numpy(),
+            reg_data["d_sale_at"].to_numpy(),
+            reg_data["ppe_at"].to_numpy(),
+        ]
+    )
+    y = reg_data["ta"].to_numpy()
+    try:
+        beta, *_ = np.linalg.lstsq(x, y, rcond=None)
+    except np.linalg.LinAlgError:
+        return pl.DataFrame()
+
+    results = reg_data.select("gvkey", "fyear", "roa").with_columns(
+        da=pl.Series(name="da", values=(y - x @ beta))
+    )
+
+    pairs = (
+        results
+        .join(
+            results.rename(
+                {
+                    "gvkey": "gvkey_match",
+                    "roa": "roa_match",
+                    "da": "da_match",
+                }
+            ),
+            on="fyear",
+            how="inner",
+        )
+        .filter(pl.col("gvkey") != pl.col("gvkey_match"))
+    )
+    if pairs.height == 0:
+        return pl.DataFrame()
+
+    return (
+        pairs
+        .with_columns(roa_diff=(pl.col("roa") - pl.col("roa_match")).abs())
+        .sort("gvkey", "fyear", "roa_diff", "gvkey_match")
+        .group_by("gvkey", "fyear")
+        .first()
+        .with_columns(ada=(pl.col("da") - pl.col("da_match")).abs())
+        .select("gvkey", "fyear", "da", "ada")
+    )
+
+def psm_match(df: pl.DataFrame, caliper: float = 0.03) -> pl.DataFrame:
+    match_covars = ["log_at", "log_mkt", "aturn", "curr", "lev", "roa"]
+    reg_vars = ["ada", "big4", "log_mkt", "lag_roa", "lag_lev", "lag_curr", "sic2", "fyear"]
+
+    d = (
+        df
+        .filter(pl.all_horizontal(pl.col(match_covars + reg_vars).is_not_null()))
+        .with_columns(
+            big4=pl.col("big4").cast(pl.Int8),
+            treat=(pl.col("big4").cast(pl.Int8) == 0).cast(pl.Int8),
+        )
+    )
+
+    d_ps = d.select("treat", *match_covars).to_pandas()
+    ps_fm = sm.GLM.from_formula(
+        "treat ~ log_at + log_mkt + aturn + curr + lev + roa",
+        data=d_ps,
+        family=sm.families.Binomial(),
+    ).fit()
+
+    d = d.with_columns(
+        pscore=pl.Series("pscore", ps_fm.predict(d_ps).to_numpy())
+    )
+
+    matched_pd = NearestNeighborMatch(
+        caliper=caliper,
+        replace=False,
+        ratio=1,
+        random_state=2021,
+    ).match(
+        data=d.to_pandas(),
+        treatment_col="treat",
+        score_cols=["pscore"],
+    )
+
+    return (
+        pl.from_pandas(matched_pd)
+        .with_columns(
+            big4=pl.col("big4").cast(pl.Int8),
+            datadate=pl.col("datadate").cast(pl.Date),
+        )
+    )
+```
+
+```{python}
+#| include: false
+#| eval: false
+# Lawrence replication: slow to run; run interactively if needed.
+klw_results = pl.concat(
+    [
+        get_klw_data(**row)
+        for row in industries.iter_rows(named=True)
+    ],
+    how="vertical",
+)
+
+full_sample = (
+    comp
+    .collect()
+    .join(klw_results, on=["gvkey", "fyear"], how="inner")
+    .filter(pl.col("avg_at") > 0)
+    .with_columns(
+        big4=pl.col("au").cast(pl.Int32).is_between(1, 8),
+        mkt_cap=pl.col("prcc_f") * pl.col("csho"),
+        log_mkt=(
+            pl.when(pl.col("mkt_cap") > 0)
+            .then(pl.col("mkt_cap").log())
+        ),
+    )
+)
+
+formula_klw = (
+    "ada ~ big4 + log_mkt + lag_roa + lag_lev + lag_curr "
+    "| sic2 + fyear"
+)
+
+fms_law = {
+    "OLS": pf.feols(
+        formula_klw,
+        data=full_sample.with_columns(pl.col("big4").cast(pl.Int8))
+    )
+}
+
+win_vars = [
+    "ada", "log_mkt", "lag_roa", "lag_lev", "lag_curr",
+    "roa", "lev", "curr", "mkt_cap"
+]
+
+full_sample_win = (
+    full_sample
+    .with_columns(pl.col(win_vars).era.winsorize(),
+                  pl.col("big4").cast(pl.Int8))
+)
+
+fms_law["OLS, win"] = pf.feols(formula_klw, data=full_sample_win)
+```
+
+```{python}
+#| include: false
+#| eval: false
+# PSM matching on real data: slow to run; run interactively if needed.
+lmz_matched = psm_match(full_sample, caliper=0.03)
+fms_law["PSM"] = pf.feols(formula_klw, data=lmz_matched)
+
+lmz_matched_win = psm_match(full_sample_win, caliper=0.03)
+fms_law["PSM, win"] = pf.feols(formula_klw, data=lmz_matched_win)
+```
+
+## Discussion questions
+
+1. Given the evidence presented in the simulation, how do you interpret the regression results presented above?
+How do @DeFond:2017wl appear to interpret the results?
+
+```{python}
+#| include: true
+
+```
+
+2. Referring back to the basic causal relations described earlier, what is the causal diagram implied by equation (1) and Table 2 of @Lawrence:2011tv?
+What variables are in *PROXY_CONTROLS* for Table 2?
+Why is *LOG_ASSETS* not found in Table 2?
+
+```{python}
+#| include: true
+
+```
+
+3. Do @Lawrence:2011tv report results from estimating equation (1)?
+What happens to the "difference in means" between the Full Sample and the Propensity-Score Matched Sample in Table 1?
+Does this make sense?
+
+```{python}
+#| include: true
+
+```
+
+4. Why do you think the difference in means is still statistically significant for two variables in the Propensity-Score Matched Sample column of Table 1 in @Lawrence:2011tv?
+Do you think this is a concern?
+
+```{python}
+#| include: true
+
+```
+
+5. @Lawrence:2011tv evaluate three outcomes as measures of audit quality: discretionary accruals, cost of equity, and analyst forecast accuracy.
+Evaluate each of these measures.
+Which do you think is best?
+What are the strengths and weaknesses of this best measure?
+
+```{python}
+#| include: true
+
+```
+
+6. Can you think of other measures of audit quality that might make sense?
+
+```{python}
+#| include: true
+
+```
+
+7. Apply the check list of @Shipman:2016fs [217--218] and the questions in Panels B and C of Table 1 of @Shipman:2016fs to @Lawrence:2011tv.
+How do @Lawrence:2011tv stack up against these?
+
+```{python}
+#| include: true
+
+```
