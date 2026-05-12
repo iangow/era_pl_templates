@@ -1,0 +1,805 @@
+---
+title: "Extreme values and sensitivity analysis"
+subtitle: "Responses to exercise questions"
+author: Put your name here
+bibliography: references.bib
+engine: jupyter
+jupyter: python3
+format:
+  typst: default
+---
+
+:::{.content-visible when-format="markdown"}
+## Instructions
+
+This document assumes that you have completed the instructions [here](https://github.com/iangow/era_pl_templates/blob/main/README.md).
+
+The Leone replication section requires WRDS data (`company` and `funda` from Compustat).
+The Call replication section uses the `cmsw_2018` dataset bundled with the `era_pl` package (no WRDS access required).
+The simulation section in the appendix runs with no external data.
+
+This template extracts the visible code and exercises from [Chapter 24](https://iangow.github.io/era_pl_book/extreme-vals.html) of the Python Polars edition of *Empirical Research in Accounting: Tools and Methods*.
+This template includes all the code from the book chapter.
+
+Within Positron, you can run the code below in two ways.
+
+In the first way, you can treat this file as a notebook of sorts and just run the code interactively.
+In Positron, you will see "Run Cell" and (for cells after the first cell) "Run Above".
+You might choose to go through the cells in order and click "Run Cell" on each one to see its output.
+Alternatively, you might jump ahead to a cell of interest, and click "Run Above" so that any prior code needed for your chosen cell has been executed, then "Run Cell" on the cell of interest.
+
+Note that some cells contain multiple lines and to see the output from each, you may need to execute them one at a time.
+You can run code interactively from a .qmd file in Positron without rendering the whole document.
+On macOS, place the cursor in a code cell or highlight selected lines and press `Command+Enter`; on Windows and Linux, use `Ctrl+Enter` instead.
+
+In the second way, you have Quarto "render" the document as PDF.
+In Positron, you can accomplish this by clicking the "Preview" button at the top of the edit window.
+Note that many of the cells below will not appear in the created PDF.
+This document uses Quarto chunk options to control that behaviour.
+(Quarto seems to use the words "cell" and "chunk" interchangeably.)
+In particular, chunks with `#| include: false` are executed without either the code or the output being shown in the rendered document.
+Other chunk options include `#| echo` to show or hide the code and `#| output` to hide or show the output.
+
+To answer the questions below, you are likely to play around with code interactively (the first way) until you are ready to render your answers (using the second way) and submit them to your course instructor.
+
+Note that you can type text outside code cells and these will be rendered as markdown.
+More details on using Quarto markdown are provided on the [Quarto website](https://quarto.org).
+
+:::
+
+```{python}
+#| include: false
+#| eval: true
+from itertools import product
+
+import numpy as np
+import polars as pl
+import polars.selectors as cs
+
+import pyfixest as pf
+import statsmodels.api as sm
+import statsmodels.formula.api as smf
+from maketables import ETable
+from scipy import stats
+
+from era_pl import load_parquet, load_data, ptime
+```
+
+```{python}
+#| include: false
+#| eval: true
+import warnings
+
+warnings.filterwarnings("ignore")
+pl.Config.set_tbl_cols(200)
+pl.Config.set_tbl_width_chars(120)
+```
+
+```{python}
+#| include: false
+#| eval: true
+company = load_parquet("company", "comp")
+funda = load_parquet("funda", "comp")
+```
+
+```{python}
+#| include: false
+#| eval: true
+comp = (
+    funda
+    .filter(
+        pl.col("indfmt") == "INDL",
+        pl.col("datafmt") == "STD",
+        pl.col("consol") == "C",
+        pl.col("popsrc") == "D",
+    )
+    .filter(
+        ~pl.col("sich").is_between(6000, 6999)
+        | pl.col("sich").is_null()
+    )
+    .filter(pl.col("fyear").is_between(1995, 2015))
+    .sort(["gvkey", "fyear"])
+    .with_columns(
+        big_n=(
+            pl.col("au")
+            .cast(pl.Int32, strict=False)
+            .is_between(1, 8)
+        ),
+        mkt_cap=pl.col("prcc_f") * pl.col("csho")
+    )
+    .with_columns(
+        pl.col("at", "mkt_cap", "revt", "rect", "ceq")
+        .shift(1)
+        .over("gvkey")
+        .name.prefix("lag_"),
+    )
+    .with_columns(
+        inv_at=(
+            pl.when(pl.col("lag_at") > 0)
+            .then(1 / pl.col("lag_at"))
+        ),
+        ta=(pl.col("ib") - pl.col("oancf"))
+           .era.div_if_pos("lag_at"),
+        roa=pl.col("ib").era.div_if_pos("lag_at"),
+        cfo=pl.col("oancf").era.div_if_pos("lag_at"),
+        size=(
+            pl.when(pl.col("lag_mkt_cap") > 0)
+            .then(pl.col("lag_mkt_cap").log())
+            .otherwise(None)
+        ),
+        lev=pl.sum_horizontal(pl.col("dltt", "dlc")
+            .fill_null(0))
+            .era.div_if_pos("lag_at"),
+        mtb=pl.col("lag_mkt_cap").era.div_if_pos("lag_ceq"),
+        assets=pl.col("lag_at"),
+        d_sale=(
+            (pl.col("revt") - pl.col("lag_revt"))
+            .era.div_if_pos("lag_at")
+        ),
+        d_ar=(
+            (pl.col("rect") - pl.col("lag_rect"))
+            .era.div_if_pos("lag_at")
+        ),
+        ppe=(
+            pl.col("ppent").era.div_if_pos("lag_at")
+        ),
+    )
+    .with_columns(pl.col("fyear").cast(pl.Utf8))
+    .select(
+        "gvkey", "datadate", "fyear", "big_n", "ta", "roa", "cfo",
+        "size", "lev", "mtb", "inv_at", "d_sale", "d_ar", "ppe"
+    )
+    .collect()
+)
+```
+
+```{python}
+#| include: false
+#| eval: false
+def winsorize(x: pl.Expr, prob: float = 0.01) -> pl.Expr:
+    return x.clip(
+        lower_bound=x.quantile(prob),
+        upper_bound=x.quantile(1 - prob),
+    )
+```
+
+```{python}
+#| include: false
+#| eval: false
+def truncate(x: pl.Expr, prob: float = 0.01) -> pl.Expr:
+    lower = x.quantile(prob)
+    upper = x.quantile(1 - prob)
+    return pl.when(x.is_between(lower, upper)).then(x).otherwise(None)
+```
+
+```{python}
+#| include: false
+#| eval: true
+value_cols = comp.drop("gvkey", "datadate", "fyear", "big_n").columns
+
+comp_win = (
+    comp
+    .with_columns(pl.col(value_cols).era.winsorize())
+)
+
+comp_trunc = (
+    comp
+    .with_columns(pl.col(value_cols).era.truncate())
+)
+```
+
+```{python}
+#| include: false
+#| eval: true
+formula_wins = (
+    "ta ~ big_n + roa + cfo + size + lev + mtb + "
+    "fyear * (inv_at + d_sale + d_ar + ppe) | gvkey + fyear"
+)
+formula_raw = (
+    "ta ~ big_n + cfo + size + lev + mtb + "
+    "fyear * (inv_at + d_sale + d_ar + ppe) | gvkey + fyear"
+)
+
+fms_leone = {
+    "Wins, w/ROA": pf.feols(formula_wins, data=comp_win),
+    "Raw": pf.feols(formula_raw, data=comp),
+}
+fms_leone["Wins"] = pf.feols(formula_raw, data=comp_win)
+fms_leone["Trunc"] = pf.feols(formula_raw, data=comp_trunc)
+```
+
+```{python}
+#| include: false
+#| eval: false
+fms_leone["Trunc"] = (
+    pf.feols(
+        formula_raw,
+        data=comp.with_columns(pl.col(value_cols).era.truncate())
+    ),
+)
+```
+
+```{python}
+#| include: false
+#| eval: true
+comp_idx = comp.with_row_index("row_id")
+
+fm_cooksd = smf.ols(
+    "ta ~ big_n + cfo + size + lev + mtb + "
+    "fyear * (inv_at + d_sale + d_ar + ppe)",
+    data=comp_idx.to_pandas(),
+).fit()
+
+cooksd_df = pl.DataFrame(
+    {
+        "row_id": np.asarray(fm_cooksd.model.data.row_labels),
+        "cooksd": fm_cooksd.get_influence().cooks_distance[0],
+    }
+)
+
+comp_cook = (
+    comp_idx
+    .join(cooksd_df, on="row_id", how="left")
+    .with_columns(extreme=pl.col("cooksd") > (4 / fm_cooksd.nobs))
+    .with_columns(
+        ta=(
+            pl.when(pl.col("extreme").fill_null(False))
+            .then(None)
+            .otherwise(pl.col("ta"))
+        )
+    )
+    .drop("row_id")
+)
+
+fms_leone["Cook's D"] = pf.feols(formula_raw, data=comp_cook)
+```
+
+```{python}
+#| include: false
+#| eval: true
+fmrob = sm.RLM.from_formula(
+    (
+        "ta ~ big_n + cfo + size + lev + mtb "
+        "+ fyear * (inv_at + d_sale + d_ar + ppe)"
+    ),
+    data=comp.to_pandas(),
+    M=sm.robust.norms.TukeyBiweight(c=3.4437),
+).fit()
+
+fms_leone["Robust"] = fmrob
+```
+
+```{python}
+#| include: false
+#| eval: true
+cmsw_2018 = load_data("cmsw_2018")
+```
+
+```{python}
+#| include: false
+#| eval: true
+yvars = ["firmpenalty", "emppenalty", "empprisonmos"]
+
+win_cols = ["blckownpct", "initabret", "pctinddir",
+            "mkt2bk", "lev"]
+
+cmsw = (
+    cmsw_2018
+    .filter(pl.col("tousesox") == 1)
+    .with_columns(
+        pl.col(win_cols).era.winsorize(),
+        pl.col(yvars).log1p().name.prefix("ln_"),
+        pl.col("ff12").cast(pl.Utf8),
+        pl.col(pl.Boolean).cast(pl.Int8),
+    )
+)
+```
+
+```{python}
+#| include: false
+#| eval: true
+x = "wbflag"
+controls = [
+    "selfdealflag", "blckownpct", "initabret", "lnvioperiod",
+    "bribeflag", "mobflag", "deter", "lnempcleveln", "lnuscodecnt",
+    "viofraudflag", "misledflag", "audit8flag", "exectermflag",
+    "coopflag", "impedeflag", "pctinddir", "recidivist",
+    "lnmktcap", "mkt2bk", "lev", "lndistance", "ff12",
+]
+
+def get_poisson_fit(y: str, df: pl.DataFrame = cmsw):
+    form = f"{y} ~ " + " + ".join([x, *controls])
+    return smf.glm(
+        form,
+        data=df.to_pandas(),
+        family=sm.families.Poisson(),
+    ).fit(maxiter=100, cov_type="HC1")
+
+fms_cmsw = [get_poisson_fit(y) for y in yvars]
+```
+
+```{python}
+#| include: false
+#| eval: true
+def get_ols_fit(y: str, df: pl.DataFrame = cmsw):
+    form = f"ln_{y} ~ " + " + ".join([x, *controls])
+    return smf.ols(form, data=df.to_pandas()).fit(cov_type="HC1")
+
+fms_ols = [get_ols_fit(y) for y in yvars]
+```
+
+```{python}
+#| include: false
+#| eval: true
+def get_itcvs(fm, var: str) -> pl.DataFrame:
+    tstats = dict(
+        zip(fm.model.exog_names, fm.tvalues, strict=True)
+    )
+    tstat = float(tstats[var])
+    df_resid = float(fm.df_resid)
+    numer = tstat**2 / df_resid
+    r_yx = np.sqrt(numer / (1 + numer))
+
+    alpha = np.array([0.01, 0.05, 0.10])
+    crit_val = stats.t.ppf(1 - alpha / 2, df_resid)
+    rhash = crit_val / np.sqrt(df_resid + crit_val**2)
+    itcv = (r_yx - rhash) / (1 - np.abs(rhash))
+
+    return pl.DataFrame(
+        {
+            "alpha": alpha,
+            "crit_val": crit_val,
+            "itcv": itcv,
+        }
+    )
+
+def pcor(df: pl.DataFrame) -> dict[str, float]:
+    mat = df.to_numpy()
+    cvx = np.cov(mat, rowvar=False)
+    icvx = np.linalg.pinv(cvx)
+    d = np.sqrt(np.diag(icvx))
+    pcor_mat = -icvx / np.outer(d, d)
+    np.fill_diagonal(pcor_mat, 1.0)
+    return dict(zip(df.columns[1:], pcor_mat[1:, 0], strict=True))
+
+def get_impacts(
+    df: pl.DataFrame,
+    y: str,
+    x: str,
+    controls: list[str],
+) -> pl.DataFrame:
+    corr_data = (
+        df
+        .select([y, x, *controls])
+        .to_dummies(columns=cs.string() | cs.categorical(),
+                    separator="_")
+        .drop_nulls()
+    )
+    z_vars = [col for col in corr_data.columns if col not in [y, x]]
+    r_yz = pcor(corr_data.select([y, *z_vars]))
+    r_xz = pcor(corr_data.select([x, *z_vars]))
+
+    return (
+        pl.DataFrame(
+            {
+                "var": z_vars,
+                "r_yz": [float(r_yz[v]) for v in z_vars],
+                "r_xz": [float(r_xz[v]) for v in z_vars],
+            }
+        )
+        .with_columns(impact=pl.col("r_yz") * pl.col("r_xz"))
+        .sort("impact", descending=True)
+    )
+
+def get_combined_impact(
+    df: pl.DataFrame,
+    y: str,
+    x: str,
+    controls: list[str],
+) -> pl.DataFrame:
+    form = f"{x} ~ " + " + ".join(controls)
+    fm = smf.ols(form, data=df.to_pandas()).fit()
+    df_aug = df.with_columns(z=pl.Series("z", fm.fittedvalues.to_numpy()))
+    return get_impacts(df_aug, y=y, x=x, controls=["z"])
+```
+
+```{python}
+#| include: false
+#| eval: true
+itcv = (
+    get_itcvs(fms_ols[0], "wbflag")
+    .filter(pl.col("alpha") == 0.05)
+    .get_column("itcv")
+    .item()
+)
+
+res = get_combined_impact(
+    cmsw,
+    y="ln_firmpenalty",
+    x="wbflag",
+    controls=controls,
+)
+```
+
+```{python}
+#| include: false
+#| eval: true
+(
+    cmsw_2018
+    .filter(pl.col("tousesox") == 1)
+    .unpivot(
+        on=cs.matches("^.*(penalty|mos).*$"),
+        variable_name="target",
+        value_name="amount",
+    )
+    .sort(["target", "amount"], descending=[False, True])
+    .with_columns(rank=pl.col("amount").cum_count()
+                       .over("target"))
+    .group_by("target")
+    .agg(
+        total=pl.col("amount").sum(),
+        total_top=(
+            pl.when(pl.col("rank") <= 6)
+            .then(pl.col("amount"))
+            .otherwise(0)
+            .sum()
+        ),
+    )
+    .with_columns(
+        pl.col("total_top").truediv(pl.col("total")).mul(100)
+        .alias("top_perc"),
+        pl.col("total", "total_top").round(0),
+    )
+    .sort("total", descending=True)
+    .style
+    .fmt_integer(columns=["total", "total_top"], use_seps=True)
+    .fmt_number(columns="top_perc", decimals=1)
+)
+```
+
+```{python}
+#| include: false
+#| eval: true
+(
+    get_itcvs(fms_ols[0], "wbflag")
+    .style
+    .fmt_number(columns=["crit_val", "itcv"], decimals=3)
+    .fmt_number(columns="alpha", decimals=2)
+)
+```
+
+```{python}
+#| include: false
+#| eval: true
+(
+    get_impacts(
+        cmsw,
+        y="ln_firmpenalty",
+        x="wbflag",
+        controls=controls,
+    )
+    .head(10)
+    .style
+    .fmt_number(columns=cs.numeric(), decimals=3)
+)
+```
+
+```{python}
+#| include: false
+#| eval: true
+(
+    get_combined_impact(
+        cmsw,
+        y="ln_firmpenalty",
+        x="wbflag",
+        controls=controls,
+    )
+    .style
+    .fmt_number(columns=cs.numeric(), decimals=3)
+)
+```
+
+```{python}
+#| include: false
+#| eval: true
+def get_data(
+    b_true: float = 0.8,
+    clean: bool = False,
+    random: bool = True,
+    n: int = 10_000,
+    seed: int | None = None,
+) -> pl.DataFrame:
+    rng = np.random.default_rng(seed)
+    prop_cont = 0.02 if random else 0.25
+    ids = np.arange(1, n + 1)
+    x1 = rng.normal(size=n)
+
+    if clean:
+        contaminated = np.zeros(n, dtype=bool)
+    elif random:
+        contaminated = ids < prop_cont * n
+    else:
+        contaminated = (ids < prop_cont * n) & (x1 < -1.5)
+
+    df = (
+        pl.DataFrame({
+            "x1": x1,
+            "x2": (x2 := rng.normal(size=n)),
+            "x3": (x3 := rng.normal(size=n)),
+            "v": (v := rng.normal(size=n)),
+            "z": rng.normal(loc=3, scale=1, size=n),
+            "y": b_true * x1 + 0.4 * x2 + 0.2 * x3 + v,
+            "id": ids,
+            "contaminated": contaminated,
+        })
+        .with_columns(
+            pl.when(pl.col("contaminated"))
+            .then(pl.col("y") + pl.col("z"))
+            .otherwise(pl.col("y")).alias("cy")
+        )
+    )
+
+    win_vars = ["cy", "x1", "x2", "x3"]
+
+    return df.with_columns(
+        pl.col(win_vars).era.winsorize().name.suffix("w"),
+        pl.col(win_vars).era.truncate().name.suffix("t"),
+    )
+
+def fit_models(df: pl.DataFrame) -> dict[str, object]:
+    pdf = df.to_pandas()
+    fms = {
+        "Do nothing": smf.ols("cy ~ x1", data=pdf).fit(),
+        "Winsorize all variables": smf.ols(
+            "cyw ~ x1w + x2w + x3w", data=pdf
+        ).fit(),
+        "Winsorize only X": smf.ols(
+            "cy ~ x1w + x2w + x3w", data=pdf
+        ).fit(),
+        "Truncate all variables": smf.ols(
+            "cyt ~ x1t + x2t + x3t", data=pdf
+        ).fit(),
+        "Truncate only X": smf.ols(
+            "cy ~ x1t + x2t + x3t", data=pdf
+        ).fit(),
+    }
+    cooksd = fms["Do nothing"].get_influence().cooks_distance[0]
+    keep = cooksd <= (4 / len(pdf))
+    fms["Cook's distance"] = smf.ols("cy ~ x1", data=pdf[keep]).fit()
+    fms["Robust regression"] = smf.rlm(
+        "cy ~ x1",
+        data=pdf,
+        M=sm.robust.norms.TukeyBiweight(),
+    ).fit()
+    return fms
+
+def extract_stats(fm, b_null: float) -> pl.DataFrame:
+    coef_name = next(name for name in fm.params.index if name.startswith("x1"))
+    est = fm.params[coef_name]
+    se = fm.bse[coef_name]
+    tval = (est - b_null) / se
+    df_resid = getattr(fm, "df_resid", np.nan)
+    pval = 2 * (1 - stats.t.cdf(abs(tval), df_resid))
+
+    return pl.DataFrame(
+        {
+            "est": est,
+            "p_5": pval < 0.05,
+            "p_1": pval < 0.01,
+        }
+    )
+
+def compile_stats(
+    fms: dict[str, object],
+    b_null: float) -> pl.DataFrame:
+    return pl.concat(
+        [
+            extract_stats(fm, b_null).with_columns(
+                model_num=pl.lit(i),
+                model=pl.lit(name),
+            )
+            for i, (name, fm) in enumerate(fms.items(), start=1)
+        ],
+        how="vertical",
+    )
+
+def run_sim(
+    sim_num: int = 1,
+    b_true: float = 0.8,
+    b_null: float | None = None,
+    clean: bool = False,
+    random: bool = False,
+) -> pl.DataFrame:
+    if b_null is None:
+        b_null = b_true
+    df = get_data(
+        b_true=b_true, clean=clean, random=random, seed=2021 + sim_num
+    )
+    return compile_stats(fit_models(df), b_null=b_null).with_columns(
+        sim_num=pl.lit(sim_num),
+        b_true=pl.lit(b_true),
+        b_null=pl.lit(b_null),
+        clean=pl.lit(clean),
+        random=pl.lit(random),
+    )
+
+def get_results(
+    b_true: float = 0.0,
+    clean: bool = False,
+    random: bool = False,
+    n_sims: int = 1000,
+) -> pl.DataFrame:
+    return pl.concat(
+        [
+            run_sim(sim_num=i, b_true=b_true, clean=clean, random=random)
+            for i in range(n_sims)
+        ],
+        how="vertical",
+    )
+
+params = (
+    pl.DataFrame(
+        product([0.0, 0.8], [True, False], [False, True]),
+        schema=["b_true", "clean", "random"],
+    )
+    .filter(~(pl.col("clean") & pl.col("random")))
+)
+```
+
+```{python}
+#| include: false
+#| eval: false
+# Simulation takes more than a minute to run; no exercises depend on these results.
+with ptime():
+    all_results = pl.concat(
+        [
+            get_results(**row)
+            for row in params.iter_rows(named=True)
+        ],
+        how="vertical",
+    )
+```
+
+## @Leone:2019uc
+
+### Discussion questions
+
+```{python}
+#| label: tbl-leone-repl
+#| echo: false
+#| tbl-cap: "Results from various approaches to extreme values"
+ETable(
+    list(fms_leone.values()),
+    model_heads=list(fms_leone.keys()),
+    head_order="h",
+    coef_fmt="b:.3f* \n (t:.3f)",
+    signif_code=[0.01, 0.05, 0.10],
+    model_stats=["N", "r2"],
+    drop=["fyear", "ppe", "inv_at", "d_sale", "d_ar"],
+)
+```
+
+1. Table 5 of @Leone:2019uc presents results from a simulation analysis.
+Which panel of that table likely best reflects the kind of data researchers encounter in practice?
+
+```{python}
+#| include: true
+
+```
+
+2. Consider the left half of Table 5 of @Leone:2019uc (i.e., $\beta_1 = 0.8$).
+Using the panel you identified in question 1 above, interpret the implications of the simulation results for researchers in practice.
+Note that the mean estimates of $\beta_1$ using Cook's D or robust regression are very similar.
+Does Table 5 of @Leone:2019uc provide strong support for rejecting Cook's D in favour of robust regression?
+
+```{python}
+#| include: true
+
+```
+
+3. In the search for new research questions, accounting researchers increasingly need to study variables whose most plausible effect sizes are consistent with the right half of Table 5 of @Leone:2019uc (i.e., $\beta_1 = 0$).
+Using the panel you identified in question 1 above, interpret the implication of the simulation results for researchers in practice.
+
+```{python}
+#| include: true
+
+```
+
+4. Table 2 of @Leone:2019uc reports results similar to those given in columns (4), (5), and (6) of @tbl-leone-repl.
+They say, "[when we] perform estimation using RR, the coefficient on $BIG\_N$ is $-0.011$ (significant at the 1 percent level), opposite of what @Chen:2018wh find, and instead consistent with the negative coefficient documented in prior studies using the two-step procedure."
+In light of the simulation evidence, how persuasive do you find the evidence above in support of a negative coefficient on `big_n`?
+How probative is the evidence of prior studies if it is based on approaches (e.g., winsorization and two-step procedures) that @Leone:2019uc and @Chen:2018wh demonstrate lead to unreliable results?
+
+```{python}
+#| include: true
+
+```
+
+## @Call:2018aa
+
+### Discussion questions
+
+```{python}
+#| label: tbl-cmsw-4
+#| echo: false
+#| tbl-cap: "Enforcement outcomes (Table 4 of CMSW)"
+ETable(
+    fms_cmsw,
+    model_heads=yvars,
+    head_order="h",
+    coef_fmt="b:.3f* \n (t:.3f)",
+    keep=["wbflag"],
+    signif_code=[0.01, 0.05, 0.10],
+    model_stats=["N"],
+)
+```
+
+```{python}
+#| label: tbl-cmsw-8a
+#| echo: false
+#| tbl-cap: "Enforcement outcomes with OLS (Table 8 of CMSW)"
+ETable(
+    fms_ols,
+    model_heads=yvars,
+    head_order="h",
+    coef_fmt="b:.3f* \n (t:.3f)",
+    keep=["wbflag"],
+    signif_code=[0.01, 0.05, 0.10],
+    model_stats=["N", "r2"],
+)
+```
+
+1. Suppose you were a regulator interested in understanding the effects of whistleblowers on enforcement outcomes.
+How might you design an experiment to examine these effects?
+What challenges would you expect to face in implementing your experiment?
+How would the experiment differ from the setting of @Call:2018aa?
+
+```{python}
+#| include: true
+
+```
+
+2. As an additional example of "misunderstanding" by @Kuvvet:2019aa, @call2019response claim that "Kuvvet argues that CMSW's findings speak to correlation rather than causation.
+The published version of CMSW makes this point clearly throughout the paper."
+What claim in @Kuvvet:2019aa are @call2019response addressing here?
+Do you agree that "CMSW makes this point clearly throughout the paper"?
+
+```{python}
+#| include: true
+
+```
+
+3. "The published version of CMSW empirically addresses the role of extreme observations in enforcement actions with an estimator designed specifically to handle skewed data (Poisson pseudo-maximum likelihood) and with additional robustness tests, including one focused on the incidence rather than the magnitude of penalties."
+As we see in @tbl-cmsw-4, the estimator used in @Call:2018aa is standard Poisson regression, which is implemented here with `statsmodels` GLM and `family=Poisson`.
+How might we use data sets covered in the Leone section or the simulation appendix to evaluate the claim that the Poisson regression estimator is "designed specifically to handle skewed data"?
+
+```{python}
+#| include: true
+
+```
+
+4. Could we use approaches covered in the Leone section or the simulation appendix to address extreme observations in the setting of @Call:2018aa?
+
+```{python}
+#| include: true
+
+```
+
+5. @call2019response argue that "unlike many other settings in accounting, finance, and economics where the focus is often on the average firm, the enforcement action setting is inherently extreme" and claim that this is another example of "misunderstanding" in @Kuvvet:2019aa.
+Do you agree that "the enforcement action setting is inherently extreme"?
+Does this inherent extremeness undermine the arguments of @Kuvvet:2019aa?
+
+```{python}
+#| include: true
+
+```
+
+6. What claim by @Kuvvet:2019aa are @call2019response (quoted above) trying to refute regarding the "tipster" variable?
+Do you find their response convincing?
+
+```{python}
+#| include: true
+
+```
+
+## Appendix: Simulation study from @Leone:2019uc

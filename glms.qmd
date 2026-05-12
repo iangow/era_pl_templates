@@ -1,0 +1,477 @@
+---
+title: "Beyond OLS"
+subtitle: "Responses to exercise questions"
+author: Put your name here
+bibliography: references.bib
+engine: jupyter
+jupyter: python3
+format:
+  typst: default
+---
+
+:::{.content-visible when-format="markdown"}
+## Instructions
+
+This document assumes that you have completed the instructions [here](https://github.com/iangow/era_pl_templates/blob/main/README.md).
+
+The application section of this chapter requires pre-generated parquet files in the `glms` subdirectory of your `DATA_DIR`.
+These are produced by running the data pipeline in the book chapter, which requires internet access (for SEC EDGAR downloads) and WRDS data (`funda`, `ccmxpf_lnkhist`, `dsi`, `dsf` from Compustat and CRSP).
+The simulation section runs with no external data.
+
+This template extracts the visible code and exercises from [Chapter 23](https://iangow.github.io/era_pl_book/glms.html) of the Python Polars edition of *Empirical Research in Accounting: Tools and Methods*.
+This template includes all the code from the book chapter.
+
+Within Positron, you can run the code below in two ways.
+
+In the first way, you can treat this file as a notebook of sorts and just run the code interactively.
+In Positron, you will see "Run Cell" and (for cells after the first cell) "Run Above".
+You might choose to go through the cells in order and click "Run Cell" on each one to see its output.
+Alternatively, you might jump ahead to a cell of interest, and click "Run Above" so that any prior code needed for your chosen cell has been executed, then "Run Cell" on the cell of interest.
+
+Note that some cells contain multiple lines and to see the output from each, you may need to execute them one at a time.
+You can run code interactively from a .qmd file in Positron without rendering the whole document.
+On macOS, place the cursor in a code cell or highlight selected lines and press `Command+Enter`; on Windows and Linux, use `Ctrl+Enter` instead.
+
+In the second way, you have Quarto "render" the document as PDF.
+In Positron, you can accomplish this by clicking the "Preview" button at the top of the edit window.
+Note that many of the cells below will not appear in the created PDF.
+This document uses Quarto chunk options to control that behaviour.
+(Quarto seems to use the words "cell" and "chunk" interchangeably.)
+In particular, chunks with `#| include: false` are executed without either the code or the output being shown in the rendered document.
+Other chunk options include `#| echo` to show or hide the code and `#| output` to hide or show the output.
+
+To answer the questions below, you are likely to play around with code interactively (the first way) until you are ready to render your answers (using the second way) and submit them to your course instructor.
+
+Note that you can type text outside code cells and these will be rendered as markdown.
+More details on using Quarto markdown are provided on the [Quarto website](https://quarto.org).
+
+:::
+
+```{python}
+#| include: false
+#| eval: true
+import warnings
+
+import numpy as np
+import polars as pl
+import plotnine_polars as p9p
+import pyfixest as pf
+import statsmodels.api as sm
+import statsmodels.formula.api as smf
+from maketables import ETable
+from plotnine_polars import aes
+from scipy.stats import logistic, norm
+
+from era_pl import load_parquet, show_typst
+
+p9p.theme_set(p9p.theme_matplotlib())
+
+pl.Config.set_tbl_cols(200)
+pl.Config.set_tbl_width_chars(120)
+warnings.filterwarnings("ignore", category=UserWarning, module="pyfixest")
+```
+
+```{python}
+#| include: false
+#| eval: true
+def show_etable(models, **kwargs):
+    show_typst(ETable(models=models, **kwargs))
+```
+
+```{python}
+#| include: false
+#| eval: true
+def get_probit_data(
+    beta_0: float = -2.0,
+    beta_1: float = 0.3,
+    n: int = 1000,
+    seed: int | None = None,
+) -> pl.DataFrame:
+    rng = np.random.default_rng(seed)
+    x = rng.normal(size=n)
+    h = norm.cdf(beta_0 + x * beta_1)
+    y = rng.uniform(size=n) < h
+    return pl.DataFrame({"x": x, "y": y.astype(np.int8)})
+
+def get_mfx(fm, model_type: str) -> float:
+    X = fm.model.exog
+    if model_type == "probit":
+        pdf = float(norm.pdf(X @ fm.params).mean())
+    elif model_type == "logit":
+        pdf = float(logistic.pdf(X @ fm.params).mean())
+    elif model_type == "Poisson":
+        pdf = float(np.exp(X @ fm.params).mean())
+    else:
+        pdf = 1.0
+    return float(pdf * fm.params[1])
+
+def fit_model(data: pl.DataFrame, model_type: str = "OLS") -> pl.DataFrame:
+    X = sm.add_constant(data["x"].to_numpy())
+    y = data["y"].to_numpy()
+
+    if model_type == "probit":
+        fm = sm.Probit(y, X).fit(disp=0)
+    elif model_type == "logit":
+        fm = sm.Logit(y, X).fit(disp=0)
+    elif model_type == "Poisson":
+        fm = sm.Poisson(y, X).fit(disp=0)
+    else:
+        fm = sm.OLS(y, X).fit()
+
+    return pl.DataFrame({
+        "type": [model_type],
+        "coef": [float(fm.params[1])],
+        "se": [float(fm.bse[1])],
+        "t_stat": [float(fm.tvalues[1])],
+        "p": [float(fm.pvalues[1])],
+        "mfx": [get_mfx(fm, model_type)],
+    })
+
+def run_probit_sim(i: int, beta_1: float) -> pl.DataFrame:
+    df = get_probit_data(beta_1=beta_1, seed=2024 + i)
+    fits = [
+        fit_model(df, model_type=t)
+        for t in ("probit", "logit", "OLS")
+    ]
+    return (
+        pl.concat(fits, how="vertical")
+        .with_columns(
+            i=pl.lit(i),
+            beta_1_true=pl.lit(beta_1),
+        )
+        .select(
+            "i", "beta_1_true", "type", "coef",
+            "se", "t_stat", "p", "mfx"
+        )
+    )
+
+def get_pois_data(
+    beta_0: float = -2.0,
+    beta_1: float = 0.3,
+    n: int = 1000,
+    seed: int | None = None,
+) -> pl.DataFrame:
+    rng = np.random.default_rng(seed)
+    x = rng.normal(size=n)
+    h = np.exp(beta_0 + x * beta_1)
+    y = rng.poisson(lam=h)
+    return pl.DataFrame({"x": x, "y": y})
+
+def run_pois_sim(i: int, beta_1: float) -> pl.DataFrame:
+    df = get_pois_data(beta_1=beta_1, seed=2024 + i)
+    fits = [fit_model(df, model_type=t) for t in ("Poisson", "OLS")]
+    return (
+        pl.concat(fits, how="vertical")
+        .with_columns(
+            i=pl.lit(i),
+            beta_1_true=pl.lit(beta_1),
+        )
+        .select(
+            "i", "beta_1_true", "type", "coef",
+            "se", "t_stat", "p", "mfx"
+        )
+    )
+```
+
+```{python}
+#| include: false
+#| eval: false
+# Simulation takes time; no exercises depend on these results.
+n_iters = 1000
+
+results = pl.concat(
+    [
+        run_probit_sim(i, beta_1)
+        for beta_1 in (0.0, 0.3)
+        for i in range(n_iters)
+    ],
+    how="vertical",
+)
+
+rel_df = (
+    results
+    .filter(pl.col("beta_1_true") != 0)
+    .pivot(index="i", on="type", values=["coef", "mfx"])
+)
+
+fms = [
+    smf.ols("coef_logit ~ coef_probit", data=rel_df.to_pandas()).fit(),
+    smf.ols("coef_OLS ~ coef_probit", data=rel_df.to_pandas()).fit(),
+    smf.ols("mfx_logit ~ mfx_probit", data=rel_df.to_pandas()).fit(),
+    smf.ols("coef_OLS ~ mfx_probit", data=rel_df.to_pandas()).fit(),
+]
+
+results_pois = pl.concat(
+    [
+        run_pois_sim(i, beta_1)
+        for beta_1 in (0.0, 0.3)
+        for i in range(n_iters)
+    ],
+    how="vertical",
+)
+```
+
+```{python}
+#| include: false
+#| eval: true
+lm_10x_summary = load_parquet("lm_10x_summary", "glms")
+filing_10k_merged = load_parquet("filing_10k_merged", "glms")
+vdis_df = load_parquet("vdis_df", "glms")
+compustat = load_parquet("compustat", "glms")
+```
+
+```{python}
+#| include: false
+#| eval: true
+liquidity = load_parquet("liquidity", "glms")
+trading_dates = load_parquet("trading_dates", "glms")
+event_dates = (
+    load_parquet("event_dates", "glms")
+    .with_columns(pl.col("permno").cast(pl.Int32))
+)
+
+liquidity_merged = (
+    event_dates
+    .join_where(
+        liquidity,
+        pl.col("permno") == pl.col("permno_right"),
+        pl.col("date").is_between(pl.col("start_date"), pl.col("end_date")),
+    )
+    .drop("permno_right")
+    .join(
+        trading_dates.rename({"date": "filing_date", "td": "filing_td"}),
+        on="filing_date",
+        how="inner",
+    )
+    .join(trading_dates, on="date", how="inner")
+    .with_columns(rel_td=pl.col("td") - pl.col("filing_td"))
+    .select(
+        "gvkey", "iid", "permno", "filing_date",
+        "rel_td", "spread", "illiq"
+    )
+)
+
+complexity = (
+    filing_10k_merged
+    .with_columns(year=pl.col("filing_date").dt.year())
+    .with_columns(
+        complex_q5=pl.col("grossfilesize").era.ntile(5).over("year")
+    )
+)
+
+complete_cases = (
+    liquidity_merged
+    .filter(pl.col("rel_td") < 0)
+    .group_by("gvkey", "iid", "filing_date")
+    .agg(pl.len().alias("num_obs"))
+    .filter(pl.col("num_obs") == 20)
+    .select("gvkey", "iid", "filing_date")
+)
+
+plot_data = (
+    complexity
+    .join(liquidity_merged, on=["gvkey", "iid", "filing_date"], how="inner")
+    .join(complete_cases, on=["gvkey", "iid", "filing_date"], how="inner")
+    .with_columns(
+        pl.col("spread", "illiq")
+        .era.ntile(10)
+        .over("year")
+        .name.suffix("_decile")
+    )
+    .group_by("rel_td", "complex_q5")
+    .agg(
+        pl.col("spread_decile", "illiq_decile")
+        .mean()
+        .name.replace("_decile", ""),
+        pl.len().alias("num_obs"),
+    )
+    .unpivot(
+        index=["rel_td", "complex_q5", "num_obs"],
+        on=["spread", "illiq"],
+        variable_name="measure",
+        value_name="value",
+    )
+    .with_columns(pl.col("complex_q5").cast(pl.String))
+    .collect()
+)
+```
+
+```{python}
+#| include: false
+#| eval: true
+#| warning: false
+reg_data_glms = (
+    vdis_df
+    .join(
+        filing_10k_merged,
+        on=["acc_num", "gvkey", "iid", "cik"],
+        how="inner",
+    )
+    .join(compustat, on=["gvkey", "iid", "eomonth"], how="inner")
+    .with_columns(pl.col("grossfilesize").log().name.prefix("ln_"))
+    .collect()
+)
+
+controls = ["mkt_cap", "size", "roa", "mtb", "special_items"]
+model = "vdis_p1y ~ " + " + ".join(["ln_grossfilesize", *controls])
+
+fm_ols = pf.feols(model, data=reg_data_glms)
+fm_fe = pf.feols(
+    model + " | gvkey + iid",
+    data=reg_data_glms,
+    demeaner_backend="scipy",
+)
+fm_pois = (
+    sm.GLM.from_formula(
+        model,
+        data=reg_data_glms.to_pandas(),
+        family=sm.families.Poisson(),
+    )
+    .fit(cov_type="HC1")
+)
+```
+
+## Complexity and voluntary disclosure
+
+### Discussion questions
+
+1. @Guay:2016aa [p. 252] argue that the "collective results from our two quasi-natural experiments ... validate that our text-based measures of financial statement complexity reflect, at least in part, the complexity of the underlying accounting rules."
+Which specific table or figure of @Guay:2016aa provides the most direct evidence in support of this claim?
+Can you suggest any alternative tests or presentations to support this claim?
+
+```{python}
+#| include: true
+
+```
+
+2. What is the causal diagram implied by the regression specification in Table 3 of @Guay:2016aa?
+Provide arguments for and against the inclusion of *ROA*, *SpecialItems* and *Loss* as controls.
+
+```{python}
+#| include: true
+
+```
+
+3. Assuming that the causal effect of *FS_complexity* implied by the results in Table 3 exists, provide an explanation for the changes in the coefficients when firm fixed effects are added to the model.
+When might you expect these changes to have the opposite sign?
+
+```{python}
+#| include: true
+
+```
+
+4. @Guay:2016aa [p. 234] conclude that "collectively, these findings suggest managers use voluntary disclosure to mitigate the negative effects of complex financial statements on the information environment."
+Suppose you wanted to design a field experiment to test the propositions embedded in this sentence and were given the support of a regulator to do so.
+How would you implement this experiment?
+What empirical tests would you use?
+Are some elements of the hypothesis more difficult than others to test?
+
+```{python}
+#| include: true
+
+```
+
+5. Clearly @Guay:2016aa did not have the luxury of running a field experiment.
+Do you see any differences between the analyses you propose for your (hypothetical) field experiment and those in @Guay:2016aa?
+What do you think best explains any differences?
+
+```{python}
+#| include: true
+
+```
+
+## Generalized linear models
+
+## Application: Complexity and voluntary disclosure
+
+```{python}
+#| echo: false
+#| fig-cap: "Behaviour of illiquidity around 10-K filing dates by complexity quintile"
+labels_df = (
+    plot_data
+    .sort("rel_td")
+    .group_by("measure", "complex_q5")
+    .agg(
+        pl.col("rel_td").last(),
+        pl.col("value").last(),
+        pl.col("num_obs").last(),
+    )
+)
+
+(
+    plot_data
+    .ggplot()
+    .aes(x="rel_td", y="value", color="complex_q5", group="complex_q5")
+    .geom_line()
+    .geom_label(
+        data=labels_df,
+        mapping=aes(label="complex_q5"),
+        show_legend=False,
+    )
+    .facet_wrap("~ measure")
+    .add_theme(legend_position="none")
+)
+```
+
+```{python}
+#| echo: false
+#| tbl-cap: "Financial statement complexity and voluntary disclosure"
+show_etable(
+    [fm_ols, fm_fe, fm_pois],
+    model_heads=["OLS", "Firm FE", "Poisson"],
+    head_order="h",
+    coef_fmt="b:.3f* \n (se:.3f)",
+    signif_code=[0.01, 0.05, 0.10],
+    model_stats=["N"],
+)
+```
+
+### Exercises
+
+1. What benefits do you see from converting the external inputs to parquet once rather than reparsing the raw files each time?
+
+```{python}
+#| include: true
+
+```
+
+2. What primary key could we use for `lm_10x_summary`?
+Check that this is a valid primary key.
+
+```{python}
+#| include: true
+
+```
+
+3. What primary key could we use for `filing_10k_merged`?
+Check that this is a valid primary key.
+
+```{python}
+#| include: true
+
+```
+
+4. From the figure above, do you observe a change in measures of liquidity around 10-K filing dates?
+Why or why not would we expect to see a change around these events?
+
+```{python}
+#| include: true
+
+```
+
+5. From the figure above, do you observe a relation between the complexity of financial statements and illiquidity?
+Is the sign of any relationship consistent with what we would expect from reading @Guay:2016aa?
+
+```{python}
+#| include: true
+
+```
+
+6. Calculate the marginal effects associated with the regression coefficients shown in the table above.
+Do you observe significant differences across specifications?
+(*Hint:* The marginal effect for the linear models is just the relevant coefficient; for the Poisson model, use the fitted conditional mean.)
+
+```{python}
+#| include: true
+
+```
