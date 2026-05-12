@@ -3,11 +3,55 @@
 This page provides support to readers of the (work-in-progress) [Python Polars edition of *Empirical Research in Accounting: Tools and Methods*](https://iangow.github.io/era_pl_book/).
 (For support for the [R edition](https://iangow.github.io/far_book/) of the book, please go [here](https://github.com/iangow/far_templates))
 
-Eventually this repository will contain Quarto templates that readers of *Empirical Research in Accounting* can easily render into PDF documents.
-Specifically, it will contain slimmed-down, self-contained versions of selected book chapters with the focus on code that readers can run locally.
-For now, the recommended starting point is [`py-intro.qmd`](py-intro.qmd), a Python introduction template based on early material from the book.
+This repository contains Quarto templates that readers of *Empirical Research in Accounting* can easily render into PDF documents.
+Each template is a slimmed-down, self-contained version of a book chapter with the focus on code that readers can run locally and exercises that readers can answer and submit.
 
-Given the limited number of templates that have been prepared to date, this site functions more to provide instructions to set up your computer to run the code found in the book.
+## Templates
+
+### Part I: Foundations
+
+| Chapter | Template |
+|---------|----------|
+| The basics of data analysis | [py-intro.qmd](https://raw.githubusercontent.com/iangow/era_pl_templates/main/py-intro.qmd) |
+| Regression fundamentals | [reg-basics.qmd](https://raw.githubusercontent.com/iangow/era_pl_templates/main/reg-basics.qmd) |
+| Causal inference | [causal-inf.qmd](https://raw.githubusercontent.com/iangow/era_pl_templates/main/causal-inf.qmd) |
+| Statistical inference | [stat-inf.qmd](https://raw.githubusercontent.com/iangow/era_pl_templates/main/stat-inf.qmd) |
+| Financial statements: A first look | [fin-state.qmd](https://raw.githubusercontent.com/iangow/era_pl_templates/main/fin-state.qmd) |
+| Linking databases | [identifiers.qmd](https://raw.githubusercontent.com/iangow/era_pl_templates/main/identifiers.qmd) |
+| Financial statements: A second look | [fin-state-reprise.qmd](https://raw.githubusercontent.com/iangow/era_pl_templates/main/fin-state-reprise.qmd) |
+| Importing data | [web-data.qmd](https://raw.githubusercontent.com/iangow/era_pl_templates/main/web-data.qmd) |
+
+### Part II: Capital Markets Research
+
+| Chapter | Template |
+|---------|----------|
+| FFJR | [ffjr.qmd](https://raw.githubusercontent.com/iangow/era_pl_templates/main/ffjr.qmd) |
+| Ball and Brown (1968) | [bb68.qmd](https://raw.githubusercontent.com/iangow/era_pl_templates/main/bb68.qmd) |
+| Beaver (1968) | [beaver68.qmd](https://raw.githubusercontent.com/iangow/era_pl_templates/main/beaver68.qmd) |
+| Event studies | [event-studies.qmd](https://raw.githubusercontent.com/iangow/era_pl_templates/main/event-studies.qmd) |
+| Post-earnings announcement drift | [pead.qmd](https://raw.githubusercontent.com/iangow/era_pl_templates/main/pead.qmd) |
+| Accruals | [accruals.qmd](https://raw.githubusercontent.com/iangow/era_pl_templates/main/accruals.qmd) |
+| Earnings management | [earnings-mgt.qmd](https://raw.githubusercontent.com/iangow/era_pl_templates/main/earnings-mgt.qmd) |
+
+### Part III: Causal Inference
+
+| Chapter | Template |
+|---------|----------|
+| Natural experiments | [natural.qmd](https://raw.githubusercontent.com/iangow/era_pl_templates/main/natural.qmd) |
+| Causal mechanisms | [mechanisms.qmd](https://raw.githubusercontent.com/iangow/era_pl_templates/main/mechanisms.qmd) |
+| Natural experiments revisited | [natural-revisited.qmd](https://raw.githubusercontent.com/iangow/era_pl_templates/main/natural-revisited.qmd) |
+| Instrumental variables | [iv.qmd](https://raw.githubusercontent.com/iangow/era_pl_templates/main/iv.qmd) |
+| Panel data | [panel-data.qmd](https://raw.githubusercontent.com/iangow/era_pl_templates/main/panel-data.qmd) |
+| Regression discontinuity designs | [rdd.qmd](https://raw.githubusercontent.com/iangow/era_pl_templates/main/rdd.qmd) |
+
+### Part IV: Additional Topics
+
+| Chapter | Template |
+|---------|----------|
+| Beyond OLS | [glms.qmd](https://raw.githubusercontent.com/iangow/era_pl_templates/main/glms.qmd) |
+| Extreme values and sensitivity analysis | [extreme-vals.qmd](https://raw.githubusercontent.com/iangow/era_pl_templates/main/extreme-vals.qmd) |
+| Matching | [psm.qmd](https://raw.githubusercontent.com/iangow/era_pl_templates/main/psm.qmd) |
+| Prediction | [prediction.qmd](https://raw.githubusercontent.com/iangow/era_pl_templates/main/prediction.qmd) |
 
 ## Set-up instructions
 
