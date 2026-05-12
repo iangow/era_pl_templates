@@ -446,6 +446,7 @@ split_firm_dividends = (
 #| eval: true
 div_mkt = (
     nyse_divs
+    .filter(pl.col("div_trailing").is_not_null(), pl.col("div_forward").is_not_null())
     .group_by("month")
     .agg(
         pl.col("div_trailing", "div_forward")
