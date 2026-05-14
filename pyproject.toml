@@ -7,7 +7,7 @@ dependencies = [
     "altair>=6.0.0",
     "causalml>=0.15.5",
     "db2pq>=0.3.0",
-    "era-py[polars,tables]>=0.0.28",
+    "era-py[polars,tables]>=0.0.29",
     "great-tables",
     "imbalanced-learn>=0.14.1",
     "ipykernel",
