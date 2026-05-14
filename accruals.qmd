@@ -946,17 +946,22 @@ Why is this step important?
 
 ```
 
-2. @Green:2011wu say "the simplicity of the accruals strategy and the size of the returns it generates have led some scholars to conclude that the anomaly is illusory. For example, Khan (2008) and Wu et al. (2010) argue that the anomaly can be explained by a mis-specified risk model and the q-theory of time-varying discount rates, respectively; Desai et al. (2004) conclude that the anomaly is deceptive because it is subsumed by a different strategy; Kraft et al. (2006) attribute it to outliers and look-ahead biases; Ng (2005) proposes that the anomaly's abnormal returns are compensation for high exposure to bankruptcy risk; and Zach (2006) argues that there are firm characteristics correlated with accruals that cause the return pattern."
+2. @Green:2011wu [p. 797] say "the simplicity of the accruals strategy and the size of the returns it generates have led some scholars to conclude that the anomaly is illusory.
+For example, @Khan:2008aa and @Wu:2010aa argue that the anomaly can be explained by a mis-specified risk model and the q-theory of time-varying discount rates, respectively;
+@Desai:2004aa conclude that the anomaly is deceptive because it is subsumed by a different strategy;
+@Kraft:2006aa attribute it to outliers and look-ahead biases;
+@Ng:2005aa proposes that the anomaly's abnormal returns are compensation for high exposure to bankruptcy risk; and
+@Zach:2006aa argues that there are firm characteristics correlated with accruals that cause the return pattern."
 Looking at @Sloan:1996wd, but without necessarily looking at each of the papers above, what evidence in @Sloan:1996wd seems inconsistent with the claims made by each paper above?
 Which do you think you would need to look more closely at the paper to understand?
-What evidence do you think Zach (2006) would need to provide to support the claim of an alternative "cause"?
+What evidence do you think @Zach:2006aa would need to provide to support the claim of an alternative "cause"?
 
 ```{python}
 #| include: true
 
 ```
 
-3. Do @Green:2011wu address the alternative explanations advanced in the quote in Q1 above?
+3. Do @Green:2011wu address the alternative explanations advanced in the quote in Q2 above?
 Do you think that they need to do so?
 
 ```{python}

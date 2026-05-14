@@ -349,7 +349,7 @@ Can this be reconciled with reported results in @Beaver:1968vf and the arguments
 ```
 
 6. @Beaver:1968vf discusses the statistical significance of his results on p. 77 (residual volume analysis) and pp. 81--82 (return residual analysis).
-Why do think @Beaver:1968vf uses the approaches discussed there?
+Why do you think @Beaver:1968vf uses the approaches discussed there?
 How might you evaluate statistical significance more formally if you were writing the paper today?
 
 ```{python}
