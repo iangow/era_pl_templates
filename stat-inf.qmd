@@ -328,8 +328,7 @@ bimodal_sample = bimodal_dgf(rng, 1000)
 #| eval: true
 (
     pl.DataFrame({"height": bimodal_sample})
-    .ggplot()
-    .aes(x="height")
+    .ggplot(aes(x="height"))
     .geom_histogram(bins=30, color="black")
     .labs(x="Height", y="Count")
 )

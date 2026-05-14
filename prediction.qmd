@@ -57,7 +57,8 @@ import itertools
 
 import numpy as np
 import polars as pl
-import plotnine_polars as p9p
+import plotnine_polars as p9
+from plotnine_polars import aes
 
 from sklearn.metrics import confusion_matrix, roc_auc_score, ndcg_score
 from sklearn.model_selection import KFold
@@ -66,7 +67,7 @@ from sklearn.linear_model import LogisticRegression, LogisticRegressionCV
 
 from era_pl import load_data, load_parquet, predict_proba_series, ptime, rusboost
 
-p9p.theme_set(p9p.theme_matplotlib())
+p9.theme_set(p9.theme_matplotlib())
 ```
 
 ```{python}
@@ -152,8 +153,7 @@ aaer_days = (
 #| eval: false
 (
     aaer_days
-    .ggplot()
-    .aes(x="days_to_aaer")
+    .ggplot(aes(x="days_to_aaer"))
     .geom_histogram(binwidth=30)
     .geom_vline(xintercept=365 * 2, linetype="dashed", color="red")
 )
@@ -353,8 +353,7 @@ fm_lasso_cv.fit(dft.select(X_vars), dft[y_var]);
          "auc": fm_lasso_cv.scores_[1]
                 .mean(axis=0).squeeze()}
     )
-    .ggplot()
-    .aes(x="lambda", y="auc")
+    .ggplot(aes(x="lambda", y="auc"))
     .geom_line()
 )
 

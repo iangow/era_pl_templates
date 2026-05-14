@@ -63,7 +63,6 @@ import pyfixest as pf
 import statsmodels.formula.api as smf
 from maketables import ETable
 from great_tables import GT
-import plotnine_polars
 from plotnine_polars import aes
 
 from era_pl import (get_me_breakpoints, get_size_rets_monthly,
@@ -645,8 +644,7 @@ Which definition makes more sense to you? Why?
     .with_columns(
         mean_sales=(pl.col("sales").mean())
     )
-    .ggplot()
-    .aes(x="year")
+    .ggplot(aes(x="year"))
     .geom_line(aes(y="sales"), color="red")
     .geom_line(aes(y="mean_sales"), color="blue")
 )
@@ -659,8 +657,7 @@ Which definition makes more sense to you? Why?
 #| fig-alt: "Scatter plot of persistence against add_perc. Plot is a cloud of points and there is no apparent relationship between these variables."
 (
     results
-    .ggplot()
-    .aes(x="add_perc", y="persistence")
+    .ggplot(aes(x="add_perc", y="persistence"))
     .geom_point()
 )
 ```
@@ -753,8 +750,7 @@ reg_data_deciles = sim_reg_data.join(decile_data, on="id", how="inner")
     .agg(ni=pl.col("ni").mean())
     .with_columns(ni_decile=pl.col("ni_decile").cast(pl.Utf8))
     .sort(["ni_decile", "year"])
-    .ggplot()
-    .aes(x="year", y="ni", group="ni_decile", color="ni_decile")
+    .ggplot(aes(x="year", y="ni", group="ni_decile", color="ni_decile"))
     .geom_line()
 )
 ```
@@ -772,8 +768,7 @@ reg_data_deciles = sim_reg_data.join(decile_data, on="id", how="inner")
     .agg(ni=pl.col("ni").mean())
     .with_columns(cfo_decile=pl.col("cfo_decile").cast(pl.Utf8))
     .sort(["cfo_decile", "year"])
-    .ggplot()
-    .aes(x="year", y="ni", group="cfo_decile", color="cfo_decile")
+    .ggplot(aes(x="year", y="ni", group="cfo_decile", color="cfo_decile"))
     .geom_line()
 )
 ```
@@ -791,8 +786,7 @@ reg_data_deciles = sim_reg_data.join(decile_data, on="id", how="inner")
     .agg(ni=pl.col("ni").mean())
     .with_columns(acc_decile=pl.col("acc_decile").cast(pl.Utf8))
     .sort(["acc_decile", "year"])
-    .ggplot()
-    .aes(x="year", y="ni", group="acc_decile", color="acc_decile")
+    .ggplot(aes(x="year", y="ni", group="acc_decile", color="acc_decile"))
     .geom_line()
 )
 ```

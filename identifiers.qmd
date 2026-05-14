@@ -53,7 +53,7 @@ p9.theme_set(p9.theme_matplotlib())
 #| include: false
 #| eval: true
 import polars as pl
-import plotnine_polars
+from plotnine_polars import aes
 from plotnine_polars import element_text
 from era_pl import load_parquet
 ```
@@ -615,8 +615,7 @@ Create an additional plot to visualize the source of variation in the first figu
     .group_by("month")
     .agg(n=pl.len())
     .sort("month")
-    .ggplot()
-    .aes(x="month", y="n")
+    .ggplot(aes(x="month", y="n"))
     .geom_col()
     .add_theme(axis_text_x=element_text(rotation=90))
 )
@@ -630,8 +629,7 @@ Create an additional plot to visualize the source of variation in the first figu
     .group_by("month")
     .agg(n=pl.len())
     .sort("month")
-    .ggplot()
-    .aes(x="month", y="n")
+    .ggplot(aes(x="month", y="n"))
     .geom_col()
     .add_theme(axis_text_x=element_text(rotation=90))
 )

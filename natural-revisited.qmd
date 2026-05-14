@@ -52,7 +52,7 @@ import warnings
 import numpy as np
 import polars as pl
 import pyfixest as pf
-import plotnine_polars as p9p
+import plotnine_polars as p9
 from plotnine_polars import aes
 from maketables import ETable
 
@@ -61,7 +61,7 @@ from era_pl import (
     ptime, show_typst,
 )
 
-p9p.theme_set(p9p.theme_matplotlib())
+p9.theme_set(p9.theme_matplotlib())
 ```
 
 ```{python}
@@ -438,8 +438,7 @@ tidy_results = (
     tidy_results
     .group_by("rho", "method")
     .agg((pl.col("est") - pl.col("effect")).mean().alias("bias"))
-    .ggplot()
-    .aes(x="rho", y="bias", color="method", linetype="method")
+    .ggplot(aes(x="rho", y="bias", color="method", linetype="method"))
     .geom_line()
     .ylim(-0.1, 0.1)
 )
@@ -453,8 +452,7 @@ tidy_results = (
     .filter(pl.col("effect") == 0.5)
     .group_by("method", "rho")
     .agg(pl.col("est").std().alias("se"))
-    .ggplot()
-    .aes(x="rho", y="se", color="method", linetype="method")
+    .ggplot(aes(x="rho", y="se", color="method", linetype="method"))
     .geom_line()
 )
 ```
@@ -873,8 +871,7 @@ def plot_coefficients(fit):
         .filter(pl.col("year").is_not_null())
         .select("year", "pilot", "Estimate")
         .sort("pilot", "year")
-        .ggplot()
-        .aes(x="year", y="Estimate", color="pilot", linetype="pilot")
+        .ggplot(aes(x="year", y="Estimate", color="pilot", linetype="pilot"))
         .geom_line()
         .geom_rect(
             aes(xmin=2005, xmax=2007, ymin=-np.inf, ymax=np.inf),

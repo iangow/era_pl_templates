@@ -54,7 +54,6 @@ p9.theme_set(p9.theme_matplotlib())
 #| include: false
 #| eval: true
 import polars as pl
-import plotnine_polars
 from era_pl import load_parquet
 ```
 

@@ -54,7 +54,7 @@ p9.theme_set(p9.theme_matplotlib())
 #| eval: true
 import polars as pl
 import polars.selectors as cs
-import plotnine_polars
+from plotnine_polars import aes
 from era_pl import load_parquet
 ```
 
@@ -372,8 +372,7 @@ size_kb = size_bytes / 1_000
 #| eval: true
 (
     ib_at
-    .ggplot()
-    .aes(x="datadate", y="roa", color="conm", linetype="conm")
+    .ggplot(aes(x="datadate", y="roa", color="conm", linetype="conm"))
     .geom_line()
     .labs(color="", linetype="")
     .add_theme(legend_position="bottom")
@@ -544,8 +543,7 @@ Do the plots help you think about which of the three measures makes most sense?
 #| warning: false
 (
     xrd_at_sum
-    .ggplot()
-    .aes(x="fyear", y="rd_intensity3", color="group", linetype="group")
+    .ggplot(aes(x="fyear", y="rd_intensity3", color="group", linetype="group"))
     .geom_line()
     .labs(color="", linetype="")
     .add_theme(legend_position="bottom")

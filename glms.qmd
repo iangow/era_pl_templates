@@ -54,7 +54,7 @@ import warnings
 
 import numpy as np
 import polars as pl
-import plotnine_polars as p9p
+import plotnine_polars as p9
 import pyfixest as pf
 import statsmodels.api as sm
 import statsmodels.formula.api as smf
@@ -64,7 +64,7 @@ from scipy.stats import logistic, norm
 
 from era_pl import load_parquet, show_typst
 
-p9p.theme_set(p9p.theme_matplotlib())
+p9.theme_set(p9.theme_matplotlib())
 
 pl.Config.set_tbl_cols(200)
 pl.Config.set_tbl_width_chars(120)
@@ -400,8 +400,7 @@ labels_df = (
 
 (
     plot_data
-    .ggplot()
-    .aes(x="rel_td", y="value", color="complex_q5", group="complex_q5")
+    .ggplot(aes(x="rel_td", y="value", color="complex_q5", group="complex_q5"))
     .geom_line()
     .geom_label(
         data=labels_df,

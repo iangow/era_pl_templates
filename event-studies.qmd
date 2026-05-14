@@ -59,7 +59,6 @@ from scipy.stats import norm
 from maketables import ETable
 from era_pl import (load_data, load_parquet,
                     get_trading_dates, get_event_dates)
-import plotnine_polars
 from plotnine_polars import aes
 ```
 
@@ -328,8 +327,7 @@ What features are present and what, if any, are missing?
 #| fig-alt: "Plot of cumulative returns for Apple stock from 2005 to early 2020. While periods involving Apple media events are distinguished by colour from other periods, these are not visible in the plot at this scale. Cumulative returns are generally positive and reach an index value of 200 at the end of this period."
 (
     plot_df
-    .ggplot()
-    .aes(x="date", y="cumret")
+    .ggplot(aes(x="date", y="cumret"))
     .geom_line()
     .geom_ribbon(aes(ymax="y_non_event", ymin=0, fill='"Non-event"'))
     .geom_ribbon(aes(ymax="y_event", ymin=0, fill='"Event"'))

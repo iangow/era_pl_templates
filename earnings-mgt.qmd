@@ -49,9 +49,8 @@ More details on using Quarto markdown are provided on the [Quarto website](https
 
 ```{python}
 #| include: false
-import plotnine_polars as p9p
-
-p9p.theme_set(p9p.theme_matplotlib())
+import plotnine_polars as p9
+p9.theme_set(p9.theme_matplotlib())
 ```
 
 ```{python}
@@ -61,7 +60,7 @@ import numpy as np
 from scipy import stats
 import polars as pl
 import statsmodels.formula.api as smf
-import plotnine_polars
+from plotnine_polars import aes
 from era_pl import load_parquet, ptime
 ```
 
@@ -773,8 +772,7 @@ power_plot_data = pl.concat(power_rows, how="vertical")
 # Depends on power_plot_data above (eval: false).
 (
     power_plot_data
-    .ggplot()
-    .aes(x="level", y="prop_reject")
+    .ggplot(aes(x="level", y="prop_reject"))
     .geom_line()
     .facet_grid("measure ~ manip_type")
 )
