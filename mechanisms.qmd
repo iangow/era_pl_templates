@@ -126,7 +126,7 @@ With these facts, what is the practical difference between 25% and 30% in this c
 ### @Christensen:2017uw; @Glaeser:2017vk
 
 1. @Christensen:2017uw claim to find a causal effect of requiring disclosure in SEC filings on mine safety.
-Why is it significant that the information was already available on MSHA website?
+Why is it significant that the information was already available on the MSHA website?
 How persuasive do you find the evidence of a causal effect to be?
 What elements do you find particularly persuasive (or problematic)?
 

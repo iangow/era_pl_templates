@@ -131,7 +131,7 @@ Do the analyses above help this evaluation?
 top5_tbl
 ```
 
-3. From the analysis, above it appears that five natural disasters account for `{python} top5` observations.
+3. From the analysis above, it appears that five natural disasters account for `{python} top5` observations.
 A simple Google search for each date and the word "disaster" reveals that these events are Hurricane Katrina (`2005-08-29`), Hurricane Ike (`2008-09-13`), Hurricane Ivan (`2004-09-16`), Hurricane Charley (`2004-08-13`), and Hurricane Wilma (`2005-10-24`).
 Is it problematic that a small number of disasters accounts for a significant portion of the sample?
 
