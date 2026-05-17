@@ -126,13 +126,9 @@ prob_big4 = (
             left_closed=False,
         )
     )
-    .group_by("bin")
-    .agg(
-        pl.col("big4").cast(pl.Float64).mean().alias("p_big4"),
-        pl.col("mkt_cap"),
-        pl.col("log_mkt_cap"),
+    .with_columns(
+        p_big4=pl.col("big4").cast(pl.Float64).mean().over("bin")
     )
-    .explode("mkt_cap", "log_mkt_cap")
     .select("mkt_cap", "log_mkt_cap", "p_big4")
 )
 ```
@@ -146,7 +142,7 @@ rng = np.random.default_rng(2021)
 sim_auditor = (
     prob_big4
     .collect()
-    .sample(n=n_firms, with_replacement=True, seed=2025)
+    .sample(n=n_firms, with_replacement=False, seed=2021)
     .with_row_index("id", offset=1)
     .with_columns(
         pl.Series("rand", rng.random(n_firms)),
@@ -199,9 +195,9 @@ sim_match_pscores = (
 
 sim_matches = pl.from_pandas(
     NearestNeighborMatch(
-        caliper=0.03, replace=False, ratio=1, random_state=2021
+        caliper=0.03, replace=False, ratio=1, shuffle=False
     ).match(
-        data=sim_match_pscores.to_pandas(),
+        data=sim_match_pscores.sort("pscore", descending=True).to_pandas(),
         treatment_col="treat",
         score_cols=["pscore"],
     )
