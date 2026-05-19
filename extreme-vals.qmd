@@ -78,7 +78,6 @@ pl.Config.set_tbl_width_chars(120)
 ```{python}
 #| include: false
 #| eval: true
-company = load_parquet("company", "comp")
 funda = load_parquet("funda", "comp")
 ```
 
