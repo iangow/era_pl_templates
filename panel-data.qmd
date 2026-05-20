@@ -457,14 +457,14 @@ fms_year = [
 ### Exercises
 
 1. Generate a random sample of test scores using `get_test_scores()` with some value of `effect_size` and some value of `seed`.
-Assign this to the variable `df_1`.
-Estimate the model `"score ~ I(treat * post) | grade + id"` using `pf.feols()` with `data=df_1` and `vcov="iid"` and store the result in `fm`.
-Compare the output of `fm.tidy()` with that from `fit_test_score_panel(df_1, vcov="iid")`.
-What do you observe?
-
-Estimate the model `"score ~ I(treat * post) | grade + id"` using `pf.feols()` with `data=df_1` and `vcov={"CRV1": "grade + id"}` and store the result in `fm2`.
-Compare the output of `fm2.tidy()` with that from `fit_test_score_panel(df_1, vcov={"CRV1": "grade + id"})`.
-What do you observe?
+   Assign this to the variable `df_1`.
+   Estimate the model `"score ~ I(treat * post) | grade + id"` using `pf.feols()` with `data=df_1` and `vcov="iid"` and store the result in `fm`.
+   Compare the output of `fm.tidy()` with that from `fit_test_score_panel(df_1, vcov="iid")`.
+   What do you observe?
+   
+   Estimate the model `"score ~ I(treat * post) | grade + id"` using `pf.feols()` with `data=df_1` and `vcov={"CRV1": "grade + id"}` and store the result in `fm2`.
+   Compare the output of `fm2.tidy()` with that from `fit_test_score_panel(df_1, vcov={"CRV1": "grade + id"})`.
+   What do you observe?
 
 ```{python}
 #| include: true
@@ -615,14 +615,14 @@ switch_years_state = (
     reg_data_switchers
     .sort(["gvkey", "datadate"])
     .with_columns(
-        lag_state=pl.col("state").shift(1).over("gvkey"),
-        lag_period_type=pl.col("period_type").shift(1).over("gvkey"),
+        pl.col("state", "period_type").shift(1).over("gvkey")
+        .name.prefix("lag_")
     )
     .with_columns(
         same_state=pl.col("state") == pl.col("lag_state"),
         adoption_year=
-            (pl.col("period_type") == "Post-adoption")
-            & (pl.col("lag_period_type") == "Pre-adoption"),
+            (pl.col("period_type") == "Post-adoption") &
+            (pl.col("lag_period_type") == "Pre-adoption"),
     )
     .filter(pl.col("adoption_year"))
 )
@@ -638,10 +638,12 @@ switch_years_state.group_by("same_state").agg(n=pl.len())
 11. What issues might be implied by the following data? How might you address these?
 
 ```{python}
-reg_data_t.group_by("t").agg(pl.len().alias("n")).sort("t")
-```
-
-```{python}
-#| include: true
-
+(
+    reg_data_t
+    .group_by("t")
+    .agg(pl.len().alias("n"))
+    .sort("t")
+    .style
+    .fmt_integer()
+)
 ```
