@@ -9,7 +9,7 @@ format:
 ---
 
 :::{.content-visible when-format="markdown"}
-## Instructions
+## Instructions {#sec-causal-inf}
 
 This document assumes that you have completed the instructions [here](https://github.com/iangow/era_pl_templates/blob/main/README.md).
 As mentioned there, there is no need to complete **Step 5: Get data from WRDS** for this chapter.
@@ -42,6 +42,7 @@ Note that you can type text outside code cells and these will be rendered as mar
 More details on using Quarto markdown are provided on the [Quarto website](https://quarto.org).
 
 :::
+
 
 ```{python}
 #| include: false

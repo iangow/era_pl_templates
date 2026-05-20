@@ -14,7 +14,7 @@ format:
 
 This document assumes that you have completed the instructions [here](https://github.com/iangow/era_pl_templates/blob/main/README.md).
 
-The Leone replication section requires WRDS data (`company` and `funda` from Compustat).
+The Leone replication section requires WRDS data (`funda` from Compustat).
 The Call replication section uses the `cmsw_2018` dataset bundled with the `era_pl` package (no WRDS access required).
 The simulation section in the appendix runs with no external data.
 
@@ -103,6 +103,7 @@ comp = (
             pl.col("au")
             .cast(pl.Int32, strict=False)
             .is_between(1, 8)
+            .cast(pl.Int8)
         ),
         mkt_cap=pl.col("prcc_f") * pl.col("csho")
     )
@@ -192,11 +193,11 @@ comp_trunc = (
 #| eval: true
 formula_wins = (
     "ta ~ big_n + roa + cfo + size + lev + mtb + "
-    "fyear * (inv_at + d_sale + d_ar + ppe) | gvkey + fyear"
+    "fyear * (inv_at + I(d_sale - d_ar) + ppe)"
 )
 formula_raw = (
     "ta ~ big_n + cfo + size + lev + mtb + "
-    "fyear * (inv_at + d_sale + d_ar + ppe) | gvkey + fyear"
+    "fyear * (inv_at + I(d_sale - d_ar) + ppe)"
 )
 
 fms_leone = {
@@ -214,7 +215,7 @@ fms_leone["Trunc"] = (
     pf.feols(
         formula_raw,
         data=comp.with_columns(pl.col(value_cols).era.truncate())
-    ),
+    )
 )
 ```
 
@@ -225,7 +226,7 @@ comp_idx = comp.with_row_index("row_id")
 
 fm_cooksd = smf.ols(
     "ta ~ big_n + cfo + size + lev + mtb + "
-    "fyear * (inv_at + d_sale + d_ar + ppe)",
+    "fyear * (inv_at + I(d_sale - d_ar) + ppe)",
     data=comp_idx.to_pandas(),
 ).fit()
 
@@ -259,9 +260,9 @@ fms_leone["Cook's D"] = pf.feols(formula_raw, data=comp_cook)
 fmrob = sm.RLM.from_formula(
     (
         "ta ~ big_n + cfo + size + lev + mtb "
-        "+ fyear * (inv_at + d_sale + d_ar + ppe)"
+        "+ fyear * (inv_at + I(d_sale - d_ar) + ppe)"
     ),
-    data=comp.to_pandas(),
+    data=comp_idx.to_pandas(),
     M=sm.robust.norms.TukeyBiweight(c=3.4437),
 ).fit()
 
@@ -568,7 +569,7 @@ def fit_models(df: pl.DataFrame) -> dict[str, object]:
     fms["Robust regression"] = smf.rlm(
         "cy ~ x1",
         data=pdf,
-        M=sm.robust.norms.TukeyBiweight(),
+        M=sm.robust.norms.TukeyBiweight(c=3.4437),
     ).fit()
     return fms
 

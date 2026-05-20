@@ -59,6 +59,8 @@ import polars.selectors as cs
 import numpy as np
 import pyfixest as pf
 from maketables import ETable
+from plotnine_polars import aes
+from scipy import stats
 
 from era_pl import (
     fit_test_score_panel, get_idd_periods, get_test_scores,
@@ -250,13 +252,14 @@ disclosure = (
     .group_by("gvkey", "datadate")
     .agg(
         pl.col("disclosed").not_().mean().alias("ratio"),
-        pl.when(pl.col("salecs").count() > 0)
-        .then(
+        pl.when(pl.col("salecs").is_null().any())
+        .then(None)
+        .otherwise(
             (
                 pl.col("disclosed").not_().cast(pl.Float64)
-                * pl.col("salecs").fill_null(0)
+                * pl.col("salecs")
             ).sum()
-            / pl.col("salecs").fill_null(0).sum()
+            / pl.col("salecs").sum()
         )
         .alias("ratio_sale"),
     )
@@ -267,16 +270,9 @@ disclosure = (
 ```{python}
 #| include: false
 #| eval: true
-all_states = (
-    state_hq
-    .select(pl.col("ba_state").alias("state"))
-    .unique()
-)
-
 idd_periods = get_idd_periods(
     min_date=sample_start,
     max_date=sample_end,
-    all_states=all_states,
 )
 
 ciks = (
@@ -297,7 +293,6 @@ state_hq_linked = (
     )
     .select("gvkey", "datadate", "ba_state")
     .rename({"ba_state": "state"})
-    .unique()
 )
 
 reg_data = (
@@ -339,38 +334,9 @@ reg_data_switchers = reg_data.join(switchers, on="gvkey", how="inner")
 #| eval: true
 def format_event_time(value):
     if value is None:
-        return None
+        return -np.inf
     value = int(value)
-    return max(-5, min(5, value))
-
-
-def event_time_name(value):
-    return f"t_m{abs(value)}" if value < 0 else f"t_p{value}"
-
-
-def add_event_time_dummies(df, values, t_col="t"):
-    return df.with_columns(
-        [
-            (
-                (pl.col("ever_treated") == 1)
-                & (pl.col(t_col).fill_null(-999) == value)
-            )
-            .cast(pl.Int8)
-            .alias(event_time_name(value))
-            for value in values
-        ]
-    )
-
-
-def event_terms(values):
-    return " + ".join(event_time_name(value) for value in values)
-
-
-def event_labels(values):
-    return {
-        event_time_name(value): f"t = {value}"
-        for value in values
-    }
+    return float(max(-5, min(5, value)))
 
 
 switch_years = (
@@ -385,19 +351,67 @@ switch_years = (
     .agg(pl.col("year").min().alias("adoption_year"))
 )
 
-event_time_values = [-5, -4, -3, -2, 0, 1, 2, 3, 4, 5]
-
 reg_data_t = (
     reg_data
     .join(switch_years, on="gvkey", how="left")
     .with_columns(
-        pl.col("adoption_year").is_not_null().cast(pl.Int8).alias("ever_treated"),
         (pl.col("year") - pl.col("adoption_year"))
-        .map_elements(format_event_time, return_dtype=pl.Int64)
+        .map_elements(
+            format_event_time,
+            return_dtype=pl.Float64,
+            skip_nulls=False,
+        )
         .alias("t"),
     )
 )
-reg_data_t = add_event_time_dummies(reg_data_t, event_time_values)
+
+
+def plot_coefs(fm, ref=-1):
+    coefs = (
+        pl.DataFrame({
+            "term": fm.coef().index,
+            "value": fm.coef(),
+            "se": fm.se(),
+        })
+        .with_columns(
+            t=pl.col("term")
+            .str.extract(r"\[T\.(-?\d+(?:\.0)?)\]")
+            .cast(pl.Float64)
+        )
+        .filter(pl.col("t").is_not_null(),
+                pl.col("t").is_finite())
+        .select("t", "value", "se")
+    )
+
+    ci = 0.95
+    mult = stats.norm.ppf(1 - (1 - ci) / 2)
+
+    return (
+        pl.concat([
+            pl.DataFrame({
+                "t": [float(ref)],
+                "value": [0.0],
+                "se": [0.0]
+            }),
+            coefs,
+        ])
+        .with_columns(
+            mean=pl.col("value"),
+            top=pl.col("value") + mult * pl.col("se"),
+            bot=pl.col("value") - mult * pl.col("se"),
+        )
+        .sort("t")
+        .ggplot(aes(x="t", y="mean"))
+        .geom_errorbar(aes(ymin="bot", ymax="top"), width=0.1)
+        .geom_line()
+        .geom_point()
+        .scale_x_continuous(
+            breaks=list(range(
+                int(coefs["t"].min()),
+                int(coefs["t"].max()) + 1,
+            ))
+        )
+    )
 ```
 
 ```{python}
@@ -416,32 +430,26 @@ fms_orig = [
 
 fms_year = [
     pf.feols(
-        f"ln_ratio ~ {event_terms(event_time_values)} | gvkey + year",
+        "ln_ratio ~ C(t, Treatment(reference=-1)) | gvkey + year",
         data=reg_data_t,
         vcov="iid",
     ),
     pf.feols(
-        f"ln_ratio_sale ~ {event_terms(event_time_values)} | gvkey + year",
+        "ln_ratio_sale ~ C(t, Treatment(reference=-1)) | gvkey + year",
         data=reg_data_t,
         vcov="iid",
     ),
     pf.feols(
-        f"ln_ratio ~ {event_terms(event_time_values)} | gvkey + year",
-        data=reg_data_t.filter(pl.col("t").is_not_null()),
+        "ln_ratio ~ C(t, Treatment(reference=-1)) | gvkey + year",
+        data=reg_data_t.filter(pl.col("t").is_finite()),
         vcov="iid",
     ),
     pf.feols(
-        f"ln_ratio_sale ~ {event_terms(event_time_values)} | gvkey + year",
-        data=reg_data_t.filter(pl.col("t").is_not_null()),
+        "ln_ratio_sale ~ C(t, Treatment(reference=-1)) | gvkey + year",
+        data=reg_data_t.filter(pl.col("t").is_finite()),
         vcov="iid",
     ),
 ]
-
-fm_plot = pf.feols(
-    "ln_ratio ~ i(t, ever_treated, ref=-1) | gvkey + year",
-    data=reg_data_t.with_columns(pl.col("t").fill_null(0).alias("t")),
-    vcov="iid",
-)
 ```
 
 ## Analysis of simulated data
@@ -506,7 +514,7 @@ Why do you think @Li:2018tj focused on this specific element of the proprietary 
 
 2. In the analysis above, we do not include the control variables considered by @Li:2018tj.
 For example, @Li:2018tj "include R&D expenditures to sales, advertisement [sic] expenditure to sales, and intangible assets scaled by total assets to control for a firm's proprietary costs of disclosure."
-Using the approach outlined in @sec-causal-inf, in what circumstances would it be necessary to control for "a firm's proprietary costs of disclosure" in this way?
+Using the approach outlined in [Chapter 4](causal-inf.html#sec-causal-inf), in what circumstances would it be necessary to control for "a firm's proprietary costs of disclosure" in this way?
 Do these circumstances seem applicable in this setting, where the treatment is a (presumably exogenous) shock to disclosure costs and the outcome is disclosure choices?
 
 ```{python}
@@ -540,7 +548,7 @@ show_etable(
     fms_year,
     signif_code=[0.01, 0.05, 0.1],
     coef_fmt="b* \n (se)",
-    labels=event_labels(event_time_values),
+    cat_template="t = {value_int}",
     custom_model_stats={
         "Sample": ["All", "All", "Switchers", "Switchers"]
     },
@@ -588,11 +596,7 @@ Does your suggested approach make a difference in this setting?
 #| fig-cap: Plot of coefficients by year
 #| fig-alt: "Plot shows estimated coefficients by year and that, while coefficients tend to be positive for periods after year zero, only in later years do they become clearly distinguishable from zero. Year -1 is the baseline, so its coefficient is zero."
 #| echo: false
-fig = fm_plot.iplot(coord_flip=False, figsize=(7, 4))
-ax = fig.axes[0]
-ax.set_xticks(range(len(event_time_values)))
-ax.set_xticklabels([str(value) for value in event_time_values])
-fig
+plot_coefs(fms_year[0])
 ```
 
 9. How helpful do you find @fig-coefs-by-year (plot of the coefficients by year)?
@@ -611,21 +615,19 @@ switch_years_state = (
     reg_data_switchers
     .sort(["gvkey", "datadate"])
     .with_columns(
-        same_state=(
-            pl.col("state") == pl.col("state").shift(1).over("gvkey")
-        ),
-        adoption_year=(
+        lag_state=pl.col("state").shift(1).over("gvkey"),
+        lag_period_type=pl.col("period_type").shift(1).over("gvkey"),
+    )
+    .with_columns(
+        same_state=pl.col("state") == pl.col("lag_state"),
+        adoption_year=
             (pl.col("period_type") == "Post-adoption")
-            & (
-                pl.col("period_type").shift(1).over("gvkey")
-                == "Pre-adoption"
-            )
-        ),
+            & (pl.col("lag_period_type") == "Pre-adoption"),
     )
     .filter(pl.col("adoption_year"))
 )
 
-switch_years_state.group_by("same_state").agg(pl.len().alias("n"))
+switch_years_state.group_by("same_state").agg(n=pl.len())
 ```
 
 ```{python}
