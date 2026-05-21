@@ -82,9 +82,8 @@ rng = np.random.default_rng(2019)
 ```{python}
 #| include: false
 #| eval: true
-def generate_data(seed: int | None = None) -> pl.DataFrame:
-    local_rng = np.random.default_rng(seed)
-    x_e = local_rng.multivariate_normal(mean=[0, 0], cov=Sigma, size=n)
+def generate_data(rng: np.random.Generator) -> pl.DataFrame:
+    x_e = rng.multivariate_normal(mean=[0, 0], cov=Sigma, size=n)
     return pl.DataFrame({
         "X": x_e[:, 0],
         "e": x_e[:, 1],
@@ -92,7 +91,7 @@ def generate_data(seed: int | None = None) -> pl.DataFrame:
         y=pl.col("X") * beta + pl.col("e")
     )
 
-df = generate_data(seed=2019)
+df = generate_data(rng=rng)
 ```
 
 ```{python}
@@ -100,20 +99,19 @@ df = generate_data(seed=2019)
 #| eval: true
 def generate_ivs(
     df: pl.DataFrame,
+    rng: np.random.Generator,
     sd_eta: float = 0.3,
-    seed: int | None = None,
 ) -> pl.DataFrame:
-    local_rng = np.random.default_rng(seed)
     n_rows = df.height
     return df.with_columns(
         z_1=pl.col("X") + pl.Series(
-            local_rng.normal(loc=0.0, scale=sd_eta, size=n_rows)
+            rng.normal(loc=0.0, scale=sd_eta, size=n_rows)
         ),
         z_2=pl.Series(
-            local_rng.normal(loc=0.0, scale=sd_eta, size=n_rows)
+            rng.normal(loc=0.0, scale=sd_eta, size=n_rows)
         ),
         z_3=pl.Series(
-            local_rng.normal(loc=0.0, scale=sd_eta, size=n_rows)
+            rng.normal(loc=0.0, scale=sd_eta, size=n_rows)
         ),
     )
 ```
@@ -121,7 +119,7 @@ def generate_ivs(
 ```{python}
 #| include: false
 #| eval: true
-df_ivs = generate_ivs(df, sd_eta=sd_eta, seed=2019)
+df_ivs = generate_ivs(df, rng=rng, sd_eta=sd_eta)
 ```
 
 ```{python}
