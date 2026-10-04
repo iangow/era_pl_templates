@@ -652,7 +652,7 @@ decile_ranges = (
             float("inf"),
         ]),
     )
-    .explode("decile", "cutoff")
+    .explode("decile", "cutoff", empty_as_null=True)
     .sort("measure", "decile", "qtr")
     .with_columns(
         cutoff=pl.col("cutoff").shift(1).over("measure", "decile"),

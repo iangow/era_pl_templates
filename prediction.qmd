@@ -166,7 +166,7 @@ aaer_long = (
     aaer_firm_year
     .with_columns(fyear=pl.int_ranges("min_year",
                                       pl.col("max_year") + 1))
-    .explode("fyear")
+    .explode("fyear", empty_as_null=True)
     .select("gvkey", "p_aaer", "fyear",
             "min_year", "max_year")
 )

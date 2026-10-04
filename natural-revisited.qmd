@@ -1166,7 +1166,7 @@ ff_data = (
             eager=False,
         )
     )
-    .explode("sich")
+    .explode("sich", empty_as_null=True)
 )
 ```
 
