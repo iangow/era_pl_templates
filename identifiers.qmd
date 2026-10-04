@@ -686,13 +686,13 @@ Can a PERMNO be associated with more than one CUSIP over time?
 
 ```
 
-4. Looking at entries on `crsp.stocknames` where the company name starts with `DELL`, we see multiple different `permno` values.
+4. Looking at entries on `crsp.stocknames` where `ticker` is `DELL`, we see two different `permno` values.
 What explains this?
 
 ```{python}
 (
     stocknames
-    .filter(pl.col("comnam").str.contains(r"^DELL "))
+    .filter(pl.col("ticker") == "DELL")
     .select("permno", "cusip", "ncusip", "comnam",
             "siccd", "namedt", "nameenddt")
     .collect()
