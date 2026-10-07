@@ -411,36 +411,53 @@ comp = (
     .with_columns(pl.col("big_n").cast(pl.Int64))
 )
 
+comp_fwl = comp.drop_nulls(subset=[
+    "ta", "big_n", "cfo", "size", "lev", "mtb", "fyear",
+    "inv_at", "d_sale", "d_ar", "ppe",
+])
+
 base = (
     "big_n + size + lev + mtb + "
     "C(fyear) * (inv_at + I(d_sale - d_ar) + ppe)"
 )
 
-fm = ols_fit(comp, f"ta ~ {base} + cfo")
+fm = ols_fit(comp_fwl, f"ta ~ {base} + cfo")
 ```
 
 ```{python}
 #| include: false
 #| eval: true
-fm_aux_ta  = ols_fit(comp, f"ta  ~ {base}")
-fm_aux_cfo = ols_fit(comp, f"cfo ~ {base}")
+fm_aux_ta  = ols_fit(comp_fwl, f"ta ~ {base}")
+fm_aux_cfo = ols_fit(comp_fwl, f"cfo ~ {base}")
 ```
 
 ```{python}
 #| include: false
 #| eval: true
-aux_data = pl.from_pandas(
-    pd.DataFrame({
-        "ta":  fm_aux_ta.resid,
-        "cfo": fm_aux_cfo.resid,
-    }).dropna()
-)
+aux_data = pl.DataFrame({
+    "ta":  fm_aux_ta.resid,
+    "cfo": fm_aux_cfo.resid
+})
 ```
 
 ```{python}
 #| include: false
 #| eval: true
 fm_aux = ols_fit(aux_data, "ta ~ cfo")
+```
+
+```{python}
+#| include: false
+#| eval: true
+fwl_cfo_checks = {
+    "coefficient_matches": bool(np.isclose(
+        fm.params["cfo"], fm_aux.params["cfo"], rtol=1e-10, atol=1e-10,
+    )),
+    "residuals_match": bool(np.allclose(
+        fm.resid, fm_aux.resid, rtol=1e-10, atol=1e-10,
+    )),
+}
+fwl_cfo_checks
 ```
 
 ```{python}
@@ -475,6 +492,7 @@ fm_aux = ols_fit(aux_data, "ta ~ cfo")
 ### Exercises
 
 1. Verify the Frisch-Waugh-Lovell theorem using `big_n` and `lev` in place of `cfo` and produce plots like the CFO plot in the book chapter for each variable.
+Check both the coefficients and the residuals.
 Does the plot with `big_n` as the independent variable seem less helpful?
 
 ```{python}
