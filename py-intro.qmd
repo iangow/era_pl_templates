@@ -510,7 +510,7 @@ latest_mkt_cap = (
 #| fig-cap: Market capitalization of Australian banks (initial version)
 #| fig-alt: "Plot of market capitalization of Australian banks with poorly labelled axes and unhelpful legend. Purpose of plot is to illustrate problems with initial attempt."
 sns.barplot(
-    data=latest_mkt_cap,
+    data=latest_mkt_cap.to_pandas(),
     x="gvkey",
     y="Market capitalization",
 )
@@ -546,7 +546,7 @@ latest_mkt_cap = (
 #| fig-cap: Market capitalization of Australian banks
 #| fig-alt: "Plot of market capitalization of Australian banks with well-labelled axis and no legend. Purpose of plot is to illustrate improvements over initial attempt."
 ax = sns.barplot(
-    data=latest_mkt_cap,
+    data=latest_mkt_cap.to_pandas(),
     x="ticker",
     y="mkt_cap",
     color="steelblue",
@@ -665,7 +665,7 @@ aus_bank_funds.select(
 #| include: false
 #| eval: true
 sns.histplot(
-    data=aus_bank_roes,
+    data=aus_bank_roes.to_pandas(),
     x="roe",
     bins=25,
 )
@@ -855,7 +855,7 @@ aus_bank_mb.filter(pl.col("datadate") >= pl.date(1987, 9, 30))
 #| fig-cap: Time-series of market-to-book for Australian banks
 #| fig-alt: "Plot of monthly market-to-book ratios for Australian banks from late 1980s to early 2020s. Most values between 1 and 2, with some spikes as high as 6."
 ax = sns.lineplot(
-    data=aus_bank_mb,
+    data=aus_bank_mb.to_pandas(),
     x="datadate",
     y="mb",
     hue="ticker",

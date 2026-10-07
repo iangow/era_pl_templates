@@ -409,6 +409,8 @@ There are two kinds of Sneetches:
 #| label: tbl-sneetches
 #| tbl-cap: Effect of Plain-Belly Sneetches on firm value
 #| echo: false
+#| eval: false
+# Run after fitting fm_ols, fm_ad, and fm_armstrong in exercises e-g.
 def _format_estimate(estimate: float, p_value: float) -> str:
     stars = "***" if p_value < 0.01 else "**" if p_value < 0.05 else "*" if p_value < 0.1 else ""
     return f"{estimate:.3f}{stars}"
