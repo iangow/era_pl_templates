@@ -57,6 +57,7 @@ p9.theme_set(p9.theme_matplotlib())
 #| include: false
 #| eval: true
 import numpy as np
+import gt_typst
 from scipy import stats
 import polars as pl
 import statsmodels.formula.api as smf
@@ -858,7 +859,7 @@ How persuasive do you find the evidence of earnings management found in the "res
 
 9. How well does the $\mathit{PART}$ framework apply to @Jones:1991vx?
 Does the framework require modification for this paper?
-In which periods would $\mathit{PART}$ be set to one in @Jones:1991vx?
+In which periods would  $\mathit{PART}$ be set to one in @Jones:1991vx?
 
 ```{python}
 #| include: true
@@ -870,6 +871,8 @@ In which periods would $\mathit{PART}$ be set to one in @Jones:1991vx?
 ### Discussion questions and exercises
 
 ```{python}
+#| label: tbl-em-1
+#| tbl-cap: "Results of tests of earnings management: Sample 1"
 #| echo: false
 (
     tbl_em_1_stats
@@ -887,7 +890,7 @@ In which periods would $\mathit{PART}$ be set to one in @Jones:1991vx?
 
 ```
 
-2. Compare the results in the table above with those in Table 1 of @Dechow:1995wr.
+2. Compare the results in @tbl-em-1 with those in Table 1 of @Dechow:1995wr.
 What differences appear to be significant?
 
 ```{python}
@@ -907,7 +910,7 @@ Or do they suggest anomalies in the underlying data?
 4. Compare the values in the standard deviation column of the "earnings management" rows of Table 1 of @Dechow:1995wr with the values in the mean column of the standard error rows.
 What is the relationship between these values?
 What would you expect the relationship between these values to be?
-Do you observe similar relations in the table above?
+Do you observe similar relations in @tbl-em-1?
 
 ```{python}
 #| include: true
@@ -915,6 +918,8 @@ Do you observe similar relations in the table above?
 ```
 
 ```{python}
+#| label: tbl-em-2
+#| tbl-cap: Type I error rates
 #| echo: false
 (
     test_results
@@ -927,9 +932,9 @@ Do you observe similar relations in the table above?
 )
 ```
 
-5. Focusing on the Healy Model, DeAngelo Model, and the Industry Model, compare the rejection rates in the table above with those presented in Table 2 of @Dechow:1995wr.
+5. Focusing on the Healy Model, DeAngelo Model, and the Industry Model, compare the rejection rates in @tbl-em-2 with those presented in Table 2 of @Dechow:1995wr.
 What might explain any differences?
-Could these be attributed to differences between our results and those reported in Table 1 of @Dechow:1995wr?
+Could these be attributed to differences between our results in @tbl-em-1 and those reported in Table 1 of @Dechow:1995wr?
 Or do you expect that these differences have another cause?
 
 ```{python}
@@ -938,6 +943,8 @@ Or do you expect that these differences have another cause?
 ```
 
 ```{python}
+#| label: tbl-em-2-sig
+#| tbl-cap: p-values for null that Type I error rates equal size of tests
 #| echo: false
 (
     test_results
@@ -961,7 +968,7 @@ Or do you expect that these differences have another cause?
 )
 ```
 
-6. How do you interpret the results from `binom_test()` reported in the table above?
+6. How do you interpret the results from `binom_test()` reported in @tbl-em-2-sig?
 Does it make sense to interpret each of the columns independent of the others?
 
 ```{python}
@@ -970,7 +977,7 @@ Does it make sense to interpret each of the columns independent of the others?
 ```
 
 7. Confirm that the coefficient on $\textit{PART}$ from the regression in `fm2a` can be recovered from the regression in `fm2`.
-Are the standard errors the same?
+  Are the standard errors the same?
 
 ```{python}
 #| include: true
@@ -1005,7 +1012,7 @@ If not, are there "one-stage" equivalents to the Healy Model and DeAngelo Model 
 
 ```
 
-11. Produce an equivalent of Table 3 from @Dechow:1995wr by adapting the code used above to create `merged_sample_2` and the Type I error rate table above.
+11. Produce an equivalent of Table 3 from @Dechow:1995wr by adapting the code used above to create `merged_sample_2` and @tbl-em-2.
 (*Challenge version:* Implement the approach of @Salkever:1976ue in doing so.)
 
 ```{python}
@@ -1013,7 +1020,7 @@ If not, are there "one-stage" equivalents to the Healy Model and DeAngelo Model 
 
 ```
 
-12. Produce an equivalent of Table 4 from @Dechow:1995wr by adapting the code used above to create `merged_sample_2` and the Type I error rate table above.
+12. Produce an equivalent of Table 4 from @Dechow:1995wr by adapting the code used above to create `merged_sample_2` and @tbl-em-2.
 
 ```{python}
 #| include: true
@@ -1024,7 +1031,7 @@ If not, are there "one-stage" equivalents to the Healy Model and DeAngelo Model 
 
 ### Discussion questions
 
-1. How do the results in the power figure (produced by the code above) compare with those in Figure 4 of @Dechow:1995wr?
+1. How do the results in [the book’s power figure](https://iangow.github.io/era_pl_book/earnings-mgt.html#fig-power) compare with those in Figure 4 of @Dechow:1995wr?
 
 ```{python}
 #| include: true

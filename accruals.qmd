@@ -58,6 +58,7 @@ p9.theme_set(p9.theme_matplotlib())
 #| include: false
 #| eval: true
 import numpy as np
+import gt_typst
 import polars as pl
 import pyfixest as pf
 import statsmodels.formula.api as smf
@@ -66,7 +67,7 @@ from great_tables import GT
 from plotnine_polars import aes
 
 from era_pl import (get_me_breakpoints, get_size_rets_monthly,
-                    load_parquet, ptime)
+                    load_parquet, ptime, show_typst)
 ```
 
 ```{python}
@@ -712,153 +713,69 @@ How might we modify the simulation to incorporate the missing elements?
 
 ```
 
-6. Which hypothesis does Figure 1 of @Sloan:1996wd relate to?
-What aspects of the plot make it easier or more difficult to interpret the results?
-The following code replicates a version of Figure 1 from @Sloan:1996wd using our simulated data.
-On the basis of Figures [-@fig-ni-persist]--[-@fig-acc-persist] and the arguments given in @Sloan:1996wd, is H1 true in our simulated data?
-Given the other analysis above, is H1 true in our simulated data?
-
-```{python}
-#| echo: false
-#| eval: false
-year_of_event = 10
-
-decile_data = (
-    sim_reg_data
-    .filter(pl.col("year") == year_of_event)
-    .with_columns(
-        cfo_decile=pl.col("cfo").era.ntile(10),
-        ni_decile=pl.col("ni").era.ntile(10),
-        acc_decile=pl.col("acc").era.ntile(10),
-    )
-    .select("id", pl.col("^.*_decile$"))
-)
-
-reg_data_deciles = sim_reg_data.join(decile_data, on="id", how="inner")
-```
-
-```{python}
-#| echo: false
-#| eval: false
-#| label: fig-ni-persist
-#| fig-cap: Persistence of net income by decile of income
-#| fig-alt: "Average net income from years 0 to 20 by decile for firms in the top and bottom decile of net income in year 10."
-(
-    reg_data_deciles
-    .filter(pl.col("ni_decile").is_in([1, 10]))
-    .group_by("ni_decile", "year")
-    .agg(ni=pl.col("ni").mean())
-    .with_columns(ni_decile=pl.col("ni_decile").cast(pl.Utf8))
-    .sort(["ni_decile", "year"])
-    .ggplot(aes(x="year", y="ni", group="ni_decile", color="ni_decile"))
-    .geom_line()
-)
-```
-
-```{python}
-#| echo: false
-#| eval: false
-#| label: fig-cfo-persist
-#| fig-cap: Persistence of net income by decile of cash flows
-#| fig-alt: "Average net income from years 0 to 20 by decile for firms in the top and bottom decile of cash flow from operations in year 10."
-(
-    reg_data_deciles
-    .filter(pl.col("cfo_decile").is_in([1, 10]))
-    .group_by("cfo_decile", "year")
-    .agg(ni=pl.col("ni").mean())
-    .with_columns(cfo_decile=pl.col("cfo_decile").cast(pl.Utf8))
-    .sort(["cfo_decile", "year"])
-    .ggplot(aes(x="year", y="ni", group="cfo_decile", color="cfo_decile"))
-    .geom_line()
-)
-```
-
-```{python}
-#| echo: false
-#| eval: false
-#| label: fig-acc-persist
-#| fig-cap: Persistence of net income by decile of accruals
-#| fig-alt: "Average net income from years 0 to 20 by decile for firms in the top and bottom decile of accruals in year 10."
-(
-    reg_data_deciles
-    .filter(pl.col("acc_decile").is_in([1, 10]))
-    .group_by("acc_decile", "year")
-    .agg(ni=pl.col("ni").mean())
-    .with_columns(acc_decile=pl.col("acc_decile").cast(pl.Utf8))
-    .sort(["acc_decile", "year"])
-    .ggplot(aes(x="year", y="ni", group="acc_decile", color="acc_decile"))
-    .geom_line()
-)
-```
-
-```{python}
-#| include: true
-
-```
-
 ## Replicating @Sloan:1996wd
 
 ```{python}
 #| echo: false
 #| label: tbl-table-2-pooled
 #| tbl-cap: Replication of Table 2 of @Sloan:1996wd
-ETable(
+show_typst(ETable(
     [fm_earn, fm_earn_decile],
     model_heads=["Lead earnings", "Lead earnings decile"],
     head_order="h",
     coef_fmt="b:.3f* \n (t:.3f)",
     signif_code=[0.01, 0.05, 0.10],
     model_stats=["N", "r2"],
-)
+))
 ```
 
 ```{python}
 #| echo: false
 #| label: tbl-sloan-3
 #| tbl-cap: Replication of Table 3 of @Sloan:1996wd
-ETable(
+show_typst(ETable(
     [fm_acc, fm_acc_decile],
     model_heads=["Lead earnings", "Lead earnings decile"],
     head_order="h",
     coef_fmt="b:.3f* \n (t:.3f)",
     signif_code=[0.01, 0.05, 0.10],
     model_stats=["N", "r2"],
-)
+))
 ```
 
 ```{python}
 #| echo: false
 #| label: tbl-5
 #| tbl-cap: Abnormal returns, earnings, and lagged components
-ETable(
+show_typst(ETable(
     mms,
     model_heads=["Levels", "Deciles"],
     head_order="h",
     coef_fmt="b:.3f* \n (t:.3f)",
     signif_code=[0.01, 0.05, 0.10],
     model_stats=["N", "r2"],
-)
+))
 ```
 
 ```{python}
 #| echo: false
 #| label: tbl-rational
 #| tbl-cap: Regressions for @Abel:1983um test
-ETable(
+show_typst(ETable(
     eff,
     model_heads=["Levels", "Deciles"],
     head_order="h",
     coef_fmt="b:.3f* \n (t:.3f)",
     signif_code=[0.01, 0.05, 0.10],
     model_stats=["N", "r2"],
-)
+))
 ```
 
 ### Exercises
 
 1. In creating `acc_data_raw`, we used `fill_null(0)` to set the value of certain variables to zero when missing on Compustat.
 Does this seem appropriate here?
-Are the issues similar to those observed with regard to R&D in @sec-fin-state-reprise?
+Are the issues similar to those observed with regard to R&D in [the financial-statements reprise chapter](https://iangow.github.io/era_pl_book/fin-state-reprise.html#sec-fin-state-reprise)?
 It may be helpful to find some observations from recent years where this use of `fill_null(0)` has an effect and think about the issues in context of financial statements for those firm-years.
 
 ```{python}
@@ -885,7 +802,7 @@ In light of the apparent econometric equivalence between that structural model a
 
 4. A critique of @Sloan:1996wd made by @Kraft:2007wg is that the coefficients may be biased due to omitted variables.
 This critique implies a causal interpretation of the coefficients in @Sloan:1996wd.
-How might the critique of @Kraft:2007wg be represented on the causal diagrams above?
+How might the critique of @Kraft:2007wg be represented on the causal diagrams above? \index{Causal diagrams}
 How persuasive do you find the critique of @Kraft:2007wg to be?
 
 ```{python}
@@ -919,25 +836,127 @@ sim_reg_data = (
 
 ```
 
+```{python}
+#| include: false
+#| eval: true
+sim_reg_data = (
+    res_df
+    .with_columns(
+        cfo=pl.col("collect") - pl.col("cogs"),
+        acc=pl.col("ni") - (pl.col("collect") - pl.col("cogs")),
+    )
+    .sort(["id", "year"])
+    .with_columns(
+        lag_cfo=pl.col("cfo").shift(1).over("id"),
+        lag_acc=pl.col("acc").shift(1).over("id"),
+    )
+)
+
+```
+
+6. Which hypothesis does Figure 1 of @Sloan:1996wd relate to?
+What aspects of the plot make it easier or more difficult to interpret the results?
+The following code replicates a version of Figure 1 from @Sloan:1996wd using our simulated data.
+On the basis of Figures [-@fig-ni-persist]--[-@fig-acc-persist] and the arguments given in @Sloan:1996wd, is H1 true in our simulated data?
+Given the other analysis above, is H1 true in our simulated data?
+
+```{python}
+#| echo: false
+#| eval: true
+year_of_event = 10
+
+decile_data = (
+    sim_reg_data
+    .filter(pl.col("year") == year_of_event)
+    .with_columns(
+        cfo_decile=pl.col("cfo").era.ntile(10),
+        ni_decile=pl.col("ni").era.ntile(10),
+        acc_decile=pl.col("acc").era.ntile(10),
+    )
+    .select("id", pl.col("^.*_decile$"))
+)
+
+reg_data_deciles = sim_reg_data.join(decile_data, on="id", how="inner")
+```
+
+```{python}
+#| echo: false
+#| eval: true
+#| label: fig-ni-persist
+#| fig-cap: Persistence of net income by decile of income
+#| fig-alt: "Average net income from years 0 to 20 by decile for firms in the top and bottom decile of net income in year 10."
+(
+    reg_data_deciles
+    .filter(pl.col("ni_decile").is_in([1, 10]))
+    .group_by("ni_decile", "year")
+    .agg(ni=pl.col("ni").mean())
+    .with_columns(ni_decile=pl.col("ni_decile").cast(pl.Utf8))
+    .sort(["ni_decile", "year"])
+    .ggplot(aes(x="year", y="ni", group="ni_decile", color="ni_decile"))
+    .geom_line()
+)
+```
+
+```{python}
+#| echo: false
+#| eval: true
+#| label: fig-cfo-persist
+#| fig-cap: Persistence of net income by decile of cash flows
+#| fig-alt: "Average net income from years 0 to 20 by decile for firms in the top and bottom decile of cash flow from operations in year 10."
+(
+    reg_data_deciles
+    .filter(pl.col("cfo_decile").is_in([1, 10]))
+    .group_by("cfo_decile", "year")
+    .agg(ni=pl.col("ni").mean())
+    .with_columns(cfo_decile=pl.col("cfo_decile").cast(pl.Utf8))
+    .sort(["cfo_decile", "year"])
+    .ggplot(aes(x="year", y="ni", group="cfo_decile", color="cfo_decile"))
+    .geom_line()
+)
+```
+
+```{python}
+#| echo: false
+#| eval: true
+#| label: fig-acc-persist
+#| fig-cap: Persistence of net income by decile of accruals
+#| fig-alt: "Average net income from years 0 to 20 by decile for firms in the top and bottom decile of accruals in year 10."
+(
+    reg_data_deciles
+    .filter(pl.col("acc_decile").is_in([1, 10]))
+    .group_by("acc_decile", "year")
+    .agg(ni=pl.col("ni").mean())
+    .with_columns(acc_decile=pl.col("acc_decile").cast(pl.Utf8))
+    .sort(["acc_decile", "year"])
+    .ggplot(aes(x="year", y="ni", group="acc_decile", color="acc_decile"))
+    .geom_line()
+)
+```
+
+```{python}
+#| include: true
+
+```
+
 ## Accrual anomaly
 
 ```{python}
 #| echo: false
 #| label: tbl-6
 #| tbl-cap: Partial replication of Table 6 of @Sloan:1996wd
-ETable(
+show_typst(ETable(
     [fm_tbl6],
     model_heads=["Accrual deciles"],
     head_order="h",
     coef_fmt="b:.3f* \n (t:.3f)",
     signif_code=[0.01, 0.05, 0.10],
     model_stats=["N", "r2"],
-)
+))
 ```
 
 ### Discussion questions
 
-1. In estimating the hedge portfolio regression, we included a line `summarize(size_adj_ret = mean(size_adj_ret))`.
+1. In estimating the hedge portfolio regression, we included a line `.agg(size_adj_ret=pl.col("size_adj_ret").mean())`.
 Why is this step important?
 
 ```{python}
@@ -949,7 +968,7 @@ Why is this step important?
 For example, @Khan:2008aa and @Wu:2010aa argue that the anomaly can be explained by a mis-specified risk model and the q-theory of time-varying discount rates, respectively;
 @Desai:2004aa conclude that the anomaly is deceptive because it is subsumed by a different strategy;
 @Kraft:2006aa attribute it to outliers and look-ahead biases;
-@Ng:2005aa proposes that the anomaly's abnormal returns are compensation for high exposure to bankruptcy risk; and
+@Ng:2005aa proposes that the anomaly’s abnormal returns are compensation for high exposure to bankruptcy risk; and
 @Zach:2006aa argues that there are firm characteristics correlated with accruals that cause the return pattern."
 Looking at @Sloan:1996wd, but without necessarily looking at each of the papers above, what evidence in @Sloan:1996wd seems inconsistent with the claims made by each paper above?
 Which do you think you would need to look more closely at the paper to understand?
@@ -985,7 +1004,7 @@ What is the equivalent to #308 in Compustat today?
 ```
 
 6. Study the empirical model on p. 361 of @Xie:2001th, which is labelled equation (1).
-(This is the much-used "Jones model" from @Jones:1991vx, which we examine in @sec-earnings-mgt.)
+(This is the much-used "Jones model" from @Jones:1991vx, which we examine in [the earnings-management chapter](https://iangow.github.io/era_pl_book/earnings-mgt.html#sec-earnings-mgt).)
 What are the assumptions implicit in this model and the labelling of the residual as "abnormal accruals"?
 (*Hint:* Take each component of the model and identify circumstances where it would be a reasonable model of "normal" accruals.)
 
@@ -994,7 +1013,7 @@ What are the assumptions implicit in this model and the labelling of the residua
 
 ```
 
-7. What is "channel stuffing"?
+7.	What is "channel stuffing"?
 (*Hint:* Wikipedia has a decent entry on this.)
 What effect would channel stuffing have on abnormal accruals?
 (*Hint:* Think about this conceptually and with regard to equation (1).
