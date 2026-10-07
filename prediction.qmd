@@ -18,11 +18,13 @@ The fraud detection application requires WRDS data (`funda` from Compustat).
 The AAER outcome data (`aaer_firm_year`, `aaer_dates`) are bundled with the `era_pl` package and require no WRDS access.
 
 This template extracts the visible code and exercises from [Chapter 26](https://iangow.github.io/era_pl_book/prediction.html) of the Python Polars edition of *Empirical Research in Accounting: Tools and Methods*.
-This template includes all the code from the book chapter.
+This template includes the book chapter's Python code as hidden setup.
+Required model and data preparation runs when rendering; unused diagnostics and the optional ensemble searches remain disabled.
 
 Note that the ensemble grid searches in the `## Ensemble methods` section take a long time to run and are marked `#| eval: false`.
 The exercises do not require you to run those cells.
-If you wish to run them interactively, do so before attempting the testing section exercises.
+For questions about ensemble performance, refer to [the chapter's cross-validation and test results](https://iangow.github.io/era_pl_book/prediction.html#sec-predict-ensemble).
+The logit exercises run independently of those searches.
 
 Within Positron, you can run the code below in two ways.
 
@@ -53,31 +55,35 @@ More details on using Quarto markdown are provided on the [Quarto website](https
 ```{python}
 #| include: false
 #| eval: true
-import itertools
-
-import numpy as np
-import polars as pl
+# hidden-review: plot-theme
 import plotnine_polars as p9
-from plotnine_polars import aes
-
-from sklearn.metrics import confusion_matrix, roc_auc_score, ndcg_score
-from sklearn.model_selection import KFold
-from sklearn.tree import DecisionTreeClassifier, plot_tree
-from sklearn.linear_model import LogisticRegression, LogisticRegressionCV
-
-from era_pl import load_data, load_parquet, predict_proba_series, ptime, rusboost
-
 p9.theme_set(p9.theme_matplotlib())
 ```
 
 ```{python}
 #| include: false
 #| eval: true
-import warnings
+import itertools
 
-warnings.filterwarnings("ignore")
-pl.Config.set_tbl_cols(200)
-pl.Config.set_tbl_width_chars(120)
+import numpy as np
+import polars as pl
+
+from sklearn.metrics import confusion_matrix, roc_auc_score, ndcg_score
+from sklearn.tree import DecisionTreeClassifier
+from sklearn.linear_model import LogisticRegression
+from sklearn.model_selection import GridSearchCV
+from sklearn.pipeline import Pipeline
+from sklearn.preprocessing import StandardScaler
+from sklearn.tree import plot_tree
+
+from plotnine_polars import aes
+from era_pl import (
+    load_data,
+    load_parquet,
+    predict_proba_series,
+    ptime,
+    rusboost,
+)
 
 rng = np.random.default_rng(2024)
 ```
@@ -85,6 +91,14 @@ rng = np.random.default_rng(2024)
 ```{python}
 #| include: false
 #| eval: true
+pl.Config.set_tbl_cols(200)
+pl.Config.set_tbl_width_chars(120)
+```
+
+```{python}
+#| include: false
+#| eval: true
+#| cache: true
 funda = load_parquet("funda", "comp")
 
 X_vars = [
@@ -120,18 +134,32 @@ features = (
 #| eval: true
 aaer_firm_year = load_data("aaer_firm_year")
 aaer_dates = load_data("aaer_dates")
+aaer_firm_year
+```
+
+```{python}
+#| include: false
+#| eval: true
+aaer_firm_year.filter(pl.col("p_aaer") == "1500")
+```
+
+```{python}
+#| include: false
+#| eval: true
+aaer_dates.select("aaer_num", "aaer_date").head()
 ```
 
 ```{python}
 #| include: false
 #| eval: false
-# Intermediate analysis of AAER timing — not needed for exercises.
+# Optional timing diagnostic or ensemble analysis; the exercise answers can use the book results.
 aaer_days = (
     aaer_dates
     .with_columns(
         p_aaer=pl.col("aaer_num")
         .str.replace(r"^AAER-", ""))
-    .join(aaer_firm_year, on="p_aaer", how="inner")
+    .join(aaer_firm_year,
+          on="p_aaer", how="inner")
     .with_columns(fyear=pl.col("max_year"))
     .join(
         features.select("gvkey", "fyear", "datadate"),
@@ -151,6 +179,7 @@ aaer_days = (
 ```{python}
 #| include: false
 #| eval: false
+# Optional timing diagnostic or ensemble analysis; the exercise answers can use the book results.
 (
     aaer_days
     .ggplot(aes(x="days_to_aaer"))
@@ -162,6 +191,7 @@ aaer_days = (
 ```{python}
 #| include: false
 #| eval: true
+#| cache: true
 aaer_long = (
     aaer_firm_year
     .with_columns(fyear=pl.int_ranges("min_year",
@@ -170,7 +200,12 @@ aaer_long = (
     .select("gvkey", "p_aaer", "fyear",
             "min_year", "max_year")
 )
+```
 
+```{python}
+#| include: false
+#| eval: true
+#| cache: true
 def get_aaers(
     test_date: str,
     include_latent: bool = False,
@@ -197,13 +232,35 @@ def get_aaers(
     if include_latent:
         return out.with_columns(misstate_latent=True)
     return out
+```
 
+```{python}
+#| include: false
+#| eval: true
+#| cache: true
 aaers = get_aaers(test_date="2002-09-30", include_latent=True)
 ```
 
 ```{python}
 #| include: false
 #| eval: true
+(
+    aaers
+    .group_by("fyear")
+    .agg(
+        error_rate=(
+            pl.col("misstate") != pl.col("misstate_latent")
+        ).mean()
+    )
+    .filter(pl.col("fyear") <= 2000)
+    .sort("fyear")
+)
+```
+
+```{python}
+#| include: false
+#| eval: true
+#| cache: true
 df = (
     aaers
     .drop("misstate_latent")
@@ -213,13 +270,25 @@ df = (
                  .fill_null(False)
     )
 )
+```
 
+```{python}
+#| include: false
+#| eval: true
+#| cache: true
 data_train = df.filter(pl.col("fyear") <= 2001)
 ```
 
 ```{python}
 #| include: false
 #| eval: true
+aaer_firm_year.filter(pl.col("p_aaer") == "1821")
+```
+
+```{python}
+#| include: false
+#| eval: true
+#| cache: true
 n_folds = 5
 folds = list(range(1, n_folds + 1))
 gvkeys = data_train.select("gvkey").unique().sort("gvkey")
@@ -234,28 +303,36 @@ sample_splits = gvkeys.with_columns(
 
 ```{python}
 #| include: false
-#| eval: false
-# Basic logit model — not needed for exercises.
-fm1 = LogisticRegression(max_iter=5000)
+#| eval: true
+#| cache: true
+fm1 = Pipeline([
+    ("scale", StandardScaler()),
+    ("logit", LogisticRegression(l1_ratio=0, max_iter=5000)),
+])
 fm1.fit(
-    data_train.select(X_vars),
-    data_train[y_var],
+    data_train.select(X_vars).to_numpy(),
+    data_train[y_var].to_numpy(),
 );
 ```
 
 ```{python}
 #| include: false
-#| eval: false
+#| eval: true
 within_sample1 = (
     data_train
     .with_columns(
         score=predict_proba_series(fm1,
-                                   data_train.select(X_vars))
+                                   data_train.select(X_vars).to_numpy())
     )
     .with_columns(
         predicted=(pl.col("score") > 0.5).cast(pl.Int8)
     )
 )
+```
+
+```{python}
+#| include: false
+#| eval: true
 confusion_matrix(
     within_sample1["misstate"],
     within_sample1["predicted"],
@@ -264,38 +341,48 @@ confusion_matrix(
 
 ```{python}
 #| include: false
-#| eval: false
-# Logit cross-validation — students write their own version in Q2.
+#| eval: true
+#| cache: true
 def logit_predict(fold: int) -> pl.DataFrame:
     dft = data_train.join(sample_splits, on="gvkey", how="inner")
     train = dft.filter(pl.col("fold") != fold)
     test = dft.filter(pl.col("fold") == fold)
-    model = LogisticRegression(max_iter=5000)
-    model.fit(
-        train.select(X_vars).to_pandas(),
-        train[y_var].cast(pl.Int8).to_numpy(),
-    )
-    return (
-        test
-        .select("gvkey", "fyear")
-        .with_columns(
-            score=predict_proba_series(model, test.select(X_vars))
-        )
-        .with_columns(
-            predicted=(pl.col("score") > 0.5).cast(pl.Int8)
-        )
-    )
+    model = Pipeline([
+        ("scale", StandardScaler()),
+        ("logit", LogisticRegression(l1_ratio=0, max_iter=5000)),
+    ])
+    model.fit(train.select(X_vars).to_numpy(), train[y_var].to_numpy())
+    return test.select("gvkey", "fyear", y_var).with_columns(
+        score=predict_proba_series(model, test.select(X_vars).to_numpy())
+    ).with_columns(predicted=(pl.col("score") > 0.5).cast(pl.Int8))
+```
 
-logit_fit = (
-    pl.concat([logit_predict(fold) for fold in folds], how="vertical")
-    .join(data_train.select("gvkey", "fyear", "misstate"),
-          on=["gvkey", "fyear"], how="inner")
-    .select("gvkey", "fyear", "predicted", "score", "misstate")
-)
+```{python}
+#| include: false
+#| eval: true
+#| cache: true
+logit_fit = pl.concat([logit_predict(fold) for fold in folds])
+logit_fit.head()
+```
+
+```{python}
+#| include: false
+#| eval: true
+logit_fit.head()
+```
+
+```{python}
+#| include: false
+#| eval: true
 confusion_matrix(
     logit_fit["misstate"],
     logit_fit["predicted"],
 )
+```
+
+```{python}
+#| include: false
+#| eval: true
 roc_auc_score(
     logit_fit["misstate"],
     logit_fit["score"],
@@ -305,6 +392,7 @@ roc_auc_score(
 ```{python}
 #| include: false
 #| eval: true
+#| cache: true
 fm2 = DecisionTreeClassifier(min_samples_leaf=5, random_state=2021)
 fm2.fit(
     data_train.select(X_vars),
@@ -324,97 +412,94 @@ within_sample2 = (
         predicted=(pl.col("prob") > 0.5).cast(pl.Int8)
     )
 )
-```
-
-```{python}
-#| include: false
-#| eval: true
-dft = data_train.join(sample_splits, on="gvkey", how="inner")
-
-fm_lasso_cv = LogisticRegressionCV(
-    Cs=30,
-    cv=5,
-    l1_ratios=(1,),
-    solver="saga",
-    scoring="roc_auc",
-    max_iter=5000,
-    random_state=2021,
-)
-fm_lasso_cv.fit(dft.select(X_vars), dft[y_var]);
-```
-
-```{python}
-#| include: false
-#| eval: false
-# Lasso AUC plot and within-CV confusion matrix — not needed for exercises.
-(
-    pl.DataFrame(
-        {"lambda": 1.0 / fm_lasso_cv.Cs_,
-         "auc": fm_lasso_cv.scores_[1]
-                .mean(axis=0).squeeze()}
-    )
-    .ggplot(aes(x="lambda", y="auc"))
-    .geom_line()
-)
-
-fit_lasso_cv = (
-    dft
-    .select("misstate")
-    .with_columns(
-        prob=predict_proba_series(fm_lasso_cv, dft.select(X_vars))
-    ).with_columns(
-        predicted=(pl.col("prob") > 0.5)
-    )
-)
 confusion_matrix(
-    fit_lasso_cv["misstate"],
-    fit_lasso_cv["predicted"]
+    within_sample2["misstate"],
+    within_sample2["predicted"],
 )
 ```
 
 ```{python}
 #| include: false
 #| eval: true
-fm_lasso = LogisticRegression(
-    l1_ratio=1,
-    solver="saga",
-    C=float(fm_lasso_cv.C_[0]),
-    max_iter=5000,
-    random_state=2021,
+#| cache: true
+dft = data_train.join(sample_splits, on="gvkey", how="inner")
+cv_splits = [
+    (np.flatnonzero(dft["fold"].to_numpy() != fold),
+     np.flatnonzero(dft["fold"].to_numpy() == fold))
+    for fold in folds
+]
+
+fm_lasso_cv = GridSearchCV(
+    Pipeline([
+        ("scale", StandardScaler()),
+        ("logit", LogisticRegression(
+            l1_ratio=1, solver="liblinear", max_iter=5000,
+            random_state=2021,
+        )),
+    ]),
+    param_grid={"logit__C": np.logspace(-4, 1, 6)},
+    cv=cv_splits,
+    scoring="roc_auc",
 )
-fm_lasso.fit(
-    data_train.select(X_vars),
-    data_train[y_var],
-);
+fm_lasso_cv.fit(dft.select(X_vars).to_numpy(), dft[y_var].to_numpy());
 ```
 
 ```{python}
 #| include: false
 #| eval: false
-# In-sample lasso fit — students compute their own in Q4.
+# Optional penalty-path plot; the fitted lasso pipeline is prepared above.
+lasso_cv_results = pl.DataFrame({
+    "C": np.asarray(fm_lasso_cv.cv_results_["param_logit__C"], dtype=float),
+    "auc": fm_lasso_cv.cv_results_["mean_test_score"],
+})
+(
+    lasso_cv_results
+    .ggplot(aes(x="C", y="auc"))
+    .geom_line()
+    .scale_x_log10()
+)
+```
+
+```{python}
+#| include: false
+#| eval: true
+fm_lasso = fm_lasso_cv.best_estimator_
+```
+
+```{python}
+#| include: false
+#| eval: false
+# In-sample lasso diagnostics; calculate and interpret these in penalized-model Q4.
 fitted_lasso = (
     data_train
     .select("misstate")
     .with_columns(
-        prob=predict_proba_series(fm_lasso, data_train.select(X_vars))
+        prob=predict_proba_series(fm_lasso, data_train.select(X_vars).to_numpy())
     )
     .with_columns(
         predicted=(pl.col("prob") > 0.5).cast(pl.Int8)
     )
 )
-confusion_matrix(
-    fitted_lasso["misstate"],
-    fitted_lasso["predicted"],
-)
-roc_auc_score(
-    fitted_lasso["misstate"],
-    fitted_lasso["prob"],
-)
+```
+
+```{python}
+#| include: false
+#| eval: false
+# In-sample lasso diagnostics; calculate and interpret these in penalized-model Q4.
+confusion_matrix(fitted_lasso["misstate"], fitted_lasso["predicted"])
+```
+
+```{python}
+#| include: false
+#| eval: false
+# In-sample lasso diagnostics; calculate and interpret these in penalized-model Q4.
+roc_auc_score(fitted_lasso["misstate"], fitted_lasso["prob"])
 ```
 
 ```{python}
 #| include: false
 #| eval: true
+#| cache: true
 def rus_predict(fold: int, **kwargs) -> pl.DataFrame:
     dft = (
         data_train
@@ -432,7 +517,12 @@ def rus_predict(fold: int, **kwargs) -> pl.DataFrame:
             predicted=(pl.col("prob") > 0.5).cast(pl.Int8)
         )
     )
+```
 
+```{python}
+#| include: false
+#| eval: true
+#| cache: true
 def get_auc(**kwargs) -> float:
     try:
         parts = [rus_predict(fold, **kwargs) for fold in folds]
@@ -452,8 +542,14 @@ def get_auc(**kwargs) -> float:
             )
         )
     except ValueError:
+        # Failed fits count as chance-level classification for tuning.
         return 0.5
+```
 
+```{python}
+#| include: false
+#| eval: true
+#| cache: true
 def tune_boost_grid(params: list[dict]) -> pl.DataFrame:
     return pl.DataFrame(
         [{**param, "auc": get_auc(**param)} for param in params]
@@ -462,29 +558,65 @@ def tune_boost_grid(params: list[dict]) -> pl.DataFrame:
 
 ```{python}
 #| include: false
-#| eval: false
-# AdaBoost grid search — takes a long time; not needed for exercises.
+#| eval: true
+#| cache: true
 keys_ada = {
     "rus": [False],
     "size": [30, 50],
     "learn_rate": [0.1, 0.5, 1.0],
     "maxdepth": [3, 5, 7],
 }
+
 params_ada = [
     dict(zip(keys_ada.keys(), values))
     for values in itertools.product(*keys_ada.values())
 ]
+```
 
+```{python}
+#| include: false
+#| eval: false
+#| cache: true
+# Optional timing diagnostic or ensemble analysis; the exercise answers can use the book results.
+# Optional ensemble tuning; stored settings below allow testing independently.
 with ptime():
     adaboost_results = tune_boost_grid(params_ada)
+```
 
+```{python}
+#| include: false
+#| eval: false
+# Optional timing diagnostic or ensemble analysis; the exercise answers can use the book results.
+# Optional ensemble tuning; stored settings below allow testing independently.
+(
+    adaboost_results
+    .drop("rus")
+    .sort("auc", descending=True)
+    .head()
+)
+```
+
+```{python}
+#| include: false
+#| eval: false
+#| cache: true
+# Optional timing diagnostic or ensemble analysis; the exercise answers can use the book results.
+# Optional ensemble tuning; stored settings below allow testing independently.
 optim_ada = adaboost_results.filter(pl.col("auc") == pl.col("auc").max())
 ```
 
 ```{python}
 #| include: false
 #| eval: false
-# RUSBoost grid search — takes a long time; not needed for exercises.
+# Optional timing diagnostic or ensemble analysis; the exercise answers can use the book results.
+# Optional ensemble tuning; stored settings below allow testing independently.
+optim_ada
+```
+
+```{python}
+#| include: false
+#| eval: true
+#| cache: true
 keys_rus = {
     "rus": [True],
     "size": [30, 100, 200, 300],
@@ -492,20 +624,52 @@ keys_rus = {
     "maxdepth": [2, 3, 5, 10, 15],
     "ir": [1, 2]
 }
+
 params_rus = [
     dict(zip(keys_rus.keys(), values))
     for values in itertools.product(*keys_rus.values())
 ]
+```
 
+```{python}
+#| include: false
+#| eval: false
+#| cache: true
+# Optional timing diagnostic or ensemble analysis; the exercise answers can use the book results.
+# Optional ensemble tuning; stored settings below allow testing independently.
 with ptime():
     rusboost_results = tune_boost_grid(params_rus)
+```
 
+```{python}
+#| include: false
+#| eval: false
+# Optional timing diagnostic or ensemble analysis; the exercise answers can use the book results.
+# Optional ensemble tuning; stored settings below allow testing independently.
+rusboost_results.sort("auc", descending=True).head()
+```
+
+```{python}
+#| include: false
+#| eval: false
+#| cache: true
+# Optional timing diagnostic or ensemble analysis; the exercise answers can use the book results.
+# Optional ensemble tuning; stored settings below allow testing independently.
 optim_rus = rusboost_results.filter(pl.col("auc") == pl.col("auc").max())
 ```
 
 ```{python}
 #| include: false
+#| eval: false
+# Optional timing diagnostic or ensemble analysis; the exercise answers can use the book results.
+# Optional ensemble tuning; stored settings below allow testing independently.
+optim_rus
+```
+
+```{python}
+#| include: false
 #| eval: true
+#| cache: true
 test_years = list(range(2003, 2009))
 test_dates = (
     pl.DataFrame({"test_year": test_years})
@@ -513,7 +677,12 @@ test_dates = (
         test_date=pl.date(pl.col("test_year") + 1, 9, 30)
     )
 )
+```
 
+```{python}
+#| include: false
+#| eval: true
+#| cache: true
 def train_model(
     features: pl.DataFrame,
     test_year: int,
@@ -551,17 +720,23 @@ def train_model(
         maxdepth=maxdepth,
         minbucket=minbucket,
     )
+```
 
+```{python}
+#| include: false
+#| eval: true
+#| cache: true
 def test_model(features: pl.DataFrame, fm, test_year: int):
     df = (
         features
         .join(
-            aaer_long.select("gvkey", "fyear", "p_aaer"),
+            aaer_long.select("gvkey", "fyear").unique()
+            .with_columns(misstate=True),
             on=["gvkey", "fyear"],
             how="left",
         )
         .with_columns(
-            misstate=pl.col("p_aaer").is_not_null().cast(pl.Int8)
+            misstate=pl.col("misstate").fill_null(False).cast(pl.Int8)
         )
     )
     data_test = df.filter(pl.col("fyear") == test_year)
@@ -573,7 +748,12 @@ def test_model(features: pl.DataFrame, fm, test_year: int):
     predicted = (score > 0.5).astype(np.int8)
     response = data_test["misstate"].to_numpy()
     return {"score": score, "predicted": predicted, "response": response}
+```
 
+```{python}
+#| include: false
+#| eval: true
+#| cache: true
 def fit_test(
     x: int,
     features: pl.DataFrame,
@@ -601,9 +781,23 @@ def fit_test(
 
 ```{python}
 #| include: false
+#| eval: true
+best_ada = {"size": 30, "learn_rate": 0.1, "maxdepth": 7}
+best_rus = {"size": 300, "learn_rate": 0.1, "maxdepth": 15, "ir": 2}
+```
+
+```{python}
+#| include: false
 #| eval: false
-# Testing AdaBoost and RUSBoost — requires optim_ada and optim_rus from ensemble grid.
-best_ada = optim_ada.row(0, named=True)
+# Optional timing diagnostic or ensemble analysis; the exercise answers can use the book results.
+optim_ada
+```
+
+```{python}
+#| include: false
+#| eval: false
+#| cache: true
+# Optional timing diagnostic or ensemble analysis; the exercise answers can use the book results.
 results_ada = [
     fit_test(
         x=year,
@@ -615,8 +809,20 @@ results_ada = [
     )
     for year in test_years
 ]
+```
 
-best_rus = optim_rus.row(0, named=True)
+```{python}
+#| include: false
+#| eval: false
+# Optional timing diagnostic or ensemble analysis; the exercise answers can use the book results.
+optim_rus
+```
+
+```{python}
+#| include: false
+#| eval: false
+#| cache: true
+# Optional timing diagnostic or ensemble analysis; the exercise answers can use the book results.
 results_rus = [
     fit_test(
         x=year,
@@ -634,6 +840,7 @@ results_rus = [
 ```{python}
 #| include: false
 #| eval: true
+#| cache: true
 def get_stats(results):
     response = np.asarray(results["response"], dtype=float)
     score = np.asarray(results["score"], dtype=float)
@@ -642,11 +849,21 @@ def get_stats(results):
     ks = [max(1, int(round(p * n))) for p in (0.01, 0.02, 0.03)]
     ndcgs = [float(ndcg_score([response], [score], k=k)) for k in ks]
     return [float(auc_val), *ndcgs]
+```
 
+```{python}
+#| include: false
+#| eval: true
+#| cache: true
 def add_means(df: pl.DataFrame) -> pl.DataFrame:
     mean_row = df.select(pl.all().mean())
     return pl.concat([df, mean_row], how="vertical")
+```
 
+```{python}
+#| include: false
+#| eval: true
+#| cache: true
 def table_results(results):
     stat_rows = [get_stats(res) for res in results]
     base = pl.DataFrame(
@@ -662,7 +879,22 @@ def table_results(results):
 
 ```{python}
 #| include: false
+#| eval: false
+# Optional timing diagnostic or ensemble analysis; the exercise answers can use the book results.
+table_results(results_ada)
+```
+
+```{python}
+#| include: false
+#| eval: false
+# Optional timing diagnostic or ensemble analysis; the exercise answers can use the book results.
+table_results(results_rus)
+```
+
+```{python}
+#| include: false
 #| eval: true
+#| cache: true
 def train_logit(features: pl.DataFrame, test_year: int, gap: int = 2):
     test_date = (
         test_dates
@@ -680,29 +912,38 @@ def train_logit(features: pl.DataFrame, test_year: int, gap: int = 2):
             .fill_null(False).cast(pl.Int8)
         )
     )
-    fm = LogisticRegression(max_iter=5000)
+    fm = Pipeline([
+        ("scale", StandardScaler()),
+        ("logit", LogisticRegression(l1_ratio=0, max_iter=5000)),
+    ])
     fm.fit(
-        data_train_local.select(X_vars),
-        data_train_local[y_var],
+        data_train_local.select(X_vars).to_numpy(),
+        data_train_local[y_var].to_numpy(),
     )
     return fm
+```
 
+```{python}
+#| include: false
+#| eval: true
+#| cache: true
 def test_logit(features: pl.DataFrame, fm, test_year: int):
     data_test = (
         features
         .join(
-            aaer_long.select("gvkey", "fyear", "p_aaer"),
+            aaer_long.select("gvkey", "fyear").unique()
+            .with_columns(misstate=True),
             on=["gvkey", "fyear"],
             how="left",
         )
         .with_columns(
-            misstate=pl.col("p_aaer").is_not_null().cast(pl.Int8)
+            misstate=pl.col("misstate").fill_null(False).cast(pl.Int8)
         )
         .filter(pl.col("fyear") == test_year)
     )
     score = predict_proba_series(
         fm,
-        data_test.select(X_vars),
+        data_test.select(X_vars).to_numpy(),
         name="score",
     ).to_numpy()
     return {
@@ -710,11 +951,21 @@ def test_logit(features: pl.DataFrame, fm, test_year: int):
         "predicted": (score > 0.5).astype(np.int8),
         "response": data_test["misstate"].to_numpy(),
     }
+```
 
+```{python}
+#| include: false
+#| eval: true
+#| cache: true
 def fit_test_logit(x: int, features: pl.DataFrame, gap: int = 2):
     fm = train_logit(features=features, test_year=x, gap=gap)
     return test_logit(features=features, fm=fm, test_year=x)
+```
 
+```{python}
+#| include: false
+#| eval: true
+#| cache: true
 results_logit = [
     fit_test_logit(year, features=features)
     for year in test_years
@@ -750,21 +1001,21 @@ If not, what challenges prevent you from doing so?
 
 ```
 
-3. What do the parameters `cp` and `minbucket` represent?
+3. What do the parameters `ccp_alpha` and `min_samples_leaf` represent?
 
 ```{python}
 #| include: true
 
 ```
 
-4. How does the classification tree change if you increase the parameter `cp`?
+4. How does the classification tree change if you increase the parameter `ccp_alpha`?
 
 ```{python}
 #| include: true
 
 ```
 
-5. Use 5-fold cross-validation and AUC to assess the performance of the classification tree approach with three different parameters for `minbucket` (the one used above and two others).
+5. Use 5-fold cross-validation and AUC to assess the performance of the classification tree approach with three different values of `min_samples_leaf` (the one used above and two others).
 
 ```{python}
 #| include: true
@@ -783,7 +1034,7 @@ If not, what challenges prevent you from doing so?
 ### Discussion questions and exercises
 
 1. What features are selected by the lasso model in this case?
-(*Hint:* You may find it useful to inspect `fm_lasso.coef_`.)
+(*Hint:* You may find it useful to inspect `fm_lasso.named_steps["logit"].coef_`.)
 
 ```{python}
 #| include: true
@@ -791,15 +1042,15 @@ If not, what challenges prevent you from doing so?
 ```
 
 2. Modify the code above to estimate a ridge regression model.
-(*Hint:* Use `penalty="l2"` in place of the lasso penalty.)
+(*Hint:* Use `l1_ratio=0` and `solver="lbfgs"` in the logistic step, retaining the scaler and firm-level folds.)
 
 ```{python}
 #| include: true
 
 ```
 
-3. Describe how would you estimate an elastic net model.
-(*Hint:* The `LogisticRegressionCV()` documentation might be useful. One approach would be to vary `l1_ratio` while keeping `solver="saga"` and `penalty="elasticnet"`.)
+3. Describe how you would estimate an elastic net model.
+(*Hint:* Use `GridSearchCV()` to vary both `logit__C` and `logit__l1_ratio`, with `solver="saga"` in the logistic step and a scaler fitted within each fold.)
 
 ```{python}
 #| include: true
@@ -808,7 +1059,7 @@ If not, what challenges prevent you from doing so?
 
 4. Calculate AUC and produce the confusion matrix for `fm_lasso` applied to `data_train` (i.e., in sample).
 Interpret these results.
-(*Hint:* You might use `predict_proba_series(fm_lasso, data_train.select(X_vars))` together with `roc_auc_score()`.)
+(*Hint:* You might use `predict_proba_series(fm_lasso, data_train.select(X_vars).to_numpy())` together with `roc_auc_score()`.)
 
 ```{python}
 #| include: true
@@ -841,7 +1092,7 @@ Do these provide evidence on whether using (say) 2001 data to train a model that
 
 ```
 
-3. @Bao:2022aa report an AUC in the test sample for an all-features logit model of 0.7228 (see Panel B of Table 1).
+3. @Bao:2022aa report an AUC in the test sample for the RUSBoost model of 0.7228 (see Panel B of Table 1).
 What differences are there between our approach here and those in @Bao:2020aa and @Bao:2022aa that might account for the differences in AUC?
 
 ```{python}
@@ -852,10 +1103,10 @@ What differences are there between our approach here and those in @Bao:2020aa an
 4. @Bao:2022aa report an AUC in the test sample for an all-features logit model of 0.6842 (see Panel B of Table 1).
 Calculate an equivalent value for AUC from applying logistic regression to data from above.
 You may find it helpful to adapt the code above for RUSBoost in the following steps:
-   a. Create a function `train_logit()` analogous to `train_model()` above, but using `LogisticRegression()` in place of `rusboost()`.
+   a. Create a function `train_logit()` analogous to `train_model()` above, but using `LogisticRegression()` in place of the RUSBoost classifier.
    b. Create a function `test_logit()` analogous to `test_model()` above, but using calls to `predict_proba_series()` like those used above for logistic regression.
    c. Create a function `fit_test_logit()` analogous to `fit_test()` above, but calling the functions you created above.
-   d. Use a list comprehension with `test_years` and `fit_test_logit()` and store the results in `results_logit`.
+   d. Loop over `test_years` with `fit_test_logit()` and store the results in `results_logit`.
    e. Tabulate results using `table_results(results_logit)`. (@tbl-logit-oss contains our results from following these steps.)
 
 ```{python}
@@ -863,7 +1114,7 @@ You may find it helpful to adapt the code above for RUSBoost in the following st
 
 ```
 
-5. Do the AUC results obtained from logit (either from your answer to the previous question or @tbl-logit-oss) surprise you given the cross-validation and in-sample AUCs calculated (in exercises) above?
+5. Do the AUC results obtained from logit (either from your answer to the previous question or @tbl-logit-oss) surprise you given the cross-validation and in-sample logit AUCs in the chapter?
 How does the average AUC compare with the 0.6842 of @Bao:2022aa?
 What might account for the difference?
 
@@ -906,7 +1157,7 @@ What limitations of @Bao:2020aa and @Bao:2022aa might affect the interest of thi
 
 ```
 
-10. Provide reasons why the tree-based models outperform the logit-based models in this setting.
+10. Provide reasons why the tree-based models outperform the logit-based models in this setting?
 Do you think this might be related to the set of features considered?
 How might you alter the features if you wanted to improve the performance of the logit-based models?
 
