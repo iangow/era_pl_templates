@@ -12,7 +12,7 @@ format:
 ## Instructions
 
 This document assumes that you have completed the instructions [here](https://github.com/iangow/era_pl_templates/blob/main/README.md).
-Note that this chapter uses CRSP and Compustat data from a local Parquet repository, which means you will need to complete **Step 5: Get data from WRDS** before running any code.
+Note that this chapter uses CRSP and Compustat data from a local Parquet repository, which means you will need to complete **Steps 6 and 7: Configure and get data from WRDS** before running any code.
 
 This template extracts the visible code and exercises from [Chapter 7](https://iangow.github.io/era_pl_book/identifiers.html) of the Python Polars edition of *Empirical Research in Accounting: Tools and Methods*.
 This template includes all the code from the book chapter.
@@ -53,6 +53,7 @@ p9.theme_set(p9.theme_matplotlib())
 #| include: false
 #| eval: true
 import polars as pl
+import gt_typst
 from plotnine_polars import aes
 from plotnine_polars import element_text
 from era_pl import load_parquet
@@ -603,7 +604,7 @@ plot_data = (
 )
 ```
 
-6. What is being depicted in the two figures below?
+5. What is being depicted in the two figures below?
 What are the sources of variation across months in the first figure?
 Can you guess what is the main driver of variation in the second figure?
 Create an additional plot to visualize the source of variation in the first figure not depicted in the second figure.
@@ -640,7 +641,7 @@ Create an additional plot to visualize the source of variation in the first figu
 
 ```
 
-7. What is the primary key for `crsp.dsi` and `crsp.msi`?
+6. What is the primary key for `crsp.dsi` and `crsp.msi`?
 Verify that it is a valid key for both tables.
 
 ```{python}
@@ -648,7 +649,7 @@ Verify that it is a valid key for both tables.
 
 ```
 
-8. Using the `.anti_join()` method, determine if there are any dates on `crsp.dsf` that do not appear on `crsp.dsi` or vice versa.
+7. Using `.join(..., how="anti")`, determine if there are any dates on `crsp.dsf` that do not appear on `crsp.dsi` or vice versa.
 Do the same for `crsp.msi` and `crsp.msf`.
 
 ```{python}

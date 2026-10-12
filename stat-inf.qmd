@@ -12,7 +12,7 @@ format:
 ## Instructions
 
 This document assumes that you have completed the instructions [here](https://github.com/iangow/era_pl_templates/blob/main/README.md).
-As mentioned there, there is no need to complete **Step 5: Get data from WRDS** for this chapter.
+As mentioned there, there is no need to complete **Steps 6 and 7: Configure and get data from WRDS** for this chapter.
 
 This template extracts the visible code and exercises from [Chapter 5](https://iangow.github.io/era_pl_book/stat-inf.html) of the Python Polars edition of *Empirical Research in Accounting: Tools and Methods*.
 This template includes all the code from the book chapter.
@@ -57,6 +57,7 @@ p9.theme_set(p9.theme_matplotlib())
 #| eval: true
 import numpy as np
 import polars as pl
+import gt_typst
 from scipy import stats
 from era_pl import get_got_data, show_typst
 import plotnine_polars as p9
@@ -342,7 +343,7 @@ def get_means(rng, sample_size, n_samples, dgf):
     for i in range(n_samples):
         sample = dgf(rng, sample_size)
         sample_mean = np.mean(sample)
-        sample_se = np.std(sample, ddof=1) / np.sqrt(len(sample) - 1)
+        sample_se = np.std(sample, ddof=1) / np.sqrt(len(sample))
         results.append({
             'i': i,
             'mean': sample_mean,

@@ -12,7 +12,7 @@ format:
 ## Instructions
 
 This document assumes that you have completed the instructions [here](https://github.com/iangow/era_pl_templates/blob/main/README.md).
-As mentioned there, there is no need to complete **Step 5: Get data from WRDS** for this chapter.
+As mentioned there, there is no need to complete **Steps 6 and 7: Configure and get data from WRDS** for this chapter.
 
 This template extracts the visible code and exercises from [Chapter 3](https://iangow.github.io/era_pl_book/reg-basics.html) of the Python Polars edition of *Empirical Research in Accounting: Tools and Methods*.
 This template includes all the code from the book chapter.
@@ -134,7 +134,7 @@ pl.Config.set_tbl_rows(6)
 ```{python}
 #| include: false
 #| eval: true
-test_scores = load_data("test_scores")
+test_scores = load_data("test_scores").with_columns(pl.col("grade").cast(pl.Int32))
 test_scores
 ```
 
@@ -321,7 +321,7 @@ What value was implicitly used in the code creating `test_summ`?
 2. What is the relation between the grade means shown below and the regression coefficients in `fm_grade`?
 
 ```{python}
-#| include: false
+#| echo: false
 #| eval: true
 mean_by_grade
 ```
@@ -339,7 +339,8 @@ mean_by_grade
 ```
 
 4. Now let's return to our earlier regression specification, except this time we include fixed effects for `grade`.
-We now have two omitted grade indicators: `grade=5` and `grade=8`.
+We now have two omitted grade indicators: the reference category `grade=5` and one additional grade indicator.
+The additional indicator omitted can depend on how the software handles collinearity.
 Why are we now losing two grade indicators, while above we lost just one?
 (*Hint:* Which variables can be expressed as linear combinations of the `grade` indicators?)
 
@@ -394,7 +395,11 @@ What is the `I()` function doing here?
 What happens if we omit it (i.e., just include `post * treat`)?
 
 ```{python}
-#| echo: false
+#| echo: true
+fefm = pf.feols(
+    fml="score ~ I(post * treat) | grade + id",
+    data=camp_scores,
+)
 fefm.coef()
 ```
 

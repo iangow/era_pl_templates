@@ -216,7 +216,12 @@ results_pois = pl.concat(
 #| eval: true
 lm_10x_summary = load_parquet("lm_10x_summary", "glms")
 filing_10k_merged = load_parquet("filing_10k_merged", "glms")
-vdis_df = load_parquet("vdis_df", "glms")
+vdis_counts = load_parquet("vdis_df", "glms")
+vdis_df = (
+    filing_10k_merged.select("acc_num", "gvkey", "iid", "cik").unique()
+    .join(vdis_counts, on=["acc_num", "gvkey", "iid", "cik"], how="left")
+    .with_columns(pl.col("^vdis_.*$").fill_null(0))
+)
 compustat = load_parquet("compustat", "glms")
 ```
 
@@ -303,11 +308,12 @@ plot_data = (
 reg_data_glms = (
     vdis_df
     .join(
-        filing_10k_merged,
+        filing_10k_merged.with_columns(pl.col("eomonth").cast(pl.Date)),
         on=["acc_num", "gvkey", "iid", "cik"],
         how="inner",
     )
-    .join(compustat, on=["gvkey", "iid", "eomonth"], how="inner")
+    .join(compustat.with_columns(pl.col("eomonth").cast(pl.Date)),
+          on=["gvkey", "iid", "eomonth"], how="inner")
     .with_columns(pl.col("grossfilesize").log().name.prefix("ln_"))
     .collect()
 )
@@ -361,7 +367,7 @@ When might you expect these changes to have the opposite sign?
 ```
 
 4. @Guay:2016aa [p. 234] conclude that "collectively, these findings suggest managers use voluntary disclosure to mitigate the negative effects of complex financial statements on the information environment."
-Suppose you wanted to design a field experiment to test the propositions embedded in this sentence and were given the support of a regulator to do so.
+Suppose you wanted to design a field experiment to test the propositions embedded in this sentence and were given the support of a regulator to do so (e.g., you can randomize firms to different regimes, as was done with [Reg SHO](https://iangow.github.io/era_pl_book/natural-revisited.html#sec-reg-sho)).
 How would you implement this experiment?
 What empirical tests would you use?
 Are some elements of the hypothesis more difficult than others to test?

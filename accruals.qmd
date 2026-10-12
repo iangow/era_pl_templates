@@ -13,7 +13,7 @@ format:
 ## Instructions
 
 This document assumes that you have completed the instructions [here](https://github.com/iangow/era_pl_templates/blob/main/README.md).
-Note that this chapter uses CRSP and Compustat data from a local Parquet repository, which means you will need to complete **Step 5: Get data from WRDS** before running any code.
+Note that this chapter uses CRSP and Compustat data from a local Parquet repository, which means you will need to complete **Steps 6 and 7: Configure and get data from WRDS** before running any code.
 Some cells also fetch data from Ken French's website and require internet access.
 
 This template extracts the visible code and exercises from [Chapter 15](https://iangow.github.io/era_pl_book/accruals.html) of the Python Polars edition of *Empirical Research in Accounting: Tools and Methods*.
@@ -291,8 +291,8 @@ acc_data = (
         pl.col("acc", "earn", "cfo", "lead_earn")
         .era.ntile(10).name.suffix("_decile"),
         sic2=(
-            pl.col("sic").cast(pl.Int32, strict=False)
-            .cast(pl.Utf8).str.slice(0, 2)
+            (pl.col("sic").cast(pl.Int32, strict=False) // 100)
+            .cast(pl.String).str.zfill(2)
         ),
     )
 )
@@ -325,7 +325,7 @@ crsp_link = (
             pl.col("datadate").dt.offset_by("4mo")
             .dt.truncate("1mo"),
         end_month=
-            pl.col("datadate").dt.offset_by("15mo")
+            pl.col("datadate").dt.offset_by("16mo")
             .dt.truncate("1mo"),
         month=pl.col("datadate")
             .dt.truncate("1mo"),
@@ -336,8 +336,7 @@ crsp_data = (
     msf
     .join(crsp_link, on="permno", how="inner")
     .filter(
-        pl.col("date").is_between(pl.col("start_month"),
-                                  pl.col("end_month"))
+        pl.col("date").is_between(pl.col("start_month"), pl.col("end_month"), closed="left")
     )
     .group_by("gvkey", "permno", "datadate")
     .agg(
@@ -386,13 +385,13 @@ cum_size_rets = (
             pl.col("datadate").dt.offset_by("4mo").dt.truncate("1mo")
         ),
         end_month=(
-            pl.col("datadate").dt.offset_by("15mo")
+            pl.col("datadate").dt.offset_by("16mo")
         ).dt.truncate("1mo"),
     )
     .join(size_rets, on="decile", how="inner")
     .filter(
         pl.col("month").is_between(
-            pl.col("start_month"), pl.col("end_month"), closed="both"
+            pl.col("start_month"), pl.col("end_month"), closed="left"
         )
     )
     .group_by("datadate", "decile")

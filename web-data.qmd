@@ -12,7 +12,7 @@ format:
 ## Instructions
 
 This document assumes that you have completed the instructions [here](https://github.com/iangow/era_pl_templates/blob/main/README.md).
-As mentioned there, there is no need to complete **Step 5: Get data from WRDS** for this chapter.
+As mentioned there, there is no need to complete **Steps 6 and 7: Configure and get data from WRDS** for this chapter.
 
 This template extracts the visible code and exercises from [Chapter 9](https://iangow.github.io/era_pl_book/web-data.html) of the Python Polars edition of *Empirical Research in Accounting: Tools and Methods*.
 This template includes all the code from the book chapter.
@@ -102,9 +102,9 @@ with zip_url_to_file(url) as f:
 #| include: false
 #| eval: false
 def get_ff_ind_48(sic):
-    if 100 <= sic <= 299:
+    if 100 <= sic <= 199:
         return 1
-    if sic >= 200 & sic <= 299:
+    if 200 <= sic <= 299:
         return 1
     return None
 ```
@@ -310,9 +310,9 @@ get_ff_ind(12)
   c. `pl.read_excel()` has options that can help you skip rows and assign column names.
   d. Your *final* column names should be `sector`, `sector_desc`, `ind_group`, `ind_group_desc`, `industry`, `industry_desc`, `sub_ind`, `sub_ind_desc`, and `sub_ind_details`.
   e. The following code snippets *might* be useful:
-  - `df[df["sub_ind_details"].notna()]`
-  - `df[cols] = df[cols].ffill()` (where `cols` is a list of columns to forward-fill)
-  - `df.convert_dtypes()`
+  - `df.filter(pl.col("sub_ind_details").is_not_null())`
+  - `df.with_columns(pl.col(cols).forward_fill())` (where `cols` is a list of columns to forward-fill)
+  - `df.with_columns(pl.col("sector", "ind_group", "industry", "sub_ind").cast(pl.Int32))`
 
 ```{python}
 #| include: true
@@ -585,7 +585,7 @@ What explains missing values (if any) here?
 
 10. What do you observe about `acq_cusip` and `tgt_cusip`?
 Can you write some code to check that these variables have been read in correctly?
-(*Hint:* The `.str.len()` method might be useful here.)
+(*Hint:* The `.str.len_chars()` method might be useful here.)
 
 ```{python}
 #| include: true

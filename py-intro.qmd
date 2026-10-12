@@ -12,9 +12,9 @@ format:
 ## Instructions
 
 This document assumes that you have completed the instructions [here](https://github.com/iangow/era_pl_templates/blob/main/README.md).
-As mentioned there, there is no need to complete **Step 5: Get data from WRDS** for this chapter.
+As mentioned there, there is no need to complete **Steps 6 and 7: Configure and get data from WRDS** for this chapter.
 
-This template extracts the visible code and exercises from [Chapter 2](https://iangow.github.io/era_pl_book/py-intro.html) or the Python Polars edition of *Empirical Research in Accounting: Tools and Methods*.
+This template extracts the visible code and exercises from [Chapter 2](https://iangow.github.io/era_pl_book/py-intro.html) of the Python Polars edition of *Empirical Research in Accounting: Tools and Methods*.
 This template includes all the code from the book chapter.
 
 Within Positron, you can run the code below in two ways.
@@ -48,8 +48,10 @@ More details on using Quarto markdown are provided on the [Quarto website](https
 import math
 import numpy as np
 import polars as pl
+import gt_typst
 import polars.selectors as cs
 import seaborn as sns
+import matplotlib.pyplot as plt
 from era_pl import load_data
 ```
 
@@ -545,6 +547,7 @@ latest_mkt_cap = (
 #| label: fig-bank-mkt-cap-clean
 #| fig-cap: Market capitalization of Australian banks
 #| fig-alt: "Plot of market capitalization of Australian banks with well-labelled axis and no legend. Purpose of plot is to illustrate improvements over initial attempt."
+plt.figure()
 ax = sns.barplot(
     data=latest_mkt_cap.to_pandas(),
     x="ticker",
@@ -556,6 +559,7 @@ ax.set(
     xlabel="Ticker",
     ylabel="Market capitalization (A$ millions)",
 )
+plt.show()
 ```
 
 ```{python}
@@ -854,6 +858,7 @@ aus_bank_mb.filter(pl.col("datadate") >= pl.date(1987, 9, 30))
 #| label: fig-mb-ts
 #| fig-cap: Time-series of market-to-book for Australian banks
 #| fig-alt: "Plot of monthly market-to-book ratios for Australian banks from late 1980s to early 2020s. Most values between 1 and 2, with some spikes as high as 6."
+plt.figure()
 ax = sns.lineplot(
     data=aus_bank_mb.to_pandas(),
     x="datadate",
@@ -861,12 +866,9 @@ ax = sns.lineplot(
     hue="ticker",
 )
 ax.set(xlabel="Date", ylabel="Market-to-Book Ratio")
+plt.show()
 ```
 
-
-## Exercises
-
-We have created [Quarto](https://quarto.org) templates that we recommend you use to prepare your solutions to the exercises in the book. These templates are available on [the support page](https://github.com/iangow/era_pl_templates/) for this book. For this chapter, download and save `py-intro.qmd`.
 
 ## Exercises
 
@@ -908,7 +910,7 @@ For this chapter, download and save `py-intro.qmd`.
     B) Join `aus_bank_rets` using `.join()`.
     C) Normalize `datadate` to month-end using `.dt.month_end()`.
    
-   With `bank_rets`, `.group_by()` and `.agg(var=pl.col("ret"))`, calculate the variance of returns for each bank (`"ticker"`).
+   With `bank_rets`, `.group_by()` and `.agg(var=pl.col("ret").var())`, calculate the variance of returns for each bank (`"ticker"`).
 
 ```{python}
 #| include: true
@@ -963,7 +965,7 @@ How would you check this claim?
 
 ```
 
-9. Figure 2.4 is a plot of market-to-book ratios.
+9. [the market-to-book figure in the book](https://iangow.github.io/era_pl_book/py-intro.html#fig-mb-ts) is a plot of market-to-book ratios.
 Another measure linking stock prices to fundamentals is the **price-to-earnings ratio** (also known as the **PE ratio**).
 Typically, PE ratios are calculated as
 
@@ -985,7 +987,7 @@ Typically, PE ratios are calculated as
 
 ```
 
-10. Calculating the PE ratio using `pe = mkt_cap / ib`, create a plot similar to Figure 2.4, but for the PE ratios of Australian banks over time.
+10. Calculating the PE ratio using `pe = mkt_cap / ib`, create a plot similar to [the market-to-book figure in the book](https://iangow.github.io/era_pl_book/py-intro.html#fig-mb-ts), but for the PE ratios of Australian banks over time.
 
 ```{python}
 #| include: true

@@ -337,7 +337,7 @@ There are two kinds of Sneetches:
 
    The value of firm $i$ at time $t=0$ is given by the equation:
    $$ V_{i0} = \alpha + \beta \times b_i + \epsilon_0 $$
-   where $\alpha = 100$, $\beta = 10$ and $\epsilon \sim N(0, \sigma_{\epsilon})$, where $\sigma_{\epsilon} = 5$.
+   where $\alpha = 100$, $\beta = 10$ and $\epsilon \sim N(0, \sigma_{\epsilon}^2)$, where $\sigma_{\epsilon} = 5$.
 \newline
 \newline
    The Sneetches then pass new legislation requiring every board to have at least three Plain-Belly directors at time $t=1$.

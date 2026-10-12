@@ -54,6 +54,7 @@ from itertools import product
 
 import numpy as np
 import polars as pl
+import gt_typst
 import polars.selectors as cs
 
 import pyfixest as pf
@@ -92,11 +93,6 @@ comp = (
         pl.col("consol") == "C",
         pl.col("popsrc") == "D",
     )
-    .filter(
-        ~pl.col("sich").is_between(6000, 6999)
-        | pl.col("sich").is_null()
-    )
-    .filter(pl.col("fyear").is_between(1995, 2015))
     .sort(["gvkey", "fyear"])
     .with_columns(
         big_n=(
@@ -108,7 +104,7 @@ comp = (
         mkt_cap=pl.col("prcc_f") * pl.col("csho")
     )
     .with_columns(
-        pl.col("at", "mkt_cap", "revt", "rect", "ceq")
+        pl.col("fyear", "at", "mkt_cap", "revt", "rect", "ceq")
         .shift(1)
         .over("gvkey")
         .name.prefix("lag_"),
@@ -143,6 +139,12 @@ comp = (
         ppe=(
             pl.col("ppent").era.div_if_pos("lag_at")
         ),
+    )
+    .filter(
+        pl.col("fyear").is_between(1996, 2015),
+        pl.col("lag_fyear") == pl.col("fyear") - 1,
+        ~pl.col("sich").is_between(6000, 6999) | pl.col("sich").is_null(),
+        pl.col("big_n").is_not_null(),
     )
     .with_columns(pl.col("fyear").cast(pl.Utf8))
     .select(
@@ -549,7 +551,7 @@ def get_data(
 def fit_models(df: pl.DataFrame) -> dict[str, object]:
     pdf = df.to_pandas()
     fms = {
-        "Do nothing": smf.ols("cy ~ x1", data=pdf).fit(),
+        "Do nothing": smf.ols("cy ~ x1 + x2 + x3", data=pdf).fit(),
         "Winsorize all variables": smf.ols(
             "cyw ~ x1w + x2w + x3w", data=pdf
         ).fit(),
@@ -565,9 +567,9 @@ def fit_models(df: pl.DataFrame) -> dict[str, object]:
     }
     cooksd = fms["Do nothing"].get_influence().cooks_distance[0]
     keep = cooksd <= (4 / len(pdf))
-    fms["Cook's distance"] = smf.ols("cy ~ x1", data=pdf[keep]).fit()
+    fms["Cook's distance"] = smf.ols("cy ~ x1 + x2 + x3", data=pdf[keep]).fit()
     fms["Robust regression"] = smf.rlm(
-        "cy ~ x1",
+        "cy ~ x1 + x2 + x3",
         data=pdf,
         M=sm.robust.norms.TukeyBiweight(c=3.4437),
     ).fit()

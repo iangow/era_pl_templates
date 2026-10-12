@@ -13,7 +13,7 @@ format:
 ## Instructions
 
 This document assumes that you have completed the instructions [here](https://github.com/iangow/era_pl_templates/blob/main/README.md).
-Note that this chapter uses Compustat data from a local Parquet repository, which means you will need to complete **Step 5: Get data from WRDS** before running any code.
+Note that this chapter uses Compustat data from a local Parquet repository, which means you will need to complete **Steps 6 and 7: Configure and get data from WRDS** before running any code.
 
 This template extracts the visible code and exercises from [Chapter 8](https://iangow.github.io/era_pl_book/fin-state-reprise.html) of the Python Polars edition of *Empirical Research in Accounting: Tools and Methods*.
 This template includes all the code from the book chapter.
@@ -54,6 +54,7 @@ p9.theme_set(p9.theme_matplotlib())
 #| include: false
 #| eval: true
 import polars as pl
+import gt_typst
 from era_pl import load_parquet
 ```
 
@@ -155,7 +156,8 @@ tol = 1e-3
 
 funda_na_fixed = (
     funda_mod
-    .select("gvkey", "datadate", *at_comps, "at", "dc", "aox")
+    .select("gvkey", "datadate", *at_comps, "at", "dc", "aox",
+            "che", "rect", "invt", "aco")
     .with_columns(
         at_calc=pl.sum_horizontal(pl.col(at_comps).fill_null(0))
     )
@@ -252,7 +254,7 @@ Using that CIK, find the 10-K filing for the year ending November 2003 on [the S
 6. Using the approach above, we can find the 10-K for the observation examined in the following code on the SEC's [EDGAR site.](https://go.unimelb.edu.au/fzw8)
 What's going on with this case?
 What's the most significant difference between this case and the one above?
-(*Hint:* The following additional Compustat balancing model may help: `act = ppent + intan + ivao + ao`.)
+(*Hint:* The following additional Compustat balancing model may help: `act = che + rect + invt + aco`.)
 
 ```{python}
 #| echo: false
@@ -350,7 +352,7 @@ tol = 0.1
 
 funda_cf_balance = (
     funda_mod
-    .select("gvkey", "datadate", *chech_comps,
+    .select("gvkey", "datadate", "fyear", "fyr", *chech_comps,
             "chech", "che", "ch", "ivst")
     .with_columns(pl.col(chech_comps).fill_null(0))
     .with_columns(chech_calc=pl.sum_horizontal(chech_comps))
@@ -359,12 +361,18 @@ funda_cf_balance = (
             (pl.col("chech_calc") - pl.col("chech")).abs() < tol
         )
     )
-    .filter((pl.col("chech_calc") != 0) & pl.col("chech_balance"))
     .sort(["gvkey", "datadate"])
     .with_columns(
         lag_datadate=pl.col("datadate").shift(1).over("gvkey"),
+        lag_fyear=pl.col("fyear").shift(1).over("gvkey"),
+        lag_fyr=pl.col("fyr").shift(1).over("gvkey"),
         d_che=pl.col("che") - pl.col("che").shift(1).over("gvkey"),
         d_ch=pl.col("ch") - pl.col("ch").shift(1).over("gvkey"),
+    )
+    .filter(
+        (pl.col("chech_calc") != 0) & pl.col("chech_balance"),
+        pl.col("fyear") == pl.col("lag_fyear") + 1,
+        pl.col("fyr") == pl.col("lag_fyr"),
     )
     .filter(pl.col("d_che").is_not_null() | pl.col("d_ch").is_not_null())
     .with_columns(

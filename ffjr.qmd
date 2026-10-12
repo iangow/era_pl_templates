@@ -13,7 +13,7 @@ format:
 ## Instructions
 
 This document assumes that you have completed the instructions [here](https://github.com/iangow/era_pl_templates/blob/main/README.md).
-Note that this chapter uses CRSP data from a local Parquet repository, which means you will need to complete **Step 5: Get data from WRDS** before running any code.
+Note that this chapter uses CRSP data from a local Parquet repository, which means you will need to complete **Steps 6 and 7: Configure and get data from WRDS** before running any code.
 
 This template extracts the visible code and exercises from [Chapter 10](https://iangow.github.io/era_pl_book/ffjr.html) of the Python Polars edition of *Empirical Research in Accounting: Tools and Methods*.
 This template includes all the code from the book chapter.
@@ -325,6 +325,7 @@ abnormal_returns = (
 #| eval: true
 nyse_splits_join = (
     nyse_splits
+    .join(split_sample, on=["permno", "exdt"], how="semi")
     .with_columns(
         start=pl.col("ex_mth_index") - 30,
         end=pl.col("ex_mth_index") + 30,

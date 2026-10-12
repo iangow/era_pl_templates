@@ -65,7 +65,7 @@ How might one depict the results reported in Table 2 on the figures in @Li:2018t
 
 ```
 
-4. In @sec-regs-py, we ran regressions with **two-way fixed effects** (i.e., fixed effects for `grade` and for `id`, the student identifier).
+4. In [the book’s section](https://iangow.github.io/era_pl_book/reg-basics.html#sec-regs-py), we ran regressions with **two-way fixed effects** (i.e., fixed effects for `grade` and for `id`, the student identifier).
 What variables are analogous to `grade` and for `id` in regressions (3) and (4) in Table 2 of @Li:2018tj?
 Why is there no $\mathit{POST} \times \mathit{TREAT}$ coefficient reported in Table 2?
 How would you code $\mathit{POST}$ for a firm in a state that never has IDD?

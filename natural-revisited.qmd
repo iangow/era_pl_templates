@@ -614,13 +614,12 @@ def get_das(compustat: pl.DataFrame,
     for_disc_accruals = (
         compustat
         .join_where(
-            get_ff_ind(48),
+            get_ff_ind(49),
             (pl.col("sich") >= pl.col("sic_min")) &
             (pl.col("sich") <= pl.col("sic_max")),
         )
         .sort(["gvkey", "fyr", "fyear"])
         .with_columns(lag_at=pl.col("at").shift(1).over(["gvkey", "fyr"]))
-        .filter(pl.col("lag_at") > 0)
         .with_columns(
             lag_fyear=pl.col("fyear").shift(1).over(["gvkey", "fyr"]),
             lag_sale=pl.col("sale").shift(1).over(["gvkey", "fyr"]),
@@ -645,6 +644,7 @@ def get_das(compustat: pl.DataFrame,
         )
         .filter(
             pl.col("_keep"),
+            pl.col("lag_at") > 0,
             pl.col("fyear") == (pl.col("lag_fyear") + 1),
             pl.col("salerect_c_at").is_not_null(),
             pl.col("acc_at").is_not_null(),
@@ -707,6 +707,8 @@ def get_pm(
             .over(["gvkey", "fyear"])
         )
         .filter(pl.col("perf_diff") == pl.col("min_perf_diff"))
+        .sort("gvkey", "fyear", "gvkey_other")
+        .unique(subset=["gvkey", "fyear"], keep="first", maintain_order=True)
         .select("gvkey", "fyear", "gvkey_other")
     )
     perf_matched_accruals = (
@@ -771,7 +773,6 @@ sho_accruals = (
     .with_columns(
         pl.col("at", "mtob", "leverage", "roa", "da_adj", "acc_at")
         .era.winsorize(0.01)
-        .over("fyear")
     )
 )
 ```
@@ -803,12 +804,13 @@ def reg_year_fe(
         rhs = rhs + " + " + " + ".join(ctrls_list)
     fe = " | gvkey + year" if firm_fe else " | year"
     formula = f"{dv} ~ {rhs}{fe}"
-    vcov = {"CRV1": "gvkey"} if not cl_2 else {"CRV1": "gvkey + year"}
+    vcov = {"CRV1": "gvkey"} if not cl_2 else {"CRV1": "gvkey + fyear"}
     with warnings.catch_warnings():
         warnings.filterwarnings(
             "ignore", category=UserWarning, module="pyfixest"
         )
         return pf.feols(formula, data=data, vcov=vcov,
+                        ssc=pf.ssc(G_df="conventional"),
                         demeaner_backend="scipy")
 
 def make_reg_table(
@@ -856,7 +858,7 @@ def fit_by_year(df: pl.DataFrame, dv: str = "da_adj",
         return pf.feols(
             f"{dv} ~ {rhs}",
             data=data,
-            vcov={"CRV1": "year + gvkey"},
+            vcov={"CRV1": "fyear + gvkey"},
         )
 
 def plot_coefficients(fit):
@@ -889,6 +891,7 @@ def get_coef_rand(i: int, base_df: pl.DataFrame) -> pl.DataFrame:
         base_df
         .select("gvkey", "pilot")
         .unique()
+        .sort("gvkey")
         .with_columns(
             pl.col("pilot").shuffle(seed=2021 + i).alias("pilot")
         )
@@ -1152,13 +1155,14 @@ What challenges would such a process face?
 
 ### Discussion questions and exercises
 
-1. What would be the effect of replacing the code that creates `ff_data` above with the following code?
+1. The code below expands Fama–French industry ranges into one row per SIC code.
+What would be the effect of using this representation for the industry join?
 What changes would we need to make to the code creating `for_disc_accruals` in `get_das()` to use this modified version of `ff_data`?
 
 ```{python}
 #| eval: false
 ff_data = (
-    get_ff_ind(48)
+    get_ff_ind(49)
     .with_columns(
         sich=pl.int_ranges(
             pl.col("sic_min"),
@@ -1175,7 +1179,7 @@ ff_data = (
 
 ```
 
-2. What issue is `filter(row_number() == 1)` addressing in the code above?
+2. What issue is `.unique(subset=["gvkey", "fyear"], keep="first")` addressing in the code above?
 What assumptions are implicit in this approach?
 Do these assumptions hold in this case?
 What would be an alternative approach to address the issue?
@@ -1185,7 +1189,7 @@ What would be an alternative approach to address the issue?
 
 ```
 
-3. Why is `filter(fyear == lag(fyear) + 1)` required in the creation of `controls_raw`?
+3. Why is `.filter(pl.col("fyear") == pl.col("lag_fyear") + 1)` required in the creation of `controls_raw`?
 
 ```{python}
 #| include: true
@@ -1254,7 +1258,7 @@ sho_accruals_alt = (
     .join(df_controls, on=["gvkey", "fyear"], how="left")
     .join(pmdas, on=["gvkey", "fyear"], how="left")
     .with_columns(
-        pl.col(WIN_VARS).era.winsorize(0.01).over("fyear")
+        pl.col(WIN_VARS).era.winsorize(0.01)
     )
 )
 ```
@@ -1265,8 +1269,8 @@ sho_accruals_alt = (
 ```
 
 2. In an online appendix, BDLYY say "FHK winsorize covariates for their covariate balance table at 1/99%. We inferred that they also winsorized accruals at this level. Whether they winsorize across sample years or within each year, they do not specify."
-The code above winsorized within each year.
-How would you modify the code to winsorize "across sample years"?
+The code above winsorized across sample years.
+How would you modify the code to winsorize within each fiscal year?
 Does doing so make a difference?
 
 ```{python}
@@ -1276,6 +1280,7 @@ Does doing so make a difference?
 
 3. How would you modify the code to winsorize at the 2%/98% level?
 Does this make a difference to the results?
+(*Hint:* See [the extreme-values chapter](https://iangow.github.io/era_pl_book/extreme-vals.html#sec-extreme-vals) for details on winsorization and the available options.)
 
 ```{python}
 #| include: true
@@ -1300,7 +1305,7 @@ Does excluding 2004 here make a significant difference?
 ```
 
 6. What is the range of values for `year` in `sho_accruals`?
-Does this suggest any issues with the code `post = year %in% c(2008, 2009, 2010)` above?
+Does this suggest any issues with the code `post = pl.col("year").is_in([2008, 2009, 2010])` above?
 If so, does fixing any issue have an impact on the results reported above?
 
 ```{python}
@@ -1308,7 +1313,7 @@ If so, does fixing any issue have an impact on the results reported above?
 
 ```
 
-7. Would it make sense, in creating `perf` above, if we instead calculated `ib_at` as `if_else(at > 0, ib / at, None)`?
+7. Would it make sense, in creating `perf` above, if we instead calculated `ib_at` as `pl.col("ib").era.div_if_pos("at")`?
 What is the effect on the regression results if we use this modified calculation of `ib_at`?
 What do @Kothari:2005aa recommend on this point?
 (*Hint:* Use `pm_lag=False` where applicable.)

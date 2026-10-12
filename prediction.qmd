@@ -66,6 +66,7 @@ p9.theme_set(p9.theme_matplotlib())
 import itertools
 
 import numpy as np
+import matplotlib.pyplot as plt
 import polars as pl
 
 from sklearn.metrics import confusion_matrix, roc_auc_score, ndcg_score
@@ -210,28 +211,22 @@ def get_aaers(
     test_date: str,
     include_latent: bool = False,
 ) -> pl.DataFrame:
-    min_aaer_date = aaer_dates["aaer_date"].min()
-    test_date = np.datetime64(test_date)
     out = (
         aaer_dates
-        .with_columns(p_aaer=pl.col("aaer_num")
-                             .str.replace(r"^AAER-", ""))
-        .select("p_aaer", "aaer_date")
-        .unique()
+        .with_columns(p_aaer=pl.col("aaer_num").str.replace(r"^AAER-", ""))
+        .select("p_aaer", "aaer_date").unique()
         .join(aaer_long, on="p_aaer", how="right")
         .with_columns(
-            aaer_date=pl.col("aaer_date")
-            .fill_null(min_aaer_date)
+            misstate=(pl.col("aaer_date") <= pl.lit(test_date).str.to_date())
+            .fill_null(False)
         )
-        .with_columns(
-            misstate=pl.col("aaer_date") <= pl.lit(test_date)
-        )
-        .select("gvkey", "fyear", "misstate")
-        .unique()
+        .group_by("gvkey", "fyear")
+        .agg(pl.col("misstate").any())
     )
     if include_latent:
         return out.with_columns(misstate_latent=True)
     return out
+
 ```
 
 ```{python}
@@ -979,9 +974,14 @@ results_logit = [
 ```{python}
 #| label: fig-tree
 #| echo: false
-#| fig-height: 3
+#| fig-height: 4.5
 #| fig-cap: "Fitted tree produced by recursive partitioning."
-plot_tree(fm2, max_depth=3, filled=True, feature_names=X_vars);
+fig, ax = plt.subplots(figsize=(6.5, 4.5))
+plot_tree(
+    fm2, max_depth=2, filled=True, feature_names=X_vars,
+    fontsize=8, ax=ax,
+)
+plt.show()
 ```
 
 1. One claimed benefit of classification trees is their ease of interpretation.

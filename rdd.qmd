@@ -99,7 +99,8 @@ float_data = (
         pl.col("publicfloat") ==
         pl.col("publicfloat").min().over(["gvkey", "fyear"])
     )
-    .filter(pl.col("pfyear").is_in([2002, 2004]))
+    .filter(pl.col("pfyear").cast(pl.Float64).is_in([2002.0, 2004.0]))
+    .with_columns(pl.col("pfyear").cast(pl.Int32))
     .group_by("gvkey", "pfyear")
     .agg(pl.col("publicfloat").mean().alias("float"))
     .pivot(on="pfyear", index="gvkey", values="float")
@@ -159,7 +160,7 @@ risk_asymm_sample = (
     bloomfield_2021
     .join(ccm_link, on="permco", how="inner")
     .join(firm_years, on=["fyear", "gvkey"], how="inner")
-    .select("permco", "gvkey", "fyear", "datadate")
+    .select("permco", "datadate")
     .unique()
     .with_columns(
         period_start=(
@@ -203,7 +204,7 @@ risk_asymmetry = (
         sign_ret=pl.col("mktrf") >= 0,
     )
     .filter(pl.col("retrf").is_not_null())
-    .group_by("permco", "gvkey", "datadate", "sign_ret")
+    .group_by("permco", "datadate", "sign_ret")
     .agg(
         (pl.cov("retrf", "mktrf") / pl.col("mktrf").var()).alias("slope"),
         pl.len().alias("nobs"),
@@ -211,7 +212,7 @@ risk_asymmetry = (
     .collect()
     .pivot(
         on="sign_ret",
-        index=["permco", "gvkey", "datadate"],
+        index=["permco", "datadate"],
         values=["slope", "nobs"],
     )
     .rename({
@@ -226,7 +227,7 @@ risk_asymmetry = (
         )
     )
     .select(
-        "permco", "gvkey", "datadate",
+        "permco", "datadate",
         "beta_minus", "beta_plus", "nobs"
     )
 )
@@ -239,13 +240,7 @@ cutoff = 75
 
 reg_data = (
     risk_asymmetry
-    .join(
-        float_data_linked.select(
-            "permco", "gvkey", "float2002", "float2004"
-        ),
-        on=["permco", "gvkey"],
-        how="left",
-    )
+    .join(float_data_linked, on="permco", how="left")
     .join(
         firm_years.select("gvkey", "datadate", "sox"),
         on=["gvkey", "datadate"],
@@ -465,7 +460,7 @@ What implications do you see for the fuzzy RDD analysis we ran above using `floa
 ```
 
 7. In Table 4, @Bloomfield:2021va [p. 884] uses "a difference-in-differences design to identify the causal effect of reporting flexibility on risk asymmetry."
-As we say in @sec-panel-data, a difference-in-differences estimator adjusts differences in post-treatment outcome values by subtracting differences in pre-treatment outcome values.
+As we say in [the book’s section](https://iangow.github.io/era_pl_book/panel-data.html#sec-panel-data), a difference-in-differences estimator adjusts differences in post-treatment outcome values by subtracting differences in pre-treatment outcome values.
 Why might differences in pre-treatment outcome values between observations on either side of the threshold be particularly problematic in RDD?
 Does the use of firm and year fixed effects address this problem?
 Or does it just suppress it?

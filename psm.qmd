@@ -195,7 +195,8 @@ sim_match_pscores = (
 
 sim_matches = pl.from_pandas(
     NearestNeighborMatch(
-        caliper=0.03, replace=False, ratio=1, shuffle=False
+        caliper=0.03 / max(np.std(sim_match_pscores["pscore"].to_numpy()), 1e-12),
+        replace=False, ratio=1, shuffle=False
     ).match(
         data=sim_match_pscores.sort("pscore", descending=True).to_pandas(),
         treatment_col="treat",
@@ -294,7 +295,7 @@ show_etable(
 
 ```
 
-5. What regression results do you get if you repeat the analysis shown in the OLS regression above, but replace `I(mkt_cap / 1e+09)` with `I(mkt_cap^(1/3) * 0.003)`?
+5. What regression results do you get if you repeat the analysis shown in the OLS regression above, but replace `I(mkt_cap / 1e+09)` with `I(mkt_cap ** (1/3) * 0.003)`?
 Does this suggest a solution to the issues we see above?
 If so, what challenges does such a solution face?
 
@@ -323,21 +324,13 @@ comp = (
         pl.col("datafmt") == "STD",
         pl.col("consol") == "C",
         pl.col("popsrc") == "D",
-        pl.col("sich").is_not_null(),
-        ~pl.col("sich").is_between(6000, 6999),
-        pl.col("sale") > 0,
-        pl.col("at") > 0,
-        (pl.col("dltt") >= 0) | pl.col("dltt").is_null(),
-        (pl.col("dlc") >= 0) | pl.col("dlc").is_null(),
-        pl.col("prcc_f") * pl.col("csho") > 0,
-        pl.col("ceq") > 0,
-        pl.col("fyear").is_between(1988, 2006),
     )
     .select(
         "gvkey", "datadate", "fyear", "au", "prcc_f", "csho", "at", "ib",
         "dltt", "dlc", "rect", "ppent", "sale",
-        "act", "lct", "sich", "oancf",
+        "act", "lct", "sich", "oancf", "ceq",
     )
+    .filter(pl.col("fyear").is_between(1986, 2006))
     .sort("gvkey", "fyear")
     .with_columns(sic2=pl.col("sich").floordiv(100))
     .with_columns(curr=pl.col("act").era.div_if_pos("lct"))
@@ -384,6 +377,18 @@ comp = (
         .over("gvkey")
         .name.prefix("lag_")
     )
+    .filter(
+        pl.col("sich").is_not_null(),
+        ~pl.col("sich").is_between(6000, 6999),
+        pl.col("sale") > 0,
+        pl.col("at") > 0,
+        (pl.col("dltt") >= 0) | pl.col("dltt").is_null(),
+        (pl.col("dlc") >= 0) | pl.col("dlc").is_null(),
+        pl.col("prcc_f") * pl.col("csho") > 0,
+        pl.col("ceq") > 0,
+        pl.col("fyear").is_between(1988, 2006),
+        pl.col("au").cast(pl.Int32, strict=False).is_not_null(),
+    )
     .filter(pl.col("lag_fyear") == (pl.col("fyear") - 1))
 )
 
@@ -405,12 +410,15 @@ def get_klw_data(sic2: int, fyear: int) -> pl.DataFrame:
             "gvkey", "fyear", "roa", "ta",
             "inv_avg_at", "d_sale_at", "ppe_at"
         )
-        .drop_nulls()
+        .filter(pl.all_horizontal(pl.col("roa", "ta", "inv_avg_at", "d_sale_at", "ppe_at").is_finite()))
         .collect()
     )
 
-    if reg_data.height == 0:
-        return pl.DataFrame()
+    if reg_data.height < 10:
+        return reg_data.select("gvkey", "fyear").head(0).with_columns(
+            pl.lit(None, dtype=pl.Float64).alias("da"),
+            pl.lit(None, dtype=pl.Float64).alias("ada"),
+        )
 
     x = np.column_stack(
         [
@@ -424,7 +432,10 @@ def get_klw_data(sic2: int, fyear: int) -> pl.DataFrame:
     try:
         beta, *_ = np.linalg.lstsq(x, y, rcond=None)
     except np.linalg.LinAlgError:
-        return pl.DataFrame()
+        return reg_data.select("gvkey", "fyear").head(0).with_columns(
+            pl.lit(None, dtype=pl.Float64).alias("da"),
+            pl.lit(None, dtype=pl.Float64).alias("ada"),
+        )
 
     results = reg_data.select("gvkey", "fyear", "roa").with_columns(
         da=pl.Series(name="da", values=(y - x @ beta))
@@ -446,7 +457,10 @@ def get_klw_data(sic2: int, fyear: int) -> pl.DataFrame:
         .filter(pl.col("gvkey") != pl.col("gvkey_match"))
     )
     if pairs.height == 0:
-        return pl.DataFrame()
+        return reg_data.select("gvkey", "fyear").head(0).with_columns(
+            pl.lit(None, dtype=pl.Float64).alias("da"),
+            pl.lit(None, dtype=pl.Float64).alias("ada"),
+        )
 
     return (
         pairs
@@ -483,7 +497,7 @@ def psm_match(df: pl.DataFrame, caliper: float = 0.03) -> pl.DataFrame:
     )
 
     matched_pd = NearestNeighborMatch(
-        caliper=caliper,
+        caliper=caliper / max(np.std(d["pscore"].to_numpy()), 1e-12),
         replace=False,
         ratio=1,
         random_state=2021,
@@ -537,8 +551,7 @@ formula_klw = (
 fms_law = {
     "OLS": pf.feols(
         formula_klw,
-        data=full_sample.with_columns(pl.col("big4").cast(pl.Int8))
-    )
+        data=full_sample.with_columns(pl.col("big4").cast(pl.Int8)), vcov={"CRV1": "gvkey"})
 }
 
 win_vars = [
@@ -552,7 +565,7 @@ full_sample_win = (
                   pl.col("big4").cast(pl.Int8))
 )
 
-fms_law["OLS, win"] = pf.feols(formula_klw, data=full_sample_win)
+fms_law["OLS, win"] = pf.feols(formula_klw, data=full_sample_win, vcov={"CRV1": "gvkey"})
 ```
 
 ```{python}
@@ -560,15 +573,15 @@ fms_law["OLS, win"] = pf.feols(formula_klw, data=full_sample_win)
 #| eval: false
 # PSM matching on real data: slow to run; run interactively if needed.
 lmz_matched = psm_match(full_sample, caliper=0.03)
-fms_law["PSM"] = pf.feols(formula_klw, data=lmz_matched)
+fms_law["PSM"] = pf.feols(formula_klw, data=lmz_matched, vcov={"CRV1": "gvkey"})
 
 lmz_matched_win = psm_match(full_sample_win, caliper=0.03)
-fms_law["PSM, win"] = pf.feols(formula_klw, data=lmz_matched_win)
+fms_law["PSM, win"] = pf.feols(formula_klw, data=lmz_matched_win, vcov={"CRV1": "gvkey"})
 ```
 
 ## Discussion questions
 
-1. Given the evidence presented in the simulation, how do you interpret the regression results presented above?
+1. Given the evidence presented in the simulation, how do you interpret the regression results presented in [the book’s empirical table](https://iangow.github.io/era_pl_book/psm.html#tbl-big4-actual)?
 How do @DeFond:2017wl appear to interpret the results?
 
 ```{python}

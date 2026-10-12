@@ -13,7 +13,7 @@ format:
 ## Instructions
 
 This document assumes that you have completed the instructions [here](https://github.com/iangow/era_pl_templates/blob/main/README.md).
-Note that this chapter uses Compustat data from a local Parquet repository, which means you will need to complete **Step 5: Get data from WRDS** before running any code.
+Note that this chapter uses Compustat data from a local Parquet repository, which means you will need to complete **Steps 6 and 7: Configure and get data from WRDS** before running any code.
 
 This template extracts the visible code and exercises from [Chapter 16](https://iangow.github.io/era_pl_book/earnings-mgt.html) of the Python Polars edition of *Empirical Research in Accounting: Tools and Methods*.
 This template includes all the code from the book chapter.
@@ -160,9 +160,10 @@ test_sample = (
         pl.col("ppegt").is_not_null(),
     )
     .with_columns(n_obs=pl.len().over("gvkey"))
-    .filter(pl.col("n_obs") >= 11)
+    .filter(pl.col("n_obs") >= 13)
     .sort("gvkey", "fyear")
-    .select("gvkey", "fyear")
+    .with_columns(event_eligible=pl.col("fyear").rank("ordinal").over("gvkey") > 2)
+    .select("gvkey", "fyear", "event_eligible")
 )
 ```
 
@@ -177,7 +178,7 @@ sample_1_firm_years = (
         min_fyear=pl.col("fyear").min().over("gvkey"),
         rand=pl.Series("rand", rng.normal(size=test_sample.height)),
     )
-    .filter(pl.col("fyear") > pl.col("min_fyear"))
+    .filter(pl.col("event_eligible"))
     .sort(["gvkey", "rand"])
     .group_by("gvkey")
     .first()
@@ -217,14 +218,14 @@ def predict_ols(
         df
         .filter(~pl.col("part"))
         .select(y_col, *x_cols)
-        .drop_nulls()
+        .filter(pl.all_horizontal(pl.all().is_finite()))
     )
 
     if train.height == 0:
         return pl.Series([None] * df.height, dtype=pl.Float64)
 
     full = df.select(*x_cols)
-    valid = full.select(pl.all_horizontal(pl.all().is_not_null())).to_series()
+    valid = full.select(pl.all_horizontal(pl.all().is_finite()).fill_null(False)).to_series()
     out = np.full(df.height, np.nan)
 
     X = train.select(x_cols).to_numpy()
@@ -237,7 +238,7 @@ def predict_ols(
 
     beta, *_ = np.linalg.lstsq(X, y, rcond=None)
     out[valid.to_numpy()] = X_pred @ beta
-    return pl.Series(out)
+    return pl.Series(out).fill_nan(None)
 
 
 def fit_jones(df: pl.DataFrame) -> pl.DataFrame:
@@ -297,10 +298,8 @@ def get_nda(df: pl.DataFrame) -> pl.DataFrame:
         calc_accruals(df)
         .with_columns(
             sic2=(
-                pl.col("sic")
-                .cast(pl.Int32, strict=False)
-                .cast(pl.Utf8)
-                .str.slice(0, 2)
+                (pl.col("sic").cast(pl.Int32, strict=False) // 100)
+                .cast(pl.String).str.zfill(2)
             ),
             acc_at=pl.col("acc_raw") / pl.col("lag_at"),
             one_at=1 / pl.col("lag_at"),
@@ -316,7 +315,7 @@ def get_nda(df: pl.DataFrame) -> pl.DataFrame:
                 .then(pl.col("acc_at"))
                 .otherwise(None)
                 .median()
-                .over("sic2")
+                .over("sic2", "fyear")
             )
         )
     )
@@ -461,7 +460,9 @@ tbl_em_1_stats = (
 #| include: false
 #| eval: true
 def h_test(t_stat: float | None, df_resid: float | None) -> dict[str, bool | None]:
-    if t_stat is None or df_resid is None:
+    if (t_stat is None or df_resid is None
+            or not np.isfinite(t_stat) or not np.isfinite(df_resid)
+            or df_resid <= 0):
         return {
             "neg_p01": None, "neg_p05": None,
             "pos_p01": None, "pos_p05": None
@@ -497,26 +498,26 @@ def binom_test(x: pl.Series, p: float) -> float:
 #| eval: true
 earn_deciles = (
     acc_data_raw
-    .join(test_sample, on=["gvkey", "fyear"], how="inner")
     .sort("gvkey", "fyear")
     .with_columns(earn=pl.col("ib") / pl.col("at").shift(1).over("gvkey"))
+    .join(test_sample, on=["gvkey", "fyear"], how="inner")
     .with_columns(pl.col("earn").era.ntile(10).alias("earn_dec"))
-    .select("gvkey", "fyear", "earn_dec")
+    .select("gvkey", "fyear", "earn_dec", "event_eligible")
 )
 
 sample_2_firm_years = (
     earn_deciles
-    .filter(pl.col("earn_dec") == 10)
+    .filter(pl.col("earn_dec") == 10, pl.col("event_eligible"))
     .with_columns(
         min_fyear=pl.col("fyear").min().over("gvkey"),
         rand=pl.Series(
             "rand",
             rng.normal(
-                size=earn_deciles.filter(pl.col("earn_dec") == 10).height
+                size=earn_deciles.filter(pl.col("earn_dec") == 10, pl.col("event_eligible")).height
             ),
         ),
     )
-    .filter(pl.col("fyear") > pl.col("min_fyear"))
+    .filter(pl.col("event_eligible"))
     .sort(["gvkey", "rand"])
     .group_by("gvkey")
     .first()
@@ -606,7 +607,9 @@ fm2 = smf.ols(
 #| include: false
 #| eval: true
 def h_test_5(t_stat: float | None, df_resid: float | None) -> bool | None:
-    if t_stat is None or df_resid is None:
+    if (t_stat is None or df_resid is None
+            or not np.isfinite(t_stat) or not np.isfinite(df_resid)
+            or df_resid <= 0):
         return None
     return bool(stats.t.sf(t_stat, df=df_resid) < 0.05)
 ```
@@ -637,6 +640,8 @@ def manipulate(
         )
         .with_columns(
             manip_amt_gross=pl.col("manip_amt") / pl.col("ni_ratio"),
+            reversal_amt=pl.col("manip_amt").shift(1).over("gvkey"),
+            reversal_amt_gross=(pl.col("manip_amt") / pl.col("ni_ratio")).shift(1).over("gvkey"),
             part_lag=(
                 pl.col("part").shift(1).over("gvkey").fill_null(False)
             ),
@@ -660,7 +665,7 @@ def manipulate(
                     pl.when(pl.col("part"))
                     .then(pl.col("sale") + pl.col("manip_amt"))
                     .when(pl.col("part_lag"))
-                    .then(pl.col("sale") - pl.col("manip_amt"))
+                    .then(pl.col("sale") - pl.col("reversal_amt"))
                     .otherwise(pl.col("sale"))
                 ),
                 rect=(
@@ -678,8 +683,8 @@ def manipulate(
         )
 
     if type == "margin":
-        cond = pl.col("part") & (pl.col("ni_ratio") > 0)
-        cond_lag = pl.col("part_lag") & (pl.col("ni_ratio") > 0)
+        cond = pl.col("part") & pl.col("ni_ratio").is_finite() & (pl.col("ni_ratio") > 0)
+        cond_lag = pl.col("part_lag") & pl.col("reversal_amt_gross").is_finite() & (pl.col("ni_ratio") > 0)
         return (
             df_mod
             .with_columns(
@@ -687,7 +692,7 @@ def manipulate(
                     pl.when(cond)
                     .then(pl.col("sale") + pl.col("manip_amt_gross"))
                     .when(cond_lag)
-                    .then(pl.col("sale") - pl.col("manip_amt_gross"))
+                    .then(pl.col("sale") - pl.col("reversal_amt_gross"))
                     .otherwise(pl.col("sale"))
                 ),
                 rect=(

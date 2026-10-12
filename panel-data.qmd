@@ -55,6 +55,7 @@ p9.theme_set(p9.theme_matplotlib())
 #| include: false
 #| eval: true
 import polars as pl
+import gt_typst
 import polars.selectors as cs
 import numpy as np
 import pyfixest as pf
@@ -514,7 +515,7 @@ Why do you think @Li:2018tj focused on this specific element of the proprietary 
 
 2. In the analysis above, we do not include the control variables considered by @Li:2018tj.
 For example, @Li:2018tj "include R&D expenditures to sales, advertisement [sic] expenditure to sales, and intangible assets scaled by total assets to control for a firm's proprietary costs of disclosure."
-Using the approach outlined in [Chapter 4](causal-inf.html#sec-causal-inf), in what circumstances would it be necessary to control for "a firm's proprietary costs of disclosure" in this way?
+Using the approach outlined in [Chapter 4](https://iangow.github.io/era_pl_book/causal-inf.html#sec-causal-inf), in what circumstances would it be necessary to control for "a firm's proprietary costs of disclosure" in this way?
 Do these circumstances seem applicable in this setting, where the treatment is a (presumably exogenous) shock to disclosure costs and the outcome is disclosure choices?
 
 ```{python}

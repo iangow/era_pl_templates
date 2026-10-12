@@ -12,7 +12,7 @@ format:
 ## Instructions {#sec-causal-inf}
 
 This document assumes that you have completed the instructions [here](https://github.com/iangow/era_pl_templates/blob/main/README.md).
-As mentioned there, there is no need to complete **Step 5: Get data from WRDS** for this chapter.
+As mentioned there, there is no need to complete **Steps 6 and 7: Configure and get data from WRDS** for this chapter.
 
 This template extracts the visible code and exercises from [Chapter 4](https://iangow.github.io/era_pl_book/causal-inf.html) of the Python Polars edition of *Empirical Research in Accounting: Tools and Methods*.
 This template includes all the code from the book chapter.
@@ -103,7 +103,7 @@ fms = [fit_ols(f, data=df) for f in formulas]
 ```
 
 ```{python}
-#| include: false
+#| echo: false
 #| eval: true
 ETable(
     fms,
