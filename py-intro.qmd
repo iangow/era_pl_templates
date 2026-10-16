@@ -723,9 +723,9 @@ aus_bank_rets
 #| eval: true
 rets_nab_cba = (
     aus_bank_rets
-      .join(aus_banks, on="gvkey", how="inner")
-      .filter(pl.col("ticker").is_in(["CBA", "NAB"]))
-      .select("ticker", "datadate", "ret")
+    .join(aus_banks, on="gvkey", how="inner")
+    .filter(pl.col("ticker").is_in(["CBA", "NAB"]))
+    .select("ticker", "datadate", "ret")
 )
 
 rets_nab_cba.head()

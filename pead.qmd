@@ -1034,7 +1034,7 @@ Can you suggest an alternative approach to measuring performance that might plac
     .filter(pl.col("decile").is_not_null())
     .with_columns(decile=pl.col("decile").cast(pl.String))
     .sort("decile", "relative_td")
-     .with_columns(
+    .with_columns(
         not_first_day=pl.col("relative_td") !=
                         pl.col("relative_td").min().over("decile"),
         last_day=pl.col("relative_td") ==
