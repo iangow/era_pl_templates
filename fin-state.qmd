@@ -108,7 +108,7 @@ type(company)
     company
     .filter(
         pl.col("gsubind") == "45202030",
-        pl.col("conm").str.slice(0, 1) == "A",
+        pl.col("conm").str.starts_with("A"),
     )
     .select("gvkey", "conm", "state")
     .limit(5)
@@ -123,7 +123,7 @@ type(company)
     company
     .filter(
         pl.col("gsubind") == "45202030",
-        pl.col("conm").str.slice(0, 1) == "A"
+        pl.col("conm").str.starts_with("A")
     )
     .select("gvkey", "conm", "state")
     .limit(5)
@@ -138,7 +138,7 @@ df_company = (
     company
     .filter(
         pl.col("gsubind") == "45202030",
-        pl.col("conm").str.slice(0, 1) == "A",
+        pl.col("conm").str.starts_with("A"),
     )
     .select("gvkey", "conm", "state")
     .collect()
