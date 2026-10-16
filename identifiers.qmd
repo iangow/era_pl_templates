@@ -163,8 +163,8 @@ ccm_link = ccmxpf_lnkhist.filter(
 ccm_link = (
     ccmxpf_lnkhist
     .filter(
-        pl.col("linktype").is_in(["LC", "LU", "LS"])
-        & pl.col("linkprim").is_in(["C", "P"])
+        pl.col("linktype").is_in(["LC", "LU", "LS"]),
+        pl.col("linkprim").is_in(["C", "P"]),
     )
     .with_columns(pl.col("linkenddt").fill_null(pl.col("linkenddt").max()))
 )
@@ -219,12 +219,12 @@ fundq = load_parquet(table="fundq", schema="comp")
 rdqs = (
     fundq
     .filter(
-        (pl.col("indfmt") == "INDL")
-        & (pl.col("datafmt") == "STD")
-        & (pl.col("consol") == "C")
-        & (pl.col("popsrc") == "D")
-        & pl.col("rdq").is_not_null()
-        & (pl.col("fqtr") == 4)
+        pl.col("indfmt") == "INDL",
+        pl.col("datafmt") == "STD",
+        pl.col("consol") == "C",
+        pl.col("popsrc") == "D",
+        pl.col("rdq").is_not_null(),
+        pl.col("fqtr") == 4,
     )
     .select("gvkey", "datadate", "rdq")
 )
@@ -236,10 +236,10 @@ rdqs = (
 funda_mod = (
     funda
     .filter(
-        (pl.col("indfmt") == "INDL")
-        & (pl.col("datafmt") == "STD")
-        & (pl.col("consol") == "C")
-        & (pl.col("popsrc") == "D")
+        pl.col("indfmt") == "INDL",
+        pl.col("datafmt") == "STD",
+        pl.col("consol") == "C",
+        pl.col("popsrc") == "D",
     )
 )
 

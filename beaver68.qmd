@@ -376,7 +376,7 @@ Why do you think this is the case?
 #| fig-alt: "Plot of residual return volatility in days around earnings announcements. Each year from 2011 to 2018 is represented by a different line. Plot shows a clear spike in return volatility in days 0 and 1 relative to earnings announcements."
 (
     earn_annc_summ
-    .filter((pl.col("year") > 2010) & (pl.col("year") < 2019))
+    .filter(pl.col("year") > 2010, pl.col("year") < 2019)
     .with_columns(pl.col("year").cast(pl.String))
     .collect()
     .ggplot(aes(x="relative_td", y="sd_ret_mkt", group="year", colour="year"))
@@ -392,7 +392,7 @@ Why do you think this is the case?
 #| fig-alt: "Plot of trading volume in days around earnings announcements. Each year from 2011 to 2018 is represented by a different line. Plot shows clear spike in trading volume in days 0 and 1 relative to earnings announcements."
 (
     earn_annc_summ
-    .filter((pl.col("year") > 2010) & (pl.col("year") < 2019))
+    .filter(pl.col("year") > 2010, pl.col("year") < 2019)
     .with_columns(pl.col("year").cast(pl.String))
     .collect()
     .ggplot(aes(x="relative_td", y="mean_rel_vol", group="year", colour="year"))

@@ -370,7 +370,8 @@ funda_cf_balance = (
         d_ch=pl.col("ch") - pl.col("ch").shift(1).over("gvkey"),
     )
     .filter(
-        (pl.col("chech_calc") != 0) & pl.col("chech_balance"),
+        pl.col("chech_calc") != 0,
+        pl.col("chech_balance"),
         pl.col("fyear") == pl.col("lag_fyear") + 1,
         pl.col("fyr") == pl.col("lag_fyr"),
     )
@@ -431,8 +432,8 @@ What explains the gaps seen in the output below?
 (
     funda_cf_balance
     .filter(
-        (pl.col("datadate") == pl.date(2020, 12, 31))
-        & (pl.col("gvkey") == "001045")
+        pl.col("datadate") == pl.date(2020, 12, 31),
+        pl.col("gvkey") == "001045",
     )
     .select("gvkey", "datadate", "chech", "d_che", "d_ch")
     .collect()

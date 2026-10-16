@@ -705,8 +705,8 @@ results_deciles = (
 ccm_link = (
     ccmxpf_lnkhist
     .filter(
-        pl.col("linktype").is_in(["LC", "LU", "LS"])
-        & pl.col("linkprim").is_in(["C", "P"])
+        pl.col("linktype").is_in(["LC", "LU", "LS"]),
+        pl.col("linkprim").is_in(["C", "P"]),
     )
     .with_columns(linkenddt=pl.col("linkenddt")
                             .fill_null(pl.col("linkenddt").max()))

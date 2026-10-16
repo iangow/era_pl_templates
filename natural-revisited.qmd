@@ -110,8 +110,8 @@ crsp_sample = (
     stocknames
     .with_columns(test_date=pl.date(2004, 6, 25))
     .filter(
-        (pl.col("test_date") >= pl.col("namedt"))
-        & (pl.col("test_date") <= pl.col("nameenddt"))
+        pl.col("test_date") >= pl.col("namedt"),
+        pl.col("test_date") <= pl.col("nameenddt"),
     )
     .select("permno", "permco", "ticker", "shrcls")
     .unique()
