@@ -1075,7 +1075,7 @@ Interpret these results.
 table_results(results_logit)
 ```
 
-1. In asserting that RUSBoost is superior to AdaBoost, we did not evaluate the statistical significance of the difference between the AUCs for the two approaches.
+1. We did not evaluate the statistical significance of the difference between the AUCs for AdaBoost and RUSBoost.
 Describe how you might evaluate the statistical significance of this difference.
 
 ```{python}
