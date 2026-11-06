@@ -13,7 +13,7 @@ dependencies = [
     "ipykernel",
     "jupyter",
     "jupyter-cache",
-    "linearmodels",
+    "linearmodels>=7.1",
     "llvmlite>=0.42",
     "maketables>=0.1.8",
     "matplotlib",

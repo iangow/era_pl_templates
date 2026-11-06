@@ -726,9 +726,9 @@ ETable(
 #| include: false
 #| eval: true
 test_panel = test.to_pandas().set_index(['firm', 'year'])
-fm_fmt = FamaMacBeth.from_formula('y ~ 1 + x', data=test_panel).fit()
+fm_fmt = FamaMacBeth.from_formula('y ~ 1 + x', data=test_panel).fit(debiased=True)
 fm_fmnw = FamaMacBeth.from_formula('y ~ 1 + x', data=test_panel).fit(
-    cov_type='kernel', bandwidth=1
+    cov_type='kernel', kernel='bartlett', bandwidth=1, debiased=True
 )
 ```
 
@@ -750,13 +750,17 @@ ETable(
 #| eval: true
 test_pd = test.to_pandas()
 
-fm_ols = ols_fit('y ~ x', data=test)
-fm_white = ols_fit('y ~ x', data=test, cov_type="HC1")
+fm_ols = ols_fit('y ~ x', data=test, use_t=True)
+fm_white = ols_fit('y ~ x', data=test, cov_type="HC1", use_t=False)
 fm_cl_i = ols_fit('y ~ x', data=test,
                   cov_type='cluster',
-                  cov_kwds={'groups': test_pd['firm']})
+                  use_t=False,
+                  cov_kwds={'groups': test_pd['firm'],
+                            'use_correction': True, 'df_correction': True})
 fm_cl_t = ols_fit('y ~ x', data=test,
-                  cov_type='cluster', cov_kwds={'groups': test_pd['year']})
+                  cov_type='cluster', use_t=False,
+                  cov_kwds={'groups': test_pd['year'],
+                            'use_correction': True, 'df_correction': True})
 ```
 
 ```{python}
@@ -765,11 +769,18 @@ fm_cl_t = ols_fit('y ~ x', data=test,
 test_panel = test_pd.set_index(['firm', 'year'])
 fm_cl_2 = (
     PanelOLS.from_formula('y ~ 1 + x', data=test_panel)
-    .fit(cov_type='clustered', cluster_entity=True, cluster_time=True)
+    .fit(cov_type='clustered', cluster_entity=True, cluster_time=True,
+         debiased=True, group_debias=False)
 )
 ```
 
 ## Dependence
+
+The fits retain the chapter's inference choices.
+OLS and CL-2 use $t_{4998}$; White, CL-i and CL-t use standard-normal probabilities.
+FM-t and FM-NW use `linearmodels` 7.1 or later with `debiased=True`, giving $t_9$ from 10 yearly coefficient estimates, despite 5,000 firm-year observations.
+FM-NW uses a Bartlett kernel with bandwidth 1.
+CL-2 retains `group_debias=False`; enabling it does not reproduce the default `fixest` correction and reference distribution in the R edition.
 
 ### Exercises
 
@@ -794,7 +805,8 @@ show_typst(ETable(
 ```
 
 2. Assume that the null hypothesis is $H_0: \beta = 1$.
-Using the reported coefficients and standard errors for each of the methods listed in the table above (i.e., OLS, White, CL-i, CL-t, CL-2, FM-t), for which methods is the null hypothesis rejected?
+Using the reported coefficients and standard errors for each of the methods listed in the table above (i.e., OLS, White, CL-i, CL-t, CL-2, FM-t), for which methods is the null hypothesis rejected at the 5% level?
+Calculate p-values using each model's reference distribution stated above, and compare them with a common standard-normal approximation.
 
 ```{python}
 #| include: true
