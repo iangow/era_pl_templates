@@ -21,9 +21,9 @@ dependencies = [
     "numpy",
     "pandas",
     "pdfplumber",
-    "plotnine",
-    "plotnine-polars>=0.2.0",
-    "polars[excel]>=2.0.0",
+    "plotnine>=0.15.9",
+    "plotnine-polars>=0.2.1",
+    "polars[excel]>=2.1.0",
     "pyfixest>=0.40.1",
     "python-dotenv",
     "quarto",
@@ -34,3 +34,7 @@ dependencies = [
     "seaborn",
     "statsmodels",
 ]
+
+[tool.uv]
+# Desktop Quarto environments; plotnine has incompatible Pyodide-only constraints.
+environments = ["sys_platform != 'emscripten'"]
