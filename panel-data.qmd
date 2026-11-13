@@ -47,6 +47,7 @@ More details on using Quarto markdown are provided on the [Quarto website](https
 ```{python}
 #| include: false
 #| eval: true
+from IPython.display import display
 import plotnine_polars as p9
 p9.theme_set(p9.theme_matplotlib())
 ```
@@ -65,7 +66,7 @@ from scipy import stats
 
 from era_pl import (
     fit_test_score_panel, get_idd_periods, get_test_scores,
-    load_data, load_parquet, show_typst, ptime,
+    load_data, load_parquet, ptime,
 )
 ```
 
@@ -83,7 +84,7 @@ warnings.filterwarnings("ignore", category=UserWarning, module="pyfixest")
 #| include: false
 #| eval: true
 def show_etable(models, **kwargs):
-    show_typst(ETable(models=models, **kwargs))
+    display(ETable(models=models, **kwargs))
 ```
 
 ```{python}

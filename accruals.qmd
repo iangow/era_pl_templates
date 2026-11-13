@@ -67,7 +67,7 @@ from great_tables import GT
 from plotnine_polars import aes
 
 from era_pl import (get_me_breakpoints, get_size_rets_monthly,
-                    load_parquet, ptime, show_typst)
+                    load_parquet, ptime)
 ```
 
 ```{python}
@@ -718,56 +718,56 @@ How might we modify the simulation to incorporate the missing elements?
 #| echo: false
 #| label: tbl-table-2-pooled
 #| tbl-cap: Replication of Table 2 of @Sloan:1996wd
-show_typst(ETable(
+ETable(
     [fm_earn, fm_earn_decile],
     model_heads=["Lead earnings", "Lead earnings decile"],
     head_order="h",
     coef_fmt="b:.3f* \n (t:.3f)",
     signif_code=[0.01, 0.05, 0.10],
     model_stats=["N", "r2"],
-))
+)
 ```
 
 ```{python}
 #| echo: false
 #| label: tbl-sloan-3
 #| tbl-cap: Replication of Table 3 of @Sloan:1996wd
-show_typst(ETable(
+ETable(
     [fm_acc, fm_acc_decile],
     model_heads=["Lead earnings", "Lead earnings decile"],
     head_order="h",
     coef_fmt="b:.3f* \n (t:.3f)",
     signif_code=[0.01, 0.05, 0.10],
     model_stats=["N", "r2"],
-))
+)
 ```
 
 ```{python}
 #| echo: false
 #| label: tbl-5
 #| tbl-cap: Abnormal returns, earnings, and lagged components
-show_typst(ETable(
+ETable(
     mms,
     model_heads=["Levels", "Deciles"],
     head_order="h",
     coef_fmt="b:.3f* \n (t:.3f)",
     signif_code=[0.01, 0.05, 0.10],
     model_stats=["N", "r2"],
-))
+)
 ```
 
 ```{python}
 #| echo: false
 #| label: tbl-rational
 #| tbl-cap: Regressions for @Abel:1983um test
-show_typst(ETable(
+ETable(
     eff,
     model_heads=["Levels", "Deciles"],
     head_order="h",
     coef_fmt="b:.3f* \n (t:.3f)",
     signif_code=[0.01, 0.05, 0.10],
     model_stats=["N", "r2"],
-))
+)
 ```
 
 ### Exercises
@@ -943,14 +943,14 @@ reg_data_deciles = sim_reg_data.join(decile_data, on="id", how="inner")
 #| echo: false
 #| label: tbl-6
 #| tbl-cap: Partial replication of Table 6 of @Sloan:1996wd
-show_typst(ETable(
+ETable(
     [fm_tbl6],
     model_heads=["Accrual deciles"],
     head_order="h",
     coef_fmt="b:.3f* \n (t:.3f)",
     signif_code=[0.01, 0.05, 0.10],
     model_stats=["N", "r2"],
-))
+)
 ```
 
 ### Discussion questions

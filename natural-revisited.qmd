@@ -48,6 +48,7 @@ More details on using Quarto markdown are provided on the [Quarto website](https
 ```{python}
 #| include: false
 #| eval: true
+from IPython.display import display
 import warnings
 import numpy as np
 import polars as pl
@@ -58,7 +59,7 @@ from maketables import ETable
 
 from era_pl import (
     get_ff_ind, load_data, load_parquet,
-    ptime, show_typst,
+    ptime,
 )
 
 p9.theme_set(p9.theme_matplotlib())
@@ -509,12 +510,12 @@ fm_placebo = pf.feols(
 
 ```{python}
 #| echo: false
-show_typst(ETable(
+ETable(
     [fm_placebo],
     coef_fmt="b:.3f*",
     signif_code=[0.01, 0.05, 0.10],
     model_stats=["N"],
-))
+)
 ```
 
 ```{python}
@@ -836,7 +837,7 @@ def make_reg_table(
         )
         for s in specs
     ]
-    show_typst(ETable(
+    display(ETable(
         fms,
         signif_code=[0.01, 0.05, 0.1],
         keep=["pilot"],

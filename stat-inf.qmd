@@ -59,7 +59,7 @@ import numpy as np
 import polars as pl
 import gt_typst
 from scipy import stats
-from era_pl import get_got_data, show_typst
+from era_pl import get_got_data
 import plotnine_polars as p9
 from plotnine_polars import aes, after_stat
 from linearmodels.panel import FamaMacBeth, PanelOLS
@@ -793,7 +793,7 @@ CL-2 retains `group_debias=False`; enabling it does not reproduce the default `f
 
 ```{python}
 #| echo: false
-show_typst(ETable(
+ETable(
     [fm_ols, fm_white, fm_cl_i, fm_cl_t, fm_cl_2, fm_fmt],
     model_heads=["OLS", "White", "CL-i (firm)",
                  "CL-t (year)", "CL-2", "FM-t"],
@@ -801,7 +801,7 @@ show_typst(ETable(
     coef_fmt="b:.4f \n (se:.4f)",
     model_stats=["N"],
     show_fe=False,
-))
+)
 ```
 
 2. Assume that the null hypothesis is $H_0: \beta = 1$.

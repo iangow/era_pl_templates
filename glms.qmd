@@ -50,6 +50,7 @@ More details on using Quarto markdown are provided on the [Quarto website](https
 ```{python}
 #| include: false
 #| eval: true
+from IPython.display import display
 import warnings
 
 import numpy as np
@@ -62,7 +63,7 @@ from maketables import ETable
 from plotnine_polars import aes
 from scipy.stats import logistic, norm
 
-from era_pl import load_parquet, show_typst
+from era_pl import load_parquet
 
 p9.theme_set(p9.theme_matplotlib())
 
@@ -75,7 +76,7 @@ warnings.filterwarnings("ignore", category=UserWarning, module="pyfixest")
 #| include: false
 #| eval: true
 def show_etable(models, **kwargs):
-    show_typst(ETable(models=models, **kwargs))
+    display(ETable(models=models, **kwargs))
 ```
 
 ```{python}
