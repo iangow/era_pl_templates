@@ -712,36 +712,10 @@ fm_x = ols_fit('x ~ 1', data=coefs_df)
 ```{python}
 #| include: false
 #| eval: true
-ETable(
-    [fm_intercept, fm_x],
-    model_heads=["Intercept", "x"],
-    head_order="h",
-    coef_fmt="b:.4f \n (se:.4f)",
-    model_stats=["N"],
-    show_fe=False,
-)
-```
-
-```{python}
-#| include: false
-#| eval: true
 test_panel = test.to_pandas().set_index(['firm', 'year'])
 fm_fmt = FamaMacBeth.from_formula('y ~ 1 + x', data=test_panel).fit(debiased=True)
 fm_fmnw = FamaMacBeth.from_formula('y ~ 1 + x', data=test_panel).fit(
     cov_type='kernel', kernel='bartlett', bandwidth=1, debiased=True
-)
-```
-
-```{python}
-#| include: false
-#| eval: true
-ETable(
-    [fm_fmt, fm_fmnw],
-    model_heads=["FM-t", "FM-NW"],
-    head_order="h",
-    coef_fmt="b:.4f \n (se:.4f)",
-    model_stats=["N"],
-    show_fe=False,
 )
 ```
 
@@ -776,15 +750,38 @@ fm_cl_2 = (
 
 ## Dependence
 
-The fits retain the chapter's inference choices.
-OLS and CL-2 use $t_{4998}$; White, CL-i and CL-t use standard-normal probabilities.
-FM-t and FM-NW use `linearmodels` 7.1 or later with `debiased=True`, giving $t_9$ from 10 yearly coefficient estimates, despite 5,000 firm-year observations.
-FM-NW uses a Bartlett kernel with bandwidth 1.
-CL-2 retains `group_debias=False`; enabling it does not reproduce the default `fixest` correction and reference distribution in the R edition.
+```{python}
+#| label: tbl-fm
+#| tbl-cap: Results from second-step of FM
+#| echo: false
+ETable(
+    [fm_intercept, fm_x],
+    model_heads=["Intercept", "x"],
+    head_order="h",
+    coef_fmt="b:.4f \n (se:.4f)",
+    model_stats=["N"],
+    show_fe=False,
+)
+```
+
+```{python}
+#| label: tbl-fm-nw
+#| tbl-cap: Standard errors using FM-t and FM-NW
+#| echo: false
+ETable(
+    [fm_fmt, fm_fmnw],
+    model_heads=["FM-t", "FM-NW"],
+    head_order="h",
+    coef_fmt="b:.4f \n (se:.4f)",
+    model_stats=["N"],
+    show_fe=False,
+)
+```
 
 ### Exercises
 
 1. Verify either by direct computation using the data in `coefs_df` or using a little algebra that regressing the first-stage coefficients on a constant (as we did above) yields the desired second-stage results for FM-t.
+Explain why @tbl-fm and @tbl-fm-nw report different numbers of observations.
 
 ```{python}
 #| include: true
@@ -792,6 +789,8 @@ CL-2 retains `group_debias=False`; enabling it does not reproduce the default `f
 ```
 
 ```{python}
+#| label: tbl-ses-all
+#| tbl-cap: Standard errors using various methods
 #| echo: false
 ETable(
     [fm_ols, fm_white, fm_cl_i, fm_cl_t, fm_cl_2, fm_fmt],
@@ -805,8 +804,9 @@ ETable(
 ```
 
 2. Assume that the null hypothesis is $H_0: \beta = 1$.
-Using the reported coefficients and standard errors for each of the methods listed in the table above (i.e., OLS, White, CL-i, CL-t, CL-2, FM-t), for which methods is the null hypothesis rejected at the 5% level?
-Calculate p-values using each model's reference distribution stated above, and compare them with a common standard-normal approximation.
+Using the reported slope estimates and standard errors in @tbl-ses-all, calculate two-sided p-values and determine which methods reject at the 5% level.
+State the reference distributions you use.
+How would you determine the degrees of freedom for FM-t from the second-step regression?
 
 ```{python}
 #| include: true
