@@ -53,6 +53,8 @@ p9.theme_set(p9.theme_matplotlib())
 ```{python}
 #| include: false
 #| eval: true
+from datetime import date, timedelta
+
 import polars as pl
 import statsmodels.formula.api as smf
 from scipy.stats import norm
@@ -83,28 +85,33 @@ apple_permno = (
     .item()
 )
 
+apple_sample_start = date(2005, 1, 1)
+apple_sample_end = date(2023, 12, 31)
+apple_events = (
+    load_data("apple_events")
+    .filter(
+        pl.col("event_date") >= apple_sample_start,
+        pl.col("end_event_date") <= apple_sample_end,
+    )
+)
+
 apple_rets = (
     dsf
     .join(dsi.select("date", "vwretd"),
           on="date", how="inner")
     .filter(
         pl.col("permno") == apple_permno,
-        pl.col("date") >= pl.date(2005, 1, 1),
+        pl.col("date").is_between(apple_sample_start, apple_sample_end),
     )
     .with_columns(ret_mkt=pl.col("ret") - pl.col("vwretd"))
     .select("permno", "date", "ret", "ret_mkt", "vol")
 )
 
-apple_events = (
-    load_data("apple_events")
-    .lazy()
-    .with_columns(permno=pl.lit(apple_permno))
-)
-
 trading_dates = get_trading_dates(dsi)
 
 apple_event_dates = get_event_dates(
-    data=apple_events,
+    data=apple_events.with_columns(permno=pl.lit(apple_permno)),
+    trading_dates=trading_dates,
     permno="permno",
     event_date="event_date",
     end_event_date="end_event_date",
@@ -324,13 +331,25 @@ What features are present and what, if any, are missing?
 #| fig-height: 3
 #| warning: false
 #| fig-cap: Apple returns
-#| fig-alt: "Plot of cumulative returns for Apple stock from 2005 to early 2020. While periods involving Apple media events are distinguished by colour from other periods, these are not visible in the plot at this scale. Cumulative returns are generally positive and reach an index value of 200 at the end of this period."
+#| fig-alt: "Plot of cumulative returns for Apple stock from 2005 through 2023. Periods involving Apple media events are distinguished by colour from other periods but are difficult to discern at this scale. Cumulative returns increase substantially over the period."
+
+apple_year_breaks = [
+    date(year, 1, 1)
+    for year in range(apple_sample_start.year, apple_sample_end.year + 1, 3)
+]
+
 (
     plot_df
     .ggplot(aes(x="date", y="cumret"))
     .geom_line()
     .geom_ribbon(aes(ymax="y_non_event", ymin=0, fill='"Non-event"'))
     .geom_ribbon(aes(ymax="y_event", ymin=0, fill='"Event"'))
+    .scale_x_date(
+        limits=(apple_sample_start, apple_sample_end),
+        breaks=apple_year_breaks,
+        date_labels="%Y",
+        expand=(0.01, timedelta(0)),
+    )
     .add_theme(legend_position="bottom")
 )
 ```
