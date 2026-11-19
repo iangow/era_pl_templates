@@ -135,14 +135,19 @@ fms = {
 #| include: false
 #| eval: true
 iv = fms["IV"]
+iv_data = df_ivs.to_pandas()
 
-iv_sargan = getattr(iv, "iv_sargan", {})
-sargan_stat = float(iv_sargan.get("stat", np.nan))
-sargan_p = float(iv_sargan.get("p", np.nan))
+sargan_aux = smf.ols(
+    "iv_resid ~ z_1 + z_2 + z_3",
+    data=iv_data.assign(iv_resid=iv.resid()),
+).fit()
+sargan_stat = sargan_aux.nobs * sargan_aux.rsquared
+sargan_df = 3 - 1  # Excluded instruments minus endogenous regressors.
+sargan_p = chi2.sf(sargan_stat, df=sargan_df)
 
 first_stage = smf.ols(
     "X ~ z_1 + z_2 + z_3",
-    data=df_ivs.to_pandas(),
+    data=iv_data,
 ).fit()
 f_stat = first_stage.fvalue
 f_p = first_stage.f_pvalue
