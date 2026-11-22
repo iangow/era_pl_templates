@@ -234,6 +234,14 @@ If you prefer a script instead of entering Python interactively, run:
 uv run scripts/download_wrds_tables.py
 ```
 
+The script reads its table list from [`data_manifest.toml`](data_manifest.toml), which also records the tables each template uses.
+To download the tables for one chapter only, or to see what is missing without connecting to WRDS, run:
+
+```bash
+uv run scripts/download_wrds_tables.py --chapter pead
+uv run scripts/download_wrds_tables.py --check
+```
+
 ### Troubleshooting
 
 If Positron does not appear to use the correct Python interpreter, run the following in Positron's Python console:

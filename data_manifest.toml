@@ -1,0 +1,132 @@
+# Data each template reads from DATA_DIR.
+#
+# `scripts/download_wrds_tables.py` reads this file. The `[chapters]` lists are
+# the tables a template names in `load_parquet(...)` calls. Regenerate them
+# with `uv run scripts/download_wrds_tables.py --scan` after editing a template.
+# Tables under `[wrds]` that no chapter lists are read inside `era_pl` helpers.
+
+# Tables downloaded from WRDS with db2pq, in download order.
+# `kwargs` are passed to `db2pq.wrds_update_pq`.
+
+[[wrds]]
+schema = "crsp"
+table = "ccmxpf_lnkhist"
+kwargs = { col_types = { lpermno = "int32", lpermco = "int32" } }
+
+[[wrds]]
+schema = "crsp"
+table = "stocknames"
+
+[[wrds]]
+schema = "crsp"
+table = "dsi"
+
+[[wrds]]
+schema = "crsp"
+table = "comphist"
+
+[[wrds]]
+schema = "crsp"
+table = "dsedelist"
+
+[[wrds]]
+schema = "crsp"
+table = "dseexchdates"
+
+[[wrds]]
+schema = "crsp"
+table = "dsedist"
+
+[[wrds]]
+schema = "crsp"
+table = "msi"
+
+[[wrds]]
+schema = "crsp"
+table = "mse"
+
+[[wrds]]
+schema = "crsp"
+table = "msf"
+
+[[wrds]]
+schema = "crsp"
+table = "erdport1"
+
+[[wrds]]
+schema = "crsp"
+table = "dsf"
+
+[[wrds]]
+schema = "ff"
+table = "factors_daily"
+
+[[wrds]]
+schema = "comp"
+table = "company"
+
+[[wrds]]
+schema = "comp"
+table = "funda"
+
+[[wrds]]
+schema = "comp"
+table = "funda_fncd"
+
+[[wrds]]
+schema = "comp"
+table = "fundq"
+
+[[wrds]]
+schema = "comp"
+table = "r_auditors"
+
+[[wrds]]
+schema = "comp"
+table = "idx_daily"
+
+[[wrds]]
+schema = "comp"
+table = "aco_pnfnda"
+
+[[wrds]]
+schema = "compseg"
+table = "seg_customer"
+
+[[wrds]]
+schema = "compseg"
+table = "names_seg"
+
+# Tables that are not WRDS downloads. They are built by other code and must
+# already be in DATA_DIR/<schema>/.
+[other]
+glms = "Pre-generated files for the application section of glms.qmd (see the note at the top of that template)."
+
+# chapter = tables it loads with load_parquet(). An empty list means the
+# chapter runs with no local Parquet data.
+[chapters]
+"py-intro" = []
+"reg-basics" = []
+"causal-inf" = []
+"stat-inf" = []
+"fin-state" = ["comp.company", "comp.funda", "comp.fundq"]
+identifiers = ["comp.funda", "comp.fundq", "crsp.ccmxpf_lnkhist", "crsp.dsf", "crsp.dsi", "crsp.msf", "crsp.msi", "crsp.stocknames"]
+"fin-state-reprise" = ["comp.company", "comp.funda"]
+"web-data" = []
+ffjr = ["crsp.dsedist", "crsp.msf", "crsp.msi", "crsp.stocknames"]
+bb68 = ["comp.funda", "comp.fundq", "crsp.ccmxpf_lnkhist", "crsp.msf", "crsp.msi", "crsp.stocknames"]
+beaver68 = ["comp.fundq", "crsp.ccmxpf_lnkhist", "crsp.dsf", "crsp.dsi", "crsp.stocknames"]
+"event-studies" = ["comp.idx_daily", "crsp.dsf", "crsp.dsi", "crsp.stocknames"]
+pead = ["comp.company", "comp.funda", "comp.fundq", "crsp.ccmxpf_lnkhist", "crsp.dsedelist", "crsp.dsf", "crsp.erdport1"]
+accruals = ["comp.company", "comp.funda", "crsp.ccmxpf_lnkhist", "crsp.msf"]
+"earnings-mgt" = ["comp.company", "comp.funda"]
+natural = []
+mechanisms = []
+"natural-revisited" = ["comp.funda", "crsp.ccmxpf_lnkhist", "crsp.dseexchdates", "crsp.dsf", "crsp.mse", "crsp.msf", "crsp.stocknames"]
+iv = []
+"panel-data" = ["comp.funda", "compseg.names_seg", "compseg.seg_customer"]
+rdd = ["comp.funda", "crsp.ccmxpf_lnkhist", "crsp.dsf", "ff.factors_daily"]
+glms = ["glms.compustat", "glms.event_dates", "glms.filing_10k_merged", "glms.liquidity", "glms.lm_10x_summary", "glms.trading_dates", "glms.vdis_df"]
+"extreme-vals" = ["comp.funda"]
+psm = ["comp.company", "comp.funda", "comp.r_auditors"]
+prediction = ["comp.funda"]
