@@ -50,6 +50,7 @@ import numpy as np
 import polars as pl
 import plotnine_polars as p9
 from plotnine_polars import aes
+import statspai as sp
 import statsmodels.formula.api as smf
 from maketables import ETable
 ```
@@ -311,10 +312,20 @@ Why or why not?
 
 ## Causal diagrams: Formalities
 
+Use the confounder graph from the chapter to see how StatsPAI finds the minimal adjustment set for the effect of $X$ on $Y$.
+
+```{python}
+confounder = sp.dag("Z -> X; Z -> Y; X -> Y")
+confounder.adjustment_sets("X", "Y")
+```
+
+The result contains one set, $\{Z\}$. Conditioning on $Z$ blocks $X \leftarrow Z \rightarrow Y$.
+
 ### Exercises
 
 1. Draw the DAG for the structural model above relating intelligence, industriousness, education, and income.
 For each $x$ variable, identify the sets of conditioning variables that satisfy the back-door criterion with respect to estimating a causal effect of the variable on $y$.
+Use `.adjustment_sets()` with `minimal=False` to check your answers.
 
 ```{python}
 #| include: true
@@ -356,6 +367,7 @@ ETable(
 2. Consider the possibility of an additional unobserved variable, ability ($A$), that affects role assignment ($O$) and also affects income ($Y$) directly, as depicted in the DAG below.
 What would be the correct conditioning strategy in this case?
 Would it now make sense to condition on $O$ if the goal is to estimate the total effect of discrimination on $Y$?
+Use `.adjustment_sets()` to check your answer for the total effect, specifying `latent=["D", "A"]` in `sp.dag()` for the two unobserved variables.
 (*Hint:* In answering this question, it may help to adapt the simulation above to generate an `ability` variable and to incorporate that in the model using code like the following.)
 
 The DAG has the following edges: $F \rightarrow D \rightarrow O \rightarrow Y$, $D \rightarrow Y$, $A \rightarrow O$, $A \rightarrow Y$.
@@ -376,6 +388,8 @@ $D$ (discrimination) and $A$ (ability) are unobserved.
 
 3. Consider the additional possibility of different occupational preferences between males and females, as depicted in the DAG below.
 Given this DAG, is it possible to identify a set of conditioning variables that allow you to estimate the total effect of discrimination on salary?
+Update your DAG from the previous exercise and use `.adjustment_sets()` to check your reasoning about the total effect.
+How does the fact that $D$ is unobserved affect what you can estimate?
 What roles does $O$ have in this DAG?
 (*Hint:* Replace the `0` coefficient on `female` in the `occupation` equation used in the last question with a value of either `-1` or `+1`.
 Does the sign of this coefficient affect the sign of bias, if any?)
