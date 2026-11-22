@@ -272,6 +272,15 @@ df = (
 #| eval: true
 #| cache: true
 data_train = df.filter(pl.col("fyear") <= 2001)
+
+
+def normalize_features(data: pl.DataFrame) -> pl.DataFrame:
+    row_norm = pl.sum_horizontal(pl.col(X_vars).pow(2)).sqrt()
+    divisor = pl.when(row_norm > 0).then(row_norm).otherwise(1)
+    return data.with_columns(pl.col(X_vars) / divisor)
+
+
+data_train_logit = normalize_features(data_train)
 ```
 
 ```{python}
@@ -300,13 +309,10 @@ sample_splits = gvkeys.with_columns(
 #| include: false
 #| eval: true
 #| cache: true
-fm1 = Pipeline([
-    ("scale", StandardScaler()),
-    ("logit", LogisticRegression(l1_ratio=0, max_iter=5000)),
-])
+fm1 = LogisticRegression(C=np.inf, solver="newton-cholesky", tol=1e-10)
 fm1.fit(
-    data_train.select(X_vars).to_numpy(),
-    data_train[y_var].to_numpy(),
+    data_train_logit.select(X_vars).to_numpy(),
+    data_train_logit[y_var].to_numpy(),
 );
 ```
 
@@ -317,7 +323,7 @@ within_sample1 = (
     data_train
     .with_columns(
         score=predict_proba_series(fm1,
-                                   data_train.select(X_vars).to_numpy())
+                                   data_train_logit.select(X_vars).to_numpy())
     )
     .with_columns(
         predicted=(pl.col("score") > 0.5).cast(pl.Int8)
@@ -339,13 +345,10 @@ confusion_matrix(
 #| eval: true
 #| cache: true
 def logit_predict(fold: int) -> pl.DataFrame:
-    dft = data_train.join(sample_splits, on="gvkey", how="inner")
+    dft = data_train_logit.join(sample_splits, on="gvkey", how="inner")
     train = dft.filter(pl.col("fold") != fold)
     test = dft.filter(pl.col("fold") == fold)
-    model = Pipeline([
-        ("scale", StandardScaler()),
-        ("logit", LogisticRegression(l1_ratio=0, max_iter=5000)),
-    ])
+    model = LogisticRegression(C=np.inf, solver="newton-cholesky", tol=1e-10)
     model.fit(train.select(X_vars).to_numpy(), train[y_var].to_numpy())
     return test.select("gvkey", "fyear", y_var).with_columns(
         score=predict_proba_series(model, test.select(X_vars).to_numpy())
@@ -417,7 +420,7 @@ confusion_matrix(
 #| include: false
 #| eval: true
 #| cache: true
-dft = data_train.join(sample_splits, on="gvkey", how="inner")
+dft = data_train_logit.join(sample_splits, on="gvkey", how="inner")
 cv_splits = [
     (np.flatnonzero(dft["fold"].to_numpy() != fold),
      np.flatnonzero(dft["fold"].to_numpy() == fold))
@@ -469,7 +472,7 @@ fitted_lasso = (
     data_train
     .select("misstate")
     .with_columns(
-        prob=predict_proba_series(fm_lasso, data_train.select(X_vars).to_numpy())
+        prob=predict_proba_series(fm_lasso, data_train_logit.select(X_vars).to_numpy())
     )
     .with_columns(
         predicted=(pl.col("prob") > 0.5).cast(pl.Int8)
@@ -907,10 +910,7 @@ def train_logit(features: pl.DataFrame, test_year: int, gap: int = 2):
             .fill_null(False).cast(pl.Int8)
         )
     )
-    fm = Pipeline([
-        ("scale", StandardScaler()),
-        ("logit", LogisticRegression(l1_ratio=0, max_iter=5000)),
-    ])
+    fm = LogisticRegression(C=np.inf, solver="newton-cholesky", tol=1e-10)
     fm.fit(
         data_train_local.select(X_vars).to_numpy(),
         data_train_local[y_var].to_numpy(),
@@ -961,8 +961,9 @@ def fit_test_logit(x: int, features: pl.DataFrame, gap: int = 2):
 #| include: false
 #| eval: true
 #| cache: true
+features_logit = normalize_features(features)
 results_logit = [
-    fit_test_logit(year, features=features)
+    fit_test_logit(year, features=features_logit)
     for year in test_years
 ]
 ```
@@ -1057,9 +1058,9 @@ If not, what challenges prevent you from doing so?
 
 ```
 
-4. Calculate AUC and produce the confusion matrix for `fm_lasso` applied to `data_train` (i.e., in sample).
+4. Calculate AUC and produce the confusion matrix for `fm_lasso` applied to `data_train_logit` (i.e., in sample).
 Interpret these results.
-(*Hint:* You might use `predict_proba_series(fm_lasso, data_train.select(X_vars).to_numpy())` together with `roc_auc_score()`.)
+(*Hint:* You might use `predict_proba_series(fm_lasso, data_train_logit.select(X_vars).to_numpy())` together with `roc_auc_score()`.)
 
 ```{python}
 #| include: true
@@ -1071,7 +1072,7 @@ Interpret these results.
 ```{python}
 #| label: tbl-logit-oss
 #| echo: false
-#| tbl-cap: "Performance statistics for logit models"
+#| tbl-cap: "Performance statistics for logit with normalized inputs"
 table_results(results_logit)
 ```
 
@@ -1101,9 +1102,10 @@ What differences are there between our approach here and those in @Bao:2020aa an
 ```
 
 4. @Bao:2022aa report an AUC in the test sample for an all-features logit model of 0.6842 (see Panel B of Table 1).
-Calculate an equivalent value for AUC from applying logistic regression to data from above.
+Calculate the corresponding AUC using the book's data.
+In both the training and test data, normalize each firm-year's inputs to unit length (if nonzero), as in @Bao:2020aa [p. 222].
 You may find it helpful to adapt the code above for RUSBoost in the following steps:
-   a. Create a function `train_logit()` analogous to `train_model()` above, but using `LogisticRegression()` in place of the RUSBoost classifier.
+   a. Create a function `train_logit()` analogous to `train_model()` above, but using the unpenalized `LogisticRegression()` specification above in place of the RUSBoost classifier.
    b. Create a function `test_logit()` analogous to `test_model()` above, but using calls to `predict_proba_series()` like those used above for logistic regression.
    c. Create a function `fit_test_logit()` analogous to `fit_test()` above, but calling the functions you created above.
    d. Loop over `test_years` with `fit_test_logit()` and store the results in `results_logit`.
@@ -1157,9 +1159,9 @@ What limitations of @Bao:2020aa and @Bao:2022aa might affect the interest of thi
 
 ```
 
-10. Provide reasons why the tree-based models outperform the logit-based models in this setting?
-Do you think this might be related to the set of features considered?
-How might you alter the features if you wanted to improve the performance of the logit-based models?
+10. How do AdaBoost, RUSBoost, and logit rank on mean test AUC and mean NDCG at each cutoff?
+How might the input transformations and the ability to model nonlinearities and interactions contribute to these results?
+How might you alter the features to improve the performance of logit?
 
 ```{python}
 #| include: true
