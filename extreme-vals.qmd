@@ -287,13 +287,13 @@ win_cols = ["blckownpct", "initabret", "pctinddir",
 
 cmsw = (
     cmsw_2018
-    .filter(pl.col("tousesox") == 1)
     .with_columns(
         pl.col(win_cols).era.winsorize(),
         pl.col(yvars).log1p().name.prefix("ln_"),
         pl.col("ff12").cast(pl.Utf8),
         pl.col(pl.Boolean).cast(pl.Int8),
     )
+    .filter(pl.col("tousesox") == 1)
 )
 ```
 
