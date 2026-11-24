@@ -1,6 +1,6 @@
 # Support page for *Empirical Research in Accounting: Tools and Methods*
 
-This page provides support to readers of the (work-in-progress) [Python Polars edition of *Empirical Research in Accounting: Tools and Methods*](https://iangow.github.io/era_pl_book/).
+This page provides support to readers of the (work-in-progress) [Python Polars/StatsPAI edition of *Empirical Research in Accounting: Tools and Methods*](https://iangow.github.io/era_statpai/).
 (For support for the [R edition](https://iangow.github.io/far_book/) of the book, please go [here](https://github.com/iangow/far_templates))
 
 This repository contains Quarto templates that readers of *Empirical Research in Accounting* can easily render into PDF documents.
@@ -12,46 +12,46 @@ Each template is a slimmed-down, self-contained version of a book chapter with t
 
 | Chapter | Template |
 |---------|----------|
-| The basics of data analysis | [py-intro.qmd](https://raw.githubusercontent.com/iangow/era_pl_templates/main/py-intro.qmd) |
-| Regression fundamentals | [reg-basics.qmd](https://raw.githubusercontent.com/iangow/era_pl_templates/main/reg-basics.qmd) |
-| Causal inference | [causal-inf.qmd](https://raw.githubusercontent.com/iangow/era_pl_templates/main/causal-inf.qmd) |
-| Statistical inference | [stat-inf.qmd](https://raw.githubusercontent.com/iangow/era_pl_templates/main/stat-inf.qmd) |
-| Financial statements: A first look | [fin-state.qmd](https://raw.githubusercontent.com/iangow/era_pl_templates/main/fin-state.qmd) |
-| Linking databases | [identifiers.qmd](https://raw.githubusercontent.com/iangow/era_pl_templates/main/identifiers.qmd) |
-| Financial statements: A second look | [fin-state-reprise.qmd](https://raw.githubusercontent.com/iangow/era_pl_templates/main/fin-state-reprise.qmd) |
-| Importing data | [web-data.qmd](https://raw.githubusercontent.com/iangow/era_pl_templates/main/web-data.qmd) |
+| The basics of data analysis | [py-intro.qmd](https://raw.githubusercontent.com/iangow/era_pl_templates/statspai/py-intro.qmd) |
+| Regression fundamentals | [reg-basics.qmd](https://raw.githubusercontent.com/iangow/era_pl_templates/statspai/reg-basics.qmd) |
+| Causal inference | [causal-inf.qmd](https://raw.githubusercontent.com/iangow/era_pl_templates/statspai/causal-inf.qmd) |
+| Statistical inference | [stat-inf.qmd](https://raw.githubusercontent.com/iangow/era_pl_templates/statspai/stat-inf.qmd) |
+| Financial statements: A first look | [fin-state.qmd](https://raw.githubusercontent.com/iangow/era_pl_templates/statspai/fin-state.qmd) |
+| Linking databases | [identifiers.qmd](https://raw.githubusercontent.com/iangow/era_pl_templates/statspai/identifiers.qmd) |
+| Financial statements: A second look | [fin-state-reprise.qmd](https://raw.githubusercontent.com/iangow/era_pl_templates/statspai/fin-state-reprise.qmd) |
+| Importing data | [web-data.qmd](https://raw.githubusercontent.com/iangow/era_pl_templates/statspai/web-data.qmd) |
 
 ### Part II: Capital Markets Research
 
 | Chapter | Template |
 |---------|----------|
-| FFJR | [ffjr.qmd](https://raw.githubusercontent.com/iangow/era_pl_templates/main/ffjr.qmd) |
-| Ball and Brown (1968) | [bb68.qmd](https://raw.githubusercontent.com/iangow/era_pl_templates/main/bb68.qmd) |
-| Beaver (1968) | [beaver68.qmd](https://raw.githubusercontent.com/iangow/era_pl_templates/main/beaver68.qmd) |
-| Event studies | [event-studies.qmd](https://raw.githubusercontent.com/iangow/era_pl_templates/main/event-studies.qmd) |
-| Post-earnings announcement drift | [pead.qmd](https://raw.githubusercontent.com/iangow/era_pl_templates/main/pead.qmd) |
-| Accruals | [accruals.qmd](https://raw.githubusercontent.com/iangow/era_pl_templates/main/accruals.qmd) |
-| Earnings management | [earnings-mgt.qmd](https://raw.githubusercontent.com/iangow/era_pl_templates/main/earnings-mgt.qmd) |
+| FFJR | [ffjr.qmd](https://raw.githubusercontent.com/iangow/era_pl_templates/statspai/ffjr.qmd) |
+| Ball and Brown (1968) | [bb68.qmd](https://raw.githubusercontent.com/iangow/era_pl_templates/statspai/bb68.qmd) |
+| Beaver (1968) | [beaver68.qmd](https://raw.githubusercontent.com/iangow/era_pl_templates/statspai/beaver68.qmd) |
+| Event studies | [event-studies.qmd](https://raw.githubusercontent.com/iangow/era_pl_templates/statspai/event-studies.qmd) |
+| Post-earnings announcement drift | [pead.qmd](https://raw.githubusercontent.com/iangow/era_pl_templates/statspai/pead.qmd) |
+| Accruals | [accruals.qmd](https://raw.githubusercontent.com/iangow/era_pl_templates/statspai/accruals.qmd) |
+| Earnings management | [earnings-mgt.qmd](https://raw.githubusercontent.com/iangow/era_pl_templates/statspai/earnings-mgt.qmd) |
 
 ### Part III: Causal Inference
 
 | Chapter | Template |
 |---------|----------|
-| Natural experiments | [natural.qmd](https://raw.githubusercontent.com/iangow/era_pl_templates/main/natural.qmd) |
-| Causal mechanisms | [mechanisms.qmd](https://raw.githubusercontent.com/iangow/era_pl_templates/main/mechanisms.qmd) |
-| Natural experiments revisited | [natural-revisited.qmd](https://raw.githubusercontent.com/iangow/era_pl_templates/main/natural-revisited.qmd) |
-| Instrumental variables | [iv.qmd](https://raw.githubusercontent.com/iangow/era_pl_templates/main/iv.qmd) |
-| Panel data | [panel-data.qmd](https://raw.githubusercontent.com/iangow/era_pl_templates/main/panel-data.qmd) |
-| Regression discontinuity designs | [rdd.qmd](https://raw.githubusercontent.com/iangow/era_pl_templates/main/rdd.qmd) |
+| Natural experiments | [natural.qmd](https://raw.githubusercontent.com/iangow/era_pl_templates/statspai/natural.qmd) |
+| Causal mechanisms | [mechanisms.qmd](https://raw.githubusercontent.com/iangow/era_pl_templates/statspai/mechanisms.qmd) |
+| Natural experiments revisited | [natural-revisited.qmd](https://raw.githubusercontent.com/iangow/era_pl_templates/statspai/natural-revisited.qmd) |
+| Instrumental variables | [iv.qmd](https://raw.githubusercontent.com/iangow/era_pl_templates/statspai/iv.qmd) |
+| Panel data | [panel-data.qmd](https://raw.githubusercontent.com/iangow/era_pl_templates/statspai/panel-data.qmd) |
+| Regression discontinuity designs | [rdd.qmd](https://raw.githubusercontent.com/iangow/era_pl_templates/statspai/rdd.qmd) |
 
 ### Part IV: Additional Topics
 
 | Chapter | Template |
 |---------|----------|
-| Beyond OLS | [glms.qmd](https://raw.githubusercontent.com/iangow/era_pl_templates/main/glms.qmd) |
-| Extreme values and sensitivity analysis | [extreme-vals.qmd](https://raw.githubusercontent.com/iangow/era_pl_templates/main/extreme-vals.qmd) |
-| Matching | [psm.qmd](https://raw.githubusercontent.com/iangow/era_pl_templates/main/psm.qmd) |
-| Prediction | [prediction.qmd](https://raw.githubusercontent.com/iangow/era_pl_templates/main/prediction.qmd) |
+| Beyond OLS | [glms.qmd](https://raw.githubusercontent.com/iangow/era_pl_templates/statspai/glms.qmd) |
+| Extreme values and sensitivity analysis | [extreme-vals.qmd](https://raw.githubusercontent.com/iangow/era_pl_templates/statspai/extreme-vals.qmd) |
+| Matching | [psm.qmd](https://raw.githubusercontent.com/iangow/era_pl_templates/statspai/psm.qmd) |
+| Prediction | [prediction.qmd](https://raw.githubusercontent.com/iangow/era_pl_templates/statspai/prediction.qmd) |
 
 ## Set-up instructions
 
@@ -68,14 +68,14 @@ At a high level, the required set-up encompasses the following:
 
 ### Step 1: Download the project
 
-1. If you're not already on the GitHub page for this repository, open the repository page on GitHub.
+1. Open the [`statspai` branch of this repository](https://github.com/iangow/era_pl_templates/tree/statspai).
 2. Click the `Code` button that looks like this: ![`Code` button](images/github-code-button.svg).
    This button should be somewhere toward the top-right part of this page.
 3. Click `Download ZIP`.
 4. Find the downloaded ZIP file on your computer.
 5. Unzip the downloaded archive.
 
-After unzipping, you should have a folder named something like `era_pl_templates-main`.
+After unzipping, you should have a folder named something like `era_pl_templates-statspai`.
 
 You may rename this folder to something more meaningful for your own work, such as `era_homework`.
 You may also move the folder to any convenient location on your computer before opening it in Positron.

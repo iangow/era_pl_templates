@@ -12,9 +12,9 @@ format:
 :::{.content-visible when-format="markdown"}
 ## Instructions
 
-This document assumes that you have completed the instructions [here](https://github.com/iangow/era_pl_templates/blob/main/README.md).
+This document assumes that you have completed the instructions [here](https://github.com/iangow/era_pl_templates/blob/statspai/README.md).
 
-This template extracts the visible code and exercises from [Chapter 19](https://iangow.github.io/era_pl_book/natural-revisited.html) of the Python Polars edition of *Empirical Research in Accounting: Tools and Methods*.
+This template extracts the visible code and exercises from [Chapter 19](https://iangow.github.io/era_statpai/natural-revisited.html) of the Python Polars/StatsPAI edition of *Empirical Research in Accounting: Tools and Methods*.
 This template includes all the code from the book chapter.
 
 WRDS data is required: `funda` (Compustat), and `mse`, `msf`, `stocknames`, `dseexchdates`, `ccmxpf_lnkhist`, `dsf` (CRSP).
@@ -47,22 +47,20 @@ More details on using Quarto markdown are provided on the [Quarto website](https
 
 ```{python}
 #| include: false
-#| eval: true
-from IPython.display import display
-import warnings
+# hidden-review: plot-theme
+import plotnine_polars as p9
+p9.theme_set(p9.theme_matplotlib())
+```
+
+```{python}
+#| include: false
+import gt_typst
 import numpy as np
 import polars as pl
-import pyfixest as pf
-import plotnine_polars as p9
+import statspai as sp
+
+from era_pl import get_ff_ind, load_data, load_parquet, ptime
 from plotnine_polars import aes
-from maketables import ETable
-
-from era_pl import (
-    get_ff_ind, load_data, load_parquet,
-    ptime,
-)
-
-p9.theme_set(p9.theme_matplotlib())
 ```
 
 ```{python}
@@ -267,7 +265,6 @@ sho_data = (
 
 ```{python}
 #| include: false
-#| eval: true
 def get_outcomes(rho: float = 0.0, periods: int = 7) -> pl.DataFrame:
     e = np.random.normal(size=periods)
     y = np.empty(periods, dtype=float)
@@ -280,15 +277,21 @@ def get_outcomes(rho: float = 0.0, periods: int = 7) -> pl.DataFrame:
             "y": y,
         }
     )
+```
 
+```{python}
+#| include: false
 def get_sample(n: int = 100, rho: float = 0.0,
                periods: int = 7, effect: float = 0.0) -> pl.DataFrame:
+    # sample half the ids for treatment (without replacement)
     treat = set(np.random.choice(np.arange(1, n + 1),
                 size=n // 2, replace=False).tolist())
+
     t_effects = pl.DataFrame({
         "t": np.arange(1, periods + 1),
         "t_effect": np.random.normal(size=periods),
     })
+
     df = pl.concat(
         [
             get_outcomes(rho=rho, periods=periods)
@@ -297,6 +300,7 @@ def get_sample(n: int = 100, rho: float = 0.0,
         ],
         how="vertical",
     )
+
     return (
         df
         .join(t_effects, on="t", how="inner")
@@ -315,36 +319,36 @@ def get_sample(n: int = 100, rho: float = 0.0,
         )
         .select(pl.exclude("t_effect"))
     )
+```
 
+```{python}
+#| include: false
 def _ols_coef(y: pl.Series, X: pl.DataFrame, coef_idx: int) -> float:
     y_np = y.to_numpy()
     X_np = X.to_numpy()
-    X_np = np.column_stack([np.ones(len(y_np)), X_np])
+    X_np = np.column_stack([np.ones(len(y_np)), X_np])  # intercept
     beta = np.linalg.lstsq(X_np, y_np, rcond=None)[0]
     return float(beta[coef_idx])
 
 def est_effect(df: pl.DataFrame) -> pl.DataFrame:
-    did_df = df.with_columns(
-        (
-            (pl.col("treat") & pl.col("post"))
-            .cast(pl.Float64)
-            .alias("treat_post")
-        ),
-        pl.col("treat").cast(pl.Float64).alias("treat_f"),
-        pl.col("post").cast(pl.Float64).alias("post_f"),
-    )
-    est_did = _ols_coef(
-        did_df["y"],
-        did_df.select("treat_f", "post_f", "treat_post"),
-        coef_idx=3,
-    )
+    est_did = sp.regress(
+        "y ~ treat * post", data=df, robust="nonrobust"
+    ).params["treat[T.True]:post[T.True]"]
+
+    # POST: y ~ treat on post-only means by id
     df_post = (
         df.filter(pl.col("post"))
         .group_by("id", "treat")
         .agg(pl.col("y").mean().alias("y"))
         .with_columns(pl.col("treat").cast(pl.Float64).alias("treat_f"))
     )
-    est_post = _ols_coef(df_post["y"], df_post.select("treat_f"), coef_idx=1)
+    est_post = _ols_coef(
+        df_post["y"],
+        df_post.select("treat_f"),
+        coef_idx=1,
+    )
+
+    # CHANGE/ANCOVA prep
     df_change = (
         df.group_by("id", "treat", "post")
         .agg(pl.col("y").mean().alias("y"))
@@ -355,8 +359,21 @@ def est_effect(df: pl.DataFrame) -> pl.DataFrame:
             pl.col("treat").cast(pl.Float64).alias("treat_f"),
         )
     )
-    est_change = _ols_coef(df_change["y_change"], df_change.select("treat_f"), coef_idx=1)
-    est_ancova = _ols_coef(df_change["y_post"], df_change.select("y_pre", "treat_f"), coef_idx=2)
+
+    # CHANGE: y_change ~ treat
+    est_change = _ols_coef(
+        df_change["y_change"],
+        df_change.select("treat_f"),
+        coef_idx=1,
+    )
+
+    # ANCOVA: y_post ~ y_pre + treat
+    est_ancova = _ols_coef(
+        df_change["y_post"],
+        df_change.select("y_pre", "treat_f"),
+        coef_idx=2,
+    )
+
     return pl.DataFrame(
         {
             "est_DiD": [est_did],
@@ -365,25 +382,36 @@ def est_effect(df: pl.DataFrame) -> pl.DataFrame:
             "est_ANCOVA": [est_ancova],
         }
     )
+```
 
+```{python}
+#| include: false
 def run_sim(i: int, n: int = 100, rho: float = 0.0,
             periods: int = 7, effect: float = 0.0) -> pl.DataFrame:
     df = get_sample(n=n, rho=rho, periods=periods, effect=effect)
     return est_effect(df).with_columns(pl.lit(i).alias("i")).select(
         "i", "est_DiD", "est_POST", "est_CHANGE", "est_ANCOVA"
     )
+```
 
+```{python}
+#| include: false
 rhos = np.linspace(0.0, 0.9, 6)
 effects = np.linspace(0.0, 1.0, 5)
+```
 
+```{python}
+#| include: false
 def run_sim_n(effect: float, rho: float, **kwargs) -> pl.DataFrame:
     n_sims = 1000
     np.random.seed(2021)
+
     res = pl.concat(
         [run_sim(x, rho=rho, effect=effect, **kwargs)
          for x in range(n_sims)],
         how="vertical",
     )
+
     return (
         res.with_columns(
             pl.lit(effect).alias("effect"),
@@ -397,8 +425,6 @@ def run_sim_n(effect: float, rho: float, **kwargs) -> pl.DataFrame:
 ```{python}
 #| include: false
 #| eval: false
-# Long-running: iterates over all combinations of effect and rho values,
-# running 1000 simulations each — takes several minutes.
 from itertools import product
 
 with ptime():
@@ -416,7 +442,11 @@ with ptime():
     .filter((pl.col("est_DiD") - pl.col("est_CHANGE")).abs() > 1e-5)
     .height
 )
+```
 
+```{python}
+#| include: false
+#| eval: false
 tidy_results = (
     results
     .unpivot(
@@ -433,7 +463,7 @@ tidy_results = (
 ```
 
 ```{python}
-#| echo: false
+#| include: false
 #| eval: false
 (
     tidy_results
@@ -446,7 +476,7 @@ tidy_results = (
 ```
 
 ```{python}
-#| echo: false
+#| include: false
 #| eval: false
 (
     tidy_results
@@ -460,7 +490,6 @@ tidy_results = (
 
 ```{python}
 #| include: false
-#| eval: true
 dsf = load_parquet("dsf", "crsp")
 
 spreads = (
@@ -475,12 +504,15 @@ spreads = (
     .with_columns(post=pl.col("quarter") >= pl.date(2004, 1, 1))
     .filter(
         pl.col("spread").is_not_null(),
-        pl.col("quarter").is_between(pl.date(2000, 1, 1),
+        pl.col("quarter").is_between(pl.date(2001, 1, 1),
                                      pl.date(2008, 1, 1))
     )
     .collect()
 )
+```
 
+```{python}
+#| include: false
 rng = np.random.default_rng(2021)
 
 treatment = (
@@ -498,29 +530,39 @@ treatment = (
     .with_columns(treat=pl.col("rand") < pl.col("treat_prob"))
     .select("permno", "treat")
 )
+```
 
+```{python}
+#| include: false
 reg_data = spreads.join(treatment, on="permno", how="inner")
 
-fm_placebo = pf.feols(
+fm_placebo = sp.feols(
     "spread ~ post * treat",
     vcov={"CRV1": "permno"},
-    data=reg_data.to_pandas(),
+    data=reg_data,
 )
 ```
 
 ```{python}
 #| echo: false
-ETable(
-    [fm_placebo],
-    coef_fmt="b:.3f*",
-    signif_code=[0.01, 0.05, 0.10],
-    model_stats=["N"],
+#| label: tbl-placebo
+#| tbl-cap: Test of parallel trends in bid-ask spreads
+sp.regtable(
+    fm_placebo,
+    dep_var_labels=["spread"],
+    coef_map={
+        "post": "post",
+        "treat": "treat",
+        "post:treat": "post × treat",
+        "Intercept": "Intercept",
+    },
+    digits=3,
+    stats=["N"],
 )
 ```
 
 ```{python}
 #| include: false
-#| eval: true
 funda = load_parquet("funda", "comp")
 
 compustat_annual = (
@@ -542,7 +584,10 @@ compustat_annual = (
     .with_columns(fyear=pl.col("fyear").cast(pl.Int32))
     .collect()
 )
+```
 
+```{python}
+#| include: false
 controls_raw = (
     compustat_annual
     .sort(["gvkey", "fyear"])
@@ -561,57 +606,70 @@ controls_raw = (
                   (pl.col("dltt") + pl.col("dlc") + pl.col("seq"))),
         roa=
             pl.when(pl.col("at").shift(1).over("gvkey") > 0)
-            .then(pl.col("oibdp") / pl.col("at").shift(1).over("gvkey")),
+            .then(pl.col("oibdp") /
+                  pl.col("at").shift(1).over("gvkey")),
     )
     .filter(pl.col("fyear") == (pl.col("lag_fyear") + 1))
-    .select("gvkey", "datadate", "fyear", "at", "mtob", "leverage", "roa")
-)
-
-controls_filled = (
-    controls_raw
-    .sort(["gvkey", "fyear"])
-    .with_columns(
-        pl.col("mtob", "leverage", "roa")
-        .forward_fill()
-        .over("gvkey")
-    )
-)
-
-controls_fyear_avg = (
-    controls_filled
-    .group_by("fyear")
-    .agg(
-        pl.col("mtob", "leverage", "roa").mean().name.suffix("_avg")
-    )
-)
-
-df_controls = (
-    controls_filled
-    .join(controls_fyear_avg, on="fyear", how="left")
-    .with_columns(
-        pl.col("mtob").fill_null(pl.col("mtob_avg")),
-        pl.col("leverage").fill_null(pl.col("leverage_avg")),
-        pl.col("roa").fill_null(pl.col("roa_avg")),
-    )
     .select("gvkey", "datadate", "fyear", "at", "mtob", "leverage", "roa")
 )
 ```
 
 ```{python}
 #| include: false
-#| eval: true
-WIN_VARS = ["at", "mtob", "leverage", "roa", "da_adj", "acc_at"]
+fill_cols = ["at", "mtob", "leverage", "roa"]
 
+controls_filled = (
+    controls_raw
+    .sort(["gvkey", "fyear"])
+    .with_columns(
+        pl.col(fill_cols).forward_fill().over("gvkey")
+    )
+)
+```
+
+```{python}
+#| include: false
+controls_fyear_avg = (
+    controls_filled
+    .group_by("fyear")
+    .agg(
+        pl.col(fill_cols).mean().name.suffix("_avg")
+    )
+)
+```
+
+```{python}
+#| include: false
+df_controls = (
+    controls_filled
+    .join(controls_fyear_avg, on="fyear", how="left")
+    .with_columns(
+        pl.coalesce(pl.col(c), pl.col(f"{c}_avg")).alias(c)
+        for c in fill_cols
+    )
+    .select("gvkey", "datadate", "fyear", *fill_cols)
+)
+```
+
+```{python}
+#| include: false
 def fit_mod_jones(g: pl.DataFrame) -> pl.DataFrame:
+
     y = g["acc_at"].to_numpy()
     X = np.c_[np.ones(g.height),
               g.select(["one_at", "sale_c_at", "ppe_at"]).to_numpy()]
+
     beta, *_ = np.linalg.lstsq(X, y, rcond=None)
     coef_names = ["b_intercept", "b_one_at", "b_sale_c_at", "b_ppe_at"]
     return pl.DataFrame(dict(zip(coef_names, beta)))
+```
 
+```{python}
+#| include: false
 def get_das(compustat: pl.DataFrame,
             drop_extreme: bool = True) -> pl.DataFrame:
+
+    # Non-equi join on SIC ranges (Compustat.sich between FF bounds).
     for_disc_accruals = (
         compustat
         .join_where(
@@ -655,11 +713,14 @@ def get_das(compustat: pl.DataFrame,
         .with_columns(num_obs=pl.len().over(["ff_ind", "fyear"]))
         .filter(pl.col("num_obs") >= 10)
     )
+
+    # Estimate modified Jones coefficients by industry-year.
     fm_da = (
         for_disc_accruals
         .era.map_by(["ff_ind", "fyear"], fit_mod_jones)
     )
-    return (
+
+    out = (
         for_disc_accruals
         .join(fm_da, on=["ff_ind", "fyear"], how="left")
         .with_columns(
@@ -671,17 +732,27 @@ def get_das(compustat: pl.DataFrame,
         .with_columns(da=pl.col("acc_at") - pl.col("nda"))
         .select("gvkey", "fyear", "ff_ind", "acc_at", "da")
     )
+    return out
+```
 
+```{python}
+#| include: false
 def get_pm(
     compustat: pl.DataFrame,
     pm_lag: bool = True,
     drop_extreme: bool = True,
 ) -> pl.DataFrame:
     das = get_das(compustat, drop_extreme=drop_extreme)
+
     if pm_lag:
-        ib_at_expr = pl.col("lag_ib").era.div_if_pos("lag_at")
+        ib_at_expr = (
+            pl.col("lag_ib").era.div_if_pos("lag_at")
+        )
     else:
-        ib_at_expr = pl.col("ib").era.div_if_pos("at")
+        ib_at_expr = (
+            pl.col("ib").era.div_if_pos("at")
+        )
+
     perf = (
         compustat
         .with_columns(
@@ -690,11 +761,14 @@ def get_pm(
             .over("gvkey", order_by="fyear")
             .name.prefix("lag_")
         )
-        .with_columns(ib_at=ib_at_expr)
+        .with_columns(
+            ib_at=ib_at_expr
+        )
         .join(das.select("gvkey", "fyear", "ff_ind"),
               on=["gvkey", "fyear"], how="inner")
         .select("gvkey", "fyear", "ff_ind", "ib_at")
     )
+
     perf_match = (
         perf
         .join(perf, on=["fyear", "ff_ind"], how="inner", suffix="_other")
@@ -712,6 +786,7 @@ def get_pm(
         .unique(subset=["gvkey", "fyear"], keep="first", maintain_order=True)
         .select("gvkey", "fyear", "gvkey_other")
     )
+
     perf_matched_accruals = (
         das
         .rename({"gvkey": "gvkey_other", "da": "da_other"})
@@ -719,6 +794,7 @@ def get_pm(
         .join(perf_match, on=["fyear", "gvkey_other"], how="inner")
         .select("gvkey", "fyear", "gvkey_other", "da_other")
     )
+
     return (
         das
         .join(perf_matched_accruals, on=["gvkey", "fyear"], how="inner")
@@ -728,7 +804,10 @@ def get_pm(
             "da_adj", "da_other", "gvkey_other"
         )
     )
+```
 
+```{python}
+#| include: false
 def get_pmdas(
     compustat: pl.DataFrame,
     pm_lag: bool = True,
@@ -743,15 +822,28 @@ def get_pmdas(
 
 ```{python}
 #| include: false
-#| eval: true
 with ptime():
     pmdas = get_pmdas(compustat_annual)
+pmdas.head()
 ```
 
 ```{python}
 #| include: false
-#| eval: true
+fhk_pilot = load_data("fhk_pilot")
+
+sho_data = (
+    fhk_pilot
+    .select("gvkey", "pilot")
+    .unique()
+    .filter(pl.len().over("gvkey") == 1)
+    .join(fhk_pilot, on=["gvkey", "pilot"], how="inner")
+)
+```
+
+```{python}
+#| include: false
 fhk_firm_years = load_data("fhk_firm_years")
+win_vars = ["at", "mtob", "leverage", "roa", "da_adj", "acc_at"]
 
 sho_accruals = (
     sho_data
@@ -772,8 +864,7 @@ sho_accruals = (
     )
     .join(pmdas, on=["gvkey", "fyear"], how="left")
     .with_columns(
-        pl.col("at", "mtob", "leverage", "roa", "da_adj", "acc_at")
-        .era.winsorize(0.01)
+        pl.col(win_vars).era.winsorize(0.01)
     )
 )
 ```
@@ -781,6 +872,8 @@ sho_accruals = (
 ```{python}
 #| include: false
 #| eval: true
+import warnings
+
 ctrls_list = ["np.log(at)", "mtob", "roa", "leverage"]
 
 def reg_year_fe(
@@ -789,36 +882,44 @@ def reg_year_fe(
     controls: bool = True,
     firm_fe: bool = False,
     cl_2: bool = True,
-    post_all: bool = False,
 ):
     data = (
         df
-        .with_columns(year=pl.col("datadate").dt.year())
+        .with_columns(
+            year=pl.col("datadate").dt.year(),
+        )
         .with_columns(
             during=pl.col("year").is_in([2005, 2006, 2007]),
-            post=pl.col("year") >= 2008 if post_all else
-                 pl.col("year").is_in([2008, 2009, 2010]),
+            post=pl.col("year").is_in([2008, 2009, 2010]),
         )
     )
     rhs = "pilot * (during + post)"
     if controls:
         rhs = rhs + " + " + " + ".join(ctrls_list)
+
     fe = " | gvkey + year" if firm_fe else " | year"
     formula = f"{dv} ~ {rhs}{fe}"
     vcov = {"CRV1": "gvkey"} if not cl_2 else {"CRV1": "gvkey + fyear"}
     with warnings.catch_warnings():
         warnings.filterwarnings(
-            "ignore", category=UserWarning, module="pyfixest"
+            "ignore", message=r"\d+ singleton fixed effect\(s\) dropped"
         )
-        return pf.feols(formula, data=data, vcov=vcov,
-                        ssc=pf.ssc(G_df="conventional"),
-                        demeaner_backend="scipy")
+        warnings.filterwarnings(
+            "ignore",
+            message=r"\s*\d+ variables dropped due to multicollinearity\."
+                    r"\s*The following variables are dropped: "
+                    r"\[(?:'pilot', )?'during', 'post'\]",
+        )
+        return sp.feols(
+            formula, data=data, vcov=vcov,
+            ssc=sp.ssc(G_df="conventional"),
+            fixef_rm="singleton",
+        )
 
 def make_reg_table(
     df: pl.DataFrame,
     dv: str = "da_adj",
     cl_2: bool = True,
-    post_all: bool = False,
 ):
     specs = [
         {"controls": False, "firm_fe": False},
@@ -826,6 +927,7 @@ def make_reg_table(
         {"controls": False, "firm_fe": True},
         {"controls": True,  "firm_fe": True},
     ]
+
     fms = [
         reg_year_fe(
             df,
@@ -833,43 +935,41 @@ def make_reg_table(
             controls=s["controls"],
             firm_fe=s["firm_fe"],
             cl_2=cl_2,
-            post_all=post_all,
         )
         for s in specs
     ]
-    display(ETable(
-        fms,
-        signif_code=[0.01, 0.05, 0.1],
-        keep=["pilot"],
-        show_fe=True,
-        felabels={"gvkey": "Firm FE", "year": "Year FE"},
-        custom_model_stats={"Controls": ["No", "Yes", "No", "Yes"]},
-    ))
 
-def fit_by_year(df: pl.DataFrame, dv: str = "da_adj",
-                controls: bool = True):
-    data = df.with_columns(year=pl.col("datadate").dt.year())
-    rhs = "C(year)*pilot - pilot - 1"
-    if controls:
-        rhs = rhs + " + " + " + ".join(ctrls_list)
-    with warnings.catch_warnings():
-        warnings.filterwarnings(
-            "ignore", category=UserWarning, module="pyfixest"
-        )
-        return pf.feols(
-            f"{dv} ~ {rhs}",
-            data=data,
-            vcov={"CRV1": "fyear + gvkey"},
-        )
+    return sp.regtable(
+        *fms,
+        dep_var_labels=[dv] * len(specs),
+        coef_map={
+            "pilot": "pilot",
+            "pilot:during": "pilot × during",
+            "pilot:post": "pilot × post",
+        },
+        digits=3,
+        stats=["N", "R2"],
+        diagnostics=False,
+        consistency_check=False,
+        add_rows={
+            "Controls": ["Yes" if s["controls"] else "No" for s in specs],
+            "Firm FE": ["Yes" if s["firm_fe"] else "No" for s in specs],
+            "Year FE": ["Yes"] * len(specs),
+        },
+        notes=["Models with firm fixed effects drop singleton firms."],
+    )
 
 def plot_coefficients(fit):
     return (
-        pl.from_pandas(fit.coef().reset_index())
+        pl.DataFrame({
+            "term": fit.params.index.to_list(),
+            "Estimate": fit.params.to_numpy(),
+        })
         .with_columns(
-            year=pl.col("Coefficient")
+            year=pl.col("term")
                 .str.extract(r"C\(year\)\[(?:T\.)?(\d+)\]", 1)
                 .cast(pl.Int32),
-            pilot=pl.col("Coefficient").str.contains(r":pilot")
+            pilot=pl.col("term").str.contains(r":pilot")
         )
         .filter(pl.col("year").is_not_null())
         .select("year", "pilot", "Estimate")
@@ -886,8 +986,12 @@ def plot_coefficients(fit):
         .labs(x="Year", y="Coefficient")
         .theme_bw()
     )
+```
 
+```{python}
+#| include: false
 def get_coef_rand(i: int, base_df: pl.DataFrame) -> pl.DataFrame:
+
     treat = (
         base_df
         .select("gvkey", "pilot")
@@ -897,25 +1001,23 @@ def get_coef_rand(i: int, base_df: pl.DataFrame) -> pl.DataFrame:
             pl.col("pilot").shuffle(seed=2021 + i).alias("pilot")
         )
     )
+
     reg_data_alt = (
         base_df
         .drop("pilot")
         .join(treat, on="gvkey", how="inner")
     )
+
     fit = reg_year_fe(
         reg_data_alt, controls=True, firm_fe=True, cl_2=False
     )
-    return (
-        pl.from_pandas(fit.tidy().reset_index())
-        .select("Coefficient", "Estimate")
-        .with_columns(iteration=pl.lit(i))
-        .pivot(index="iteration", on="Coefficient", values="Estimate")
+    return pl.DataFrame(fit.params.to_dict()).select(
+        pl.lit(i).alias("iteration"), pl.all()
     )
 ```
 
 ```{python}
 #| include: false
-#| eval: true
 n_sims = 1000
 
 with ptime():
@@ -923,6 +1025,52 @@ with ptime():
         [get_coef_rand(i, sho_accruals) for i in range(n_sims)],
         how="vertical",
     )
+
+rand_results.head()
+```
+
+```{python}
+#| include: false
+from scipy.stats import t as student_t
+
+fms = {
+    "CL-i": reg_year_fe(sho_accruals, controls=True, firm_fe=True, cl_2=False),
+    "CL-2": reg_year_fe(sho_accruals, controls=True, firm_fe=True, cl_2=True),
+}
+ri_terms = ["pilot:during", "pilot:post"]
+comparison_rows = []
+for term in ri_terms:
+    for method, fit in fms.items():
+        comparison_rows.append({
+            "term": term,
+            "method": method,
+            "estimate": float(fit.params[term]),
+            "std_error": float(fit.std_errors[term]),
+            "p_value": float(fit.pvalues[term]),
+        })
+    observed = float(fms["CL-i"].params[term])
+    draws = rand_results[term]
+    std_error = float(draws.std())
+    t_stat = observed / std_error
+    df_t = sho_accruals["gvkey"].n_unique() - 1
+    p_value = 2 * student_t.sf(abs(t_stat), df=df_t)
+    comparison_rows.append({
+        "term": term,
+        "method": "RI",
+        "estimate": observed,
+        "std_error": std_error,
+        "p_value": float(p_value),
+    })
+ri_comparison = pl.DataFrame(comparison_rows)
+```
+
+```{python}
+#| echo: false
+#| label: tbl-rand-inf
+#| tbl-cap: Results with randomization inference
+ri_comparison.style.fmt_number(
+    columns=["estimate", "std_error", "p_value"], decimals=4
+)
 ```
 
 ```{python}
@@ -1223,7 +1371,7 @@ Does doing this make a difference?
 
 ```
 
-7. What are FHK doing in the creation of `df_controls` from `controls_fyear`?
+7. What are FHK doing in the creation of `df_controls` from `controls_filled`, using the fiscal-year averages in `controls_fyear_avg`?
 Does this seem appropriate?
 Does doing this make a difference?
 
@@ -1241,7 +1389,20 @@ make_reg_table(sho_accruals)
 
 ```{python}
 #| echo: false
-plot_coefficients(fit_by_year(sho_accruals))
+fit_by_year = (
+    sho_accruals
+    .with_columns(year=pl.col("datadate").dt.year())
+    .pipe(lambda d: sp.feols(
+        (
+            "da_adj ~ C(year)*pilot - pilot - 1 "
+            "+ np.log(at) + mtob + roa + leverage"
+        ),
+        data=d,
+        vcov={"CRV1": "fyear + gvkey"})
+    )
+)
+
+plot_coefficients(fit_by_year)
 ```
 
 ### Exercises
@@ -1251,6 +1412,7 @@ Does using `sho_accruals_alt` in place of `sho_accruals` affect the regression r
 
 ```{python}
 #| eval: false
+sho_r3000_gvkeys = load_data("sho_r3000_gvkeys")
 firm_years = controls_raw.select("gvkey", "datadate", "fyear")
 
 sho_accruals_alt = (
@@ -1259,7 +1421,7 @@ sho_accruals_alt = (
     .join(df_controls, on=["gvkey", "fyear"], how="left")
     .join(pmdas, on=["gvkey", "fyear"], how="left")
     .with_columns(
-        pl.col(WIN_VARS).era.winsorize(0.01)
+        pl.col(win_vars).era.winsorize(0.01)
     )
 )
 ```
@@ -1281,7 +1443,7 @@ Does doing so make a difference?
 
 3. How would you modify the code to winsorize at the 2%/98% level?
 Does this make a difference to the results?
-(*Hint:* See [the extreme-values chapter](https://iangow.github.io/era_pl_book/extreme-vals.html#sec-extreme-vals) for details on winsorization and the available options.)
+(*Hint:* See [the extreme-values chapter](https://iangow.github.io/era_statpai/extreme-vals.html#sec-extreme-vals) for details on winsorization and the available options.)
 
 ```{python}
 #| include: true
@@ -1305,7 +1467,7 @@ Does excluding 2004 here make a significant difference?
 
 ```
 
-6. What is the range of values for `year` in `sho_accruals`?
+6. What is the range of calendar years in `sho_accruals`, as derived from `datadate`?
 Does this suggest any issues with the code `post = pl.col("year").is_in([2008, 2009, 2010])` above?
 If so, does fixing any issue have an impact on the results reported above?
 
@@ -1348,7 +1510,7 @@ What happens if the `filter()` on `abs(acc_at) <= 1` is removed from the code ab
 
 ### Exercises
 
-1. In the function `get_coef_rand()`, we first created the data set `treatment`, then merged this with `reg_data_alt`.
+1. In the function `get_coef_rand()`, we first created the firm-level data set `treat`, then merged it with the observations from `base_df` to create `reg_data_alt`.
 Why did we do it this way rather than simply applying the line `pilot = np.random.permutation(pilot)` directly to `reg_data_alt`?
 
 ```{python}
@@ -1357,7 +1519,7 @@ Why did we do it this way rather than simply applying the line `pilot = np.rando
 ```
 
 2. Using randomization inference, calculate a p-value for a one-sided alternative hypothesis that $H_1: \beta < 0$ where $\beta$ is the coefficient on $\mathit{PILOT} \times \mathit{DURING}$.
-(*Hint:* You should not need to run the randomization again; modifying the calculation of `p_value` should suffice.)
+(*Hint:* You should not need to run the randomization again.)
 
 ```{python}
 #| include: true

@@ -12,11 +12,11 @@ format:
 :::{.content-visible when-format="markdown"}
 ## Instructions
 
-This document assumes that you have completed the instructions [here](https://github.com/iangow/era_pl_templates/blob/main/README.md).
+This document assumes that you have completed the instructions [here](https://github.com/iangow/era_pl_templates/blob/statspai/README.md).
 Note that this chapter uses CRSP and Compustat data from a local Parquet repository, which means you will need to complete **Steps 6 and 7: Configure and get data from WRDS** before running any code.
 This chapter also downloads size-portfolio data from Ken French's website, so internet access is required.
 
-This template extracts the visible code and exercises from [Chapter 11](https://iangow.github.io/era_pl_book/bb68.html) of the Python Polars edition of *Empirical Research in Accounting: Tools and Methods*.
+This template extracts the visible code and exercises from [Chapter 11](https://iangow.github.io/era_statpai/bb68.html) of the Python Polars/StatsPAI edition of *Empirical Research in Accounting: Tools and Methods*.
 This template includes all the code from the book chapter.
 
 Within Positron, you can run the code below in two ways.
@@ -444,7 +444,7 @@ Do you find the paper to be persuasive?
 ```
 
 3. Given that "the most fundamental result" of @Ball:1968ub relates to an association or correlation, is it correct to say that the paper provides no evidence on causal linkages?
-Does this also mean that @Ball:1968ub is a "merely" descriptive paper according to the taxonomy of research papers outlined in [the book’s section](https://iangow.github.io/era_pl_book/causal-inf.html#sec-causal-inf)?
+Does this also mean that @Ball:1968ub is a "merely" descriptive paper according to the taxonomy of research papers outlined in [the book’s section](https://iangow.github.io/era_statpai/causal-inf.html#sec-causal-inf)?
 How might the results of @Ball:1968ub be represented in a causal diagram assuming that accounting information is meaningful and markets are efficient?
 Would an alternative causal diagram be assumed by a critic who viewed accounting information as meaningless?
 

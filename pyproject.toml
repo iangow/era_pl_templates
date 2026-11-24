@@ -5,7 +5,6 @@ description = "Runnable Quarto templates for Empirical Research in Accounting"
 requires-python = ">=3.11,<3.14"
 dependencies = [
     "altair>=6.0.0",
-    "causalml>=0.15.5",
     "db2pq>=0.3.0",
     "era-py[polars,tables]==0.0.37",
     "great-tables",
@@ -32,7 +31,7 @@ dependencies = [
     "scikit-learn>=1.8.0",
     "scipy",
     "seaborn",
-    "statspai==1.44.6",
+    "statspai==1.46.3",
     "statsmodels",
 ]
 

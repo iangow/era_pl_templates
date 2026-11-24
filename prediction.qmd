@@ -12,18 +12,18 @@ format:
 :::{.content-visible when-format="markdown"}
 ## Instructions
 
-This document assumes that you have completed the instructions [here](https://github.com/iangow/era_pl_templates/blob/main/README.md).
+This document assumes that you have completed the instructions [here](https://github.com/iangow/era_pl_templates/blob/statspai/README.md).
 
 The fraud detection application requires WRDS data (`funda` from Compustat).
 The AAER outcome data (`aaer_firm_year`, `aaer_dates`) are bundled with the `era_pl` package and require no WRDS access.
 
-This template extracts the visible code and exercises from [Chapter 26](https://iangow.github.io/era_pl_book/prediction.html) of the Python Polars edition of *Empirical Research in Accounting: Tools and Methods*.
+This template extracts the visible code and exercises from [Chapter 26](https://iangow.github.io/era_statpai/prediction.html) of the Python Polars/StatsPAI edition of *Empirical Research in Accounting: Tools and Methods*.
 This template includes the book chapter's Python code as hidden setup.
 Required model and data preparation runs when rendering; unused diagnostics and the optional ensemble searches remain disabled.
 
 Note that the ensemble grid searches in the `## Ensemble methods` section take a long time to run and are marked `#| eval: false`.
 The exercises do not require you to run those cells.
-For questions about ensemble performance, refer to [the chapter's cross-validation and test results](https://iangow.github.io/era_pl_book/prediction.html#sec-predict-ensemble).
+For questions about ensemble performance, refer to [the chapter's cross-validation and test results](https://iangow.github.io/era_statpai/prediction.html#sec-predict-ensemble).
 The logit exercises run independently of those searches.
 
 Within Positron, you can run the code below in two ways.
@@ -68,8 +68,10 @@ import itertools
 import numpy as np
 import matplotlib.pyplot as plt
 import polars as pl
+import statspai as sp
+from era_pl import ptime
 
-from sklearn.metrics import confusion_matrix, roc_auc_score, ndcg_score
+from sklearn.metrics import confusion_matrix, make_scorer
 from sklearn.tree import DecisionTreeClassifier
 from sklearn.linear_model import LogisticRegression
 from sklearn.model_selection import GridSearchCV
@@ -269,16 +271,17 @@ df = (
 
 ```{python}
 #| include: false
+data_train = df.filter(pl.col("fyear") <= 2001)
+```
+
+```{python}
+#| include: false
 #| eval: true
 #| cache: true
-data_train = df.filter(pl.col("fyear") <= 2001)
-
-
 def normalize_features(data: pl.DataFrame) -> pl.DataFrame:
     row_norm = pl.sum_horizontal(pl.col(X_vars).pow(2)).sqrt()
     divisor = pl.when(row_norm > 0).then(row_norm).otherwise(1)
     return data.with_columns(pl.col(X_vars) / divisor)
-
 
 data_train_logit = normalize_features(data_train)
 ```
@@ -309,11 +312,7 @@ sample_splits = gvkeys.with_columns(
 #| include: false
 #| eval: true
 #| cache: true
-fm1 = LogisticRegression(C=np.inf, solver="newton-cholesky", tol=1e-10)
-fm1.fit(
-    data_train_logit.select(X_vars).to_numpy(),
-    data_train_logit[y_var].to_numpy(),
-);
+fm1 = sp.logit(y=y_var, x=X_vars, data=data_train_logit)
 ```
 
 ```{python}
@@ -322,8 +321,7 @@ fm1.fit(
 within_sample1 = (
     data_train
     .with_columns(
-        score=predict_proba_series(fm1,
-                                   data_train_logit.select(X_vars).to_numpy())
+        score=pl.Series("score", np.asarray(fm1.predict(data_train_logit)))
     )
     .with_columns(
         predicted=(pl.col("score") > 0.5).cast(pl.Int8)
@@ -348,10 +346,9 @@ def logit_predict(fold: int) -> pl.DataFrame:
     dft = data_train_logit.join(sample_splits, on="gvkey", how="inner")
     train = dft.filter(pl.col("fold") != fold)
     test = dft.filter(pl.col("fold") == fold)
-    model = LogisticRegression(C=np.inf, solver="newton-cholesky", tol=1e-10)
-    model.fit(train.select(X_vars).to_numpy(), train[y_var].to_numpy())
+    model = sp.logit(y=y_var, x=X_vars, data=train)
     return test.select("gvkey", "fyear", y_var).with_columns(
-        score=predict_proba_series(model, test.select(X_vars).to_numpy())
+        score=pl.Series("score", np.asarray(model.predict(test)))
     ).with_columns(predicted=(pl.col("score") > 0.5).cast(pl.Int8))
 ```
 
@@ -381,7 +378,7 @@ confusion_matrix(
 ```{python}
 #| include: false
 #| eval: true
-roc_auc_score(
+sp.auc(
     logit_fit["misstate"],
     logit_fit["score"],
 )
@@ -437,7 +434,9 @@ fm_lasso_cv = GridSearchCV(
     ]),
     param_grid={"logit__C": np.logspace(-4, 1, 6)},
     cv=cv_splits,
-    scoring="roc_auc",
+    scoring=make_scorer(
+        sp.auc, response_method=("decision_function", "predict_proba")
+    ),
 )
 fm_lasso_cv.fit(dft.select(X_vars).to_numpy(), dft[y_var].to_numpy());
 ```
@@ -445,7 +444,6 @@ fm_lasso_cv.fit(dft.select(X_vars).to_numpy(), dft[y_var].to_numpy());
 ```{python}
 #| include: false
 #| eval: false
-# Optional penalty-path plot; the fitted lasso pipeline is prepared above.
 lasso_cv_results = pl.DataFrame({
     "C": np.asarray(fm_lasso_cv.cv_results_["param_logit__C"], dtype=float),
     "auc": fm_lasso_cv.cv_results_["mean_test_score"],
@@ -467,7 +465,6 @@ fm_lasso = fm_lasso_cv.best_estimator_
 ```{python}
 #| include: false
 #| eval: false
-# In-sample lasso diagnostics; calculate and interpret these in penalized-model Q4.
 fitted_lasso = (
     data_train
     .select("misstate")
@@ -490,8 +487,7 @@ confusion_matrix(fitted_lasso["misstate"], fitted_lasso["predicted"])
 ```{python}
 #| include: false
 #| eval: false
-# In-sample lasso diagnostics; calculate and interpret these in penalized-model Q4.
-roc_auc_score(fitted_lasso["misstate"], fitted_lasso["prob"])
+sp.auc(fitted_lasso["misstate"], fitted_lasso["prob"])
 ```
 
 ```{python}
@@ -533,12 +529,7 @@ def get_auc(**kwargs) -> float:
             )
             .select("gvkey", "fyear", "predicted", "prob", "misstate")
         )
-        return float(
-            roc_auc_score(
-                rus_fit["misstate"],
-                rus_fit["prob"],
-            )
-        )
+        return sp.auc(rus_fit["misstate"], rus_fit["prob"])
     except ValueError:
         # Failed fits count as chance-level classification for tuning.
         return 0.5
@@ -795,7 +786,6 @@ optim_ada
 #| include: false
 #| eval: false
 #| cache: true
-# Optional timing diagnostic or ensemble analysis; the exercise answers can use the book results.
 results_ada = [
     fit_test(
         x=year,
@@ -820,7 +810,6 @@ optim_rus
 #| include: false
 #| eval: false
 #| cache: true
-# Optional timing diagnostic or ensemble analysis; the exercise answers can use the book results.
 results_rus = [
     fit_test(
         x=year,
@@ -842,11 +831,11 @@ results_rus = [
 def get_stats(results):
     response = np.asarray(results["response"], dtype=float)
     score = np.asarray(results["score"], dtype=float)
-    auc_val = roc_auc_score(response, score)
+    auc_val = sp.auc(response, score)
     n = max(len(score), 1)
     ks = [max(1, int(round(p * n))) for p in (0.01, 0.02, 0.03)]
-    ndcgs = [float(ndcg_score([response], [score], k=k)) for k in ks]
-    return [float(auc_val), *ndcgs]
+    ndcgs = [sp.ndcg(response, score, k=k) for k in ks]
+    return [auc_val, *ndcgs]
 ```
 
 ```{python}
@@ -910,11 +899,7 @@ def train_logit(features: pl.DataFrame, test_year: int, gap: int = 2):
             .fill_null(False).cast(pl.Int8)
         )
     )
-    fm = LogisticRegression(C=np.inf, solver="newton-cholesky", tol=1e-10)
-    fm.fit(
-        data_train_local.select(X_vars).to_numpy(),
-        data_train_local[y_var].to_numpy(),
-    )
+    fm = sp.logit(y=y_var, x=X_vars, data=data_train_local)
     return fm
 ```
 
@@ -936,11 +921,7 @@ def test_logit(features: pl.DataFrame, fm, test_year: int):
         )
         .filter(pl.col("fyear") == test_year)
     )
-    score = predict_proba_series(
-        fm,
-        data_test.select(X_vars).to_numpy(),
-        name="score",
-    ).to_numpy()
+    score = np.asarray(fm.predict(data_test))
     return {
         "score": score,
         "predicted": (score > 0.5).astype(np.int8),
@@ -1060,7 +1041,7 @@ If not, what challenges prevent you from doing so?
 
 4. Calculate AUC and produce the confusion matrix for `fm_lasso` applied to `data_train_logit` (i.e., in sample).
 Interpret these results.
-(*Hint:* You might use `predict_proba_series(fm_lasso, data_train_logit.select(X_vars).to_numpy())` together with `roc_auc_score()`.)
+(*Hint:* You might use `predict_proba_series(fm_lasso, data_train_logit.select(X_vars).to_numpy())` together with `sp.auc()`.)
 
 ```{python}
 #| include: true
@@ -1105,8 +1086,8 @@ What differences are there between our approach here and those in @Bao:2020aa an
 Calculate the corresponding AUC using the book's data.
 In both the training and test data, normalize each firm-year's inputs to unit length (if nonzero), as in @Bao:2020aa [p. 222].
 You may find it helpful to adapt the code above for RUSBoost in the following steps:
-   a. Create a function `train_logit()` analogous to `train_model()` above, but using the unpenalized `LogisticRegression()` specification above in place of the RUSBoost classifier.
-   b. Create a function `test_logit()` analogous to `test_model()` above, but using calls to `predict_proba_series()` like those used above for logistic regression.
+   a. Create a function `train_logit()` analogous to `train_model()` above, but using `sp.logit()` in place of the RUSBoost classifier.
+   b. Create a function `test_logit()` analogous to `test_model()` above, but using the fitted model's `.predict()` method to obtain probabilities.
    c. Create a function `fit_test_logit()` analogous to `fit_test()` above, but calling the functions you created above.
    d. Loop over `test_years` with `fit_test_logit()` and store the results in `results_logit`.
    e. Tabulate results using `table_results(results_logit)`. (@tbl-logit-oss contains our results from following these steps.)

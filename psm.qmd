@@ -12,11 +12,11 @@ format:
 :::{.content-visible when-format="markdown"}
 ## Instructions
 
-This document assumes that you have completed the instructions [here](https://github.com/iangow/era_pl_templates/blob/main/README.md).
+This document assumes that you have completed the instructions [here](https://github.com/iangow/era_pl_templates/blob/statspai/README.md).
 This chapter requires WRDS data: `company`, `funda`, and `r_auditors` from Compustat.
 
-This template extracts the visible code and exercises from [Chapter 23](https://iangow.github.io/era_pl_book/psm.html) of the Python Polars edition of *Empirical Research in Accounting: Tools and Methods*.
-This template includes all the code from the book chapter.
+This template extracts the visible code and exercises from [Chapter 25](https://iangow.github.io/era_statpai/psm.html) of the Python Polars/StatsPAI edition of *Empirical Research in Accounting: Tools and Methods*.
+Run the Lawrence et al. replication cells marked `eval: false` interactively in order to reproduce the empirical estimates.
 
 Within Positron, you can run the code below in two ways.
 
@@ -46,34 +46,20 @@ More details on using Quarto markdown are provided on the [Quarto website](https
 
 ```{python}
 #| include: false
-#| eval: true
-from IPython.display import display
-import warnings
-
-import numpy as np
-import polars as pl
+# hidden-review: plot-theme
 import plotnine_polars as p9
-import pyfixest as pf
-import statsmodels.api as sm
-from causalml.match import NearestNeighborMatch
-from maketables import ETable
-
-from plotnine_polars import aes
-
-from era_pl import load_parquet
-
 p9.theme_set(p9.theme_matplotlib())
-
-pl.Config.set_tbl_cols(200)
-pl.Config.set_tbl_width_chars(120)
-warnings.filterwarnings("ignore", category=UserWarning, module="pyfixest")
 ```
 
 ```{python}
 #| include: false
-#| eval: true
-def show_etable(models, **kwargs):
-    display(ETable(models=models, **kwargs))
+import gt_typst
+import numpy as np
+import polars as pl
+import statspai as sp
+
+from era_pl import load_parquet
+from plotnine_polars import aes
 ```
 
 ```{python}
@@ -164,66 +150,75 @@ The causal diagram for this simulation is $Z \rightarrow X$, $Z \rightarrow Y$, 
 
 ```{python}
 #| include: false
-#| eval: true
-fm = pf.feols(
+fm = sp.feols(
     "audit_quality ~ big4 + I(mkt_cap / 1e9)",
     data=sim_auditor,
+    vcov="iid",
 )
 ```
 
 ```{python}
 #| include: false
-#| eval: true
+#| warning: false
 sim_ps_data = sim_auditor.with_columns(
     treat=(~pl.col("big4")).cast(pl.Int8)
 )
 
-sim_fm = sm.GLM.from_formula(
+sim_fm = sp.glm(
     "treat ~ mkt_cap",
     data=sim_ps_data,
-    family=sm.families.Binomial(),
-).fit()
-
-sim_match_pscores = (
-    sim_ps_data
-    .with_columns(
-        pl.Series(
-            "pscore",
-            sim_fm.predict(sim_ps_data.to_pandas()),
-        ),
-    )
+    family="binomial",
+    link="logit",
 )
+```
 
-sim_matches = pl.from_pandas(
-    NearestNeighborMatch(
-        caliper=0.03 / max(np.std(sim_match_pscores["pscore"].to_numpy()), 1e-12),
-        replace=False, ratio=1, shuffle=False
-    ).match(
-        data=sim_match_pscores.sort("pscore", descending=True).to_pandas(),
-        treatment_col="treat",
-        score_cols=["pscore"],
-    )
-).with_columns(subclass=pl.int_range(pl.len()).over("treat"))
+```{python}
+#| include: false
+sim_match_pscores = sim_ps_data.with_columns(
+    pl.Series("pscore", sim_fm.fitted_values())
+)
+```
 
+```{python}
+#| include: false
+#| warning: false
+sim_match = sp.match(
+    sim_match_pscores, y="audit_quality", treat="treat",
+    covariates=["mkt_cap"], pscore="pscore",
+    replace=False, n_matches=1, caliper=0.03, m_order="largest",
+)
+sim_matches = (
+    pl.from_pandas(sim_match.matched_data)
+    .filter(pl.col("_weight") > 0)
+    .with_columns(subclass=pl.coalesce("_n1", "_id").cast(pl.Int64))
+    .select(*sim_match_pscores.columns, "subclass")
+)
+```
+
+```{python}
+#| include: false
 fms_sim = {
-    "MR": pf.feols("audit_quality ~ big4", data=sim_matches),
-    "MR + controls": pf.feols(
+    "MR": sp.feols("audit_quality ~ big4", data=sim_matches, vcov="iid"),
+    "MR + controls": sp.feols(
         "audit_quality ~ big4 + I(mkt_cap / 1e9)",
         data=sim_matches,
+        vcov="iid",
     ),
 }
 ```
 
 ```{python}
 #| echo: false
+#| label: tbl-lin-reg
 #| tbl-cap: Regression of audit quality using simulated data
-show_etable(
-    [fm],
-    model_heads=["OLS"],
-    head_order="h",
-    coef_fmt="b:.3f* \n (t:.3f)",
-    signif_code=[0.01, 0.05, 0.10],
-    model_stats=["N", "r2"],
+sp.regtable(
+    fm,
+    model_labels=["OLS"],
+    se_type="t",
+    digits=3,
+    star_levels=(0.10, 0.05, 0.01),
+    stats=["N", "R2"],
+    diagnostics=False,
 )
 ```
 
@@ -256,13 +251,14 @@ show_etable(
 ```{python}
 #| echo: false
 #| tbl-cap: Relation between `big4` and audit quality (matched)
-show_etable(
-    list(fms_sim.values()),
-    model_heads=list(fms_sim.keys()),
-    head_order="h",
-    coef_fmt="b:.3f* \n (t:.3f)",
-    signif_code=[0.01, 0.05, 0.10],
-    model_stats=["N", "r2"],
+sp.regtable(
+    *fms_sim.values(),
+    model_labels=list(fms_sim),
+    se_type="t",
+    digits=3,
+    star_levels=(0.10, 0.05, 0.01),
+    stats=["N", "R2"],
+    diagnostics=False,
 )
 ```
 
@@ -317,7 +313,6 @@ If not, why not? If so, in what way, and what could you do to address it?
 
 ```{python}
 #| include: false
-#| eval: true
 comp = (
     funda
     .filter(
@@ -327,9 +322,9 @@ comp = (
         pl.col("popsrc") == "D",
     )
     .select(
-        "gvkey", "datadate", "fyear", "au", "prcc_f", "csho", "at", "ib",
-        "dltt", "dlc", "rect", "ppent", "sale",
-        "act", "lct", "sich", "oancf", "ceq",
+        "gvkey", "datadate", "fyear", "au", "prcc_f",
+        "csho", "at", "ib", "dltt", "dlc", "rect", "ppent",
+        "sale", "act", "lct", "sich", "oancf", "ceq",
     )
     .filter(pl.col("fyear").is_between(1986, 2006))
     .sort("gvkey", "fyear")
@@ -392,7 +387,10 @@ comp = (
     )
     .filter(pl.col("lag_fyear") == (pl.col("fyear") - 1))
 )
+```
 
+```{python}
+#| include: false
 industries = (
     comp
     .group_by("fyear", "sic2")
@@ -401,7 +399,10 @@ industries = (
     .select("fyear", "sic2")
     .collect()
 )
+```
 
+```{python}
+#| include: false
 def get_klw_data(sic2: int, fyear: int) -> pl.DataFrame:
     reg_data = (
         comp
@@ -411,7 +412,12 @@ def get_klw_data(sic2: int, fyear: int) -> pl.DataFrame:
             "gvkey", "fyear", "roa", "ta",
             "inv_avg_at", "d_sale_at", "ppe_at"
         )
-        .filter(pl.all_horizontal(pl.col("roa", "ta", "inv_avg_at", "d_sale_at", "ppe_at").is_finite()))
+        .filter(
+            pl.all_horizontal(
+                pl.col("roa", "ta", "inv_avg_at", "d_sale_at", "ppe_at")
+                .is_finite()
+            )
+        )
         .collect()
     )
 
@@ -424,12 +430,12 @@ def get_klw_data(sic2: int, fyear: int) -> pl.DataFrame:
     x = np.column_stack(
         [
             np.ones(reg_data.height),
-            reg_data["inv_avg_at"].to_numpy(),
-            reg_data["d_sale_at"].to_numpy(),
-            reg_data["ppe_at"].to_numpy(),
+            reg_data["inv_avg_at"],
+            reg_data["d_sale_at"],
+            reg_data["ppe_at"],
         ]
     )
-    y = reg_data["ta"].to_numpy()
+    y = reg_data["ta"]
     try:
         beta, *_ = np.linalg.lstsq(x, y, rcond=None)
     except np.linalg.LinAlgError:
@@ -438,8 +444,11 @@ def get_klw_data(sic2: int, fyear: int) -> pl.DataFrame:
             pl.lit(None, dtype=pl.Float64).alias("ada"),
         )
 
-    results = reg_data.select("gvkey", "fyear", "roa").with_columns(
-        da=pl.Series(name="da", values=(y - x @ beta))
+    results = (
+        reg_data
+        .select("gvkey", "fyear", "roa").with_columns(
+            da=pl.Series(name="da", values=(y - x @ beta))
+        )
     )
 
     pairs = (
@@ -465,62 +474,22 @@ def get_klw_data(sic2: int, fyear: int) -> pl.DataFrame:
 
     return (
         pairs
-        .with_columns(roa_diff=(pl.col("roa") - pl.col("roa_match")).abs())
+        .with_columns(
+            roa_diff=(pl.col("roa") - pl.col("roa_match")).abs()
+        )
         .sort("gvkey", "fyear", "roa_diff", "gvkey_match")
         .group_by("gvkey", "fyear")
         .first()
-        .with_columns(ada=(pl.col("da") - pl.col("da_match")).abs())
+        .with_columns(
+            ada=(pl.col("da") - pl.col("da_match")).abs()
+        )
         .select("gvkey", "fyear", "da", "ada")
-    )
-
-def psm_match(df: pl.DataFrame, caliper: float = 0.03) -> pl.DataFrame:
-    match_covars = ["log_at", "log_mkt", "aturn", "curr", "lev", "roa"]
-    reg_vars = ["ada", "big4", "log_mkt", "lag_roa", "lag_lev", "lag_curr", "sic2", "fyear"]
-
-    d = (
-        df
-        .filter(pl.all_horizontal(pl.col(match_covars + reg_vars).is_not_null()))
-        .with_columns(
-            big4=pl.col("big4").cast(pl.Int8),
-            treat=(pl.col("big4").cast(pl.Int8) == 0).cast(pl.Int8),
-        )
-    )
-
-    d_ps = d.select("treat", *match_covars).to_pandas()
-    ps_fm = sm.GLM.from_formula(
-        "treat ~ log_at + log_mkt + aturn + curr + lev + roa",
-        data=d_ps,
-        family=sm.families.Binomial(),
-    ).fit()
-
-    d = d.with_columns(
-        pscore=pl.Series("pscore", ps_fm.predict(d_ps).to_numpy())
-    )
-
-    matched_pd = NearestNeighborMatch(
-        caliper=caliper / max(np.std(d["pscore"].to_numpy()), 1e-12),
-        replace=False,
-        ratio=1,
-        random_state=2021,
-    ).match(
-        data=d.to_pandas(),
-        treatment_col="treat",
-        score_cols=["pscore"],
-    )
-
-    return (
-        pl.from_pandas(matched_pd)
-        .with_columns(
-            big4=pl.col("big4").cast(pl.Int8),
-            datadate=pl.col("datadate").cast(pl.Date),
-        )
     )
 ```
 
 ```{python}
 #| include: false
 #| eval: false
-# Lawrence replication: slow to run; run interactively if needed.
 klw_results = pl.concat(
     [
         get_klw_data(**row)
@@ -528,7 +497,11 @@ klw_results = pl.concat(
     ],
     how="vertical",
 )
+```
 
+```{python}
+#| include: false
+#| eval: false
 full_sample = (
     comp
     .collect()
@@ -549,12 +522,18 @@ formula_klw = (
     "| sic2 + fyear"
 )
 
-fms_law = {
-    "OLS": pf.feols(
+fms = {
+    "OLS": sp.feols(
         formula_klw,
-        data=full_sample.with_columns(pl.col("big4").cast(pl.Int8)), vcov={"CRV1": "gvkey"})
+        data=full_sample.with_columns(pl.col("big4").cast(pl.Int8)),
+        vcov={"CRV1": "gvkey"},
+    )
 }
+```
 
+```{python}
+#| include: false
+#| eval: false
 win_vars = [
     "ada", "log_mkt", "lag_roa", "lag_lev", "lag_curr",
     "roa", "lev", "curr", "mkt_cap"
@@ -566,23 +545,92 @@ full_sample_win = (
                   pl.col("big4").cast(pl.Int8))
 )
 
-fms_law["OLS, win"] = pf.feols(formula_klw, data=full_sample_win, vcov={"CRV1": "gvkey"})
+fms["OLS, win"] = sp.feols(formula_klw, data=full_sample_win, vcov={"CRV1": "gvkey"})
 ```
 
 ```{python}
 #| include: false
 #| eval: false
-# PSM matching on real data: slow to run; run interactively if needed.
-lmz_matched = psm_match(full_sample, caliper=0.03)
-fms_law["PSM"] = pf.feols(formula_klw, data=lmz_matched, vcov={"CRV1": "gvkey"})
+def psm_match(df: pl.DataFrame, caliper: float = 0.03) -> pl.DataFrame:
+    match_covars = ["log_at", "log_mkt", "aturn", "curr", "lev", "roa"]
+    reg_vars = ["ada", "big4", "log_mkt", "lag_roa",
+                "lag_lev", "lag_curr", "sic2", "fyear"]
 
+    covars = match_covars + reg_vars
+
+    d = (
+        df
+        .filter(pl.all_horizontal(pl.col(covars).is_not_null()))
+        .with_columns(
+            big4=pl.col("big4").cast(pl.Int8),
+            treat=(pl.col("big4").cast(pl.Int8) == 0).cast(pl.Int8),
+        )
+    )
+
+    ps_fm = sp.glm(
+        "treat ~ log_at + log_mkt + aturn + curr + lev + roa",
+        data=d.select("treat", *match_covars),
+        family="binomial",
+        link="logit",
+        tol=1e-12,
+    )
+
+    d = d.with_columns(
+        pscore=pl.Series("pscore", ps_fm.fitted_values())
+    )
+
+    treatment = d["treat"].to_numpy()
+    rng = np.random.RandomState(2021)
+    treated = rng.permutation(np.flatnonzero(treatment == 1))
+    controls = np.flatnonzero(treatment == 0)
+
+    match_data = d.select("ada", "treat", "pscore", *match_covars).with_row_index("match_row")
+    match = sp.match(
+        match_data[np.concatenate((treated, controls))],
+        y="ada", treat="treat", covariates=match_covars, pscore="pscore",
+        replace=False, n_matches=1, caliper=caliper, m_order="data",
+    )
+    matched_rows = (
+        pl.from_pandas(match.matched_data)
+        .filter(pl.col("_weight") > 0)
+        .get_column("match_row")
+    )
+    return d[matched_rows]
+
+lmz_matched = psm_match(full_sample, caliper=0.03)
+fms["PSM"] = sp.feols(formula_klw, data=lmz_matched, vcov={"CRV1": "gvkey"})
+```
+
+```{python}
+#| include: false
+#| eval: false
 lmz_matched_win = psm_match(full_sample_win, caliper=0.03)
-fms_law["PSM, win"] = pf.feols(formula_klw, data=lmz_matched_win, vcov={"CRV1": "gvkey"})
+fms["PSM, win"] = sp.feols(formula_klw, data=lmz_matched_win, vcov={"CRV1": "gvkey"})
+```
+
+```{python}
+#| include: false
+#| eval: false
+table = sp.regtable(
+    *fms.values(),
+    model_labels=list(fms),
+    se_type="t",
+    digits=3,
+    star_levels=(0.10, 0.05, 0.01),
+    stats=["N", "R2"],
+    diagnostics=False,
+    consistency_check=False,
+    add_rows={"fyear FE": ["Yes"] * len(fms), "sic2 FE": ["Yes"] * len(fms)},
+    notes=[
+        "The OLS columns use the full regression sample and the PSM columns use the matched samples."
+    ],
+)
+table
 ```
 
 ## Discussion questions
 
-1. Given the evidence presented in the simulation, how do you interpret the regression results presented in [the book’s empirical table](https://iangow.github.io/era_pl_book/psm.html#tbl-big4-actual)?
+1. Given the evidence presented in the simulation, how do you interpret the regression results presented in [the book’s empirical table](https://iangow.github.io/era_statpai/psm.html#tbl-big4-actual)?
 How do @DeFond:2017wl appear to interpret the results?
 
 ```{python}

@@ -11,10 +11,10 @@ format:
 :::{.content-visible when-format="markdown"}
 ## Instructions
 
-This document assumes that you have completed the instructions [here](https://github.com/iangow/era_pl_templates/blob/main/README.md).
+This document assumes that you have completed the instructions [here](https://github.com/iangow/era_pl_templates/blob/statspai/README.md).
 As mentioned there, there is no need to complete **Steps 6 and 7: Configure and get data from WRDS** for this chapter.
 
-This template extracts the visible code and exercises from [Chapter 3](https://iangow.github.io/era_pl_book/reg-basics.html) of the Python Polars edition of *Empirical Research in Accounting: Tools and Methods*.
+This template extracts the visible code and exercises from [Chapter 3](https://iangow.github.io/era_statpai/reg-basics.html) of the Python Polars/StatsPAI edition of *Empirical Research in Accounting: Tools and Methods*.
 This template includes all the code from the book chapter.
 
 Within Positron, you can run the code below in two ways.
@@ -48,16 +48,22 @@ More details on using Quarto markdown are provided on the [Quarto website](https
 
 ```{python}
 #| include: false
-import numpy as np
-import pandas as pd
-import polars as pl
+# hidden-review: plot-theme
 import plotnine_polars as p9
+p9.theme_set(p9.theme_matplotlib())
+```
+
+```{python}
+#| include: false
+import gt_typst
+import numpy as np
+import polars as pl
 from plotnine_polars import aes
-import statsmodels.api as sm
-import statsmodels.formula.api as smf
-import pyfixest as pf
-from maketables import ETable
-from era_pl import load_data, ols_dropcollinear
+
+import statspai as sp
+from statspai.regression import OLSRegression
+
+from era_pl import load_data
 ```
 
 ```{python}
@@ -97,17 +103,16 @@ print(b)
 ```{python}
 #| include: false
 #| eval: true
-model = sm.OLS(y, X)
-fm = model.fit()
+model = OLSRegression(y=y, X=X, var_names=["const", "x1", "x2"])
+fm = model.fit(robust="nonrobust")
 print(fm.params)
 ```
 
 ```{python}
 #| include: false
 #| eval: true
-def ols_fit(data, formula, **fit_kwargs):
-    return smf.ols(formula, data=data.to_pandas(),
-                   missing="drop").fit(**fit_kwargs)
+def ols_fit(data, formula):
+    return sp.regress(formula, data=data)
 ```
 
 ```{python}
@@ -221,6 +226,7 @@ fm_dd_all = (
     camp_scores
     .pipe(ols_fit, formula="score ~ treat * post")
 )
+
 fm_dd_all.params
 ```
 
@@ -231,7 +237,6 @@ fm_dd_trend = (
     camp_scores
     .pipe(ols_fit, formula="score ~ treat * post + grade")
 )
-print(fm_dd_trend.params)
 ```
 
 ```{python}
@@ -260,12 +265,15 @@ mean_by_grade
 #| include: false
 #| eval: false
 fm_id = (
-    ols_dropcollinear(
-        data=camp_scores,
-        formula="score ~ treat * post + C(grade) + C(id)")
+    camp_scores
+    .pipe(ols_fit, formula="score ~ treat * post + C(grade) + C(id)")
 )
-X = fm_id.model.exog
-X.shape
+
+sp.regtable(
+    fm_id,
+    se_type="t", digits=3, stats=["N", "R2"],
+    drop=["C(*"],
+)
 ```
 
 ```{python}
@@ -292,18 +300,20 @@ fm_demean = (
 #| eval: true
 fm_dd_fe = (
     camp_scores
-    .pipe(ols_dropcollinear,
-          formula="score ~ treat * post + C(grade)")
+    .pipe(ols_fit,
+          formula="score ~  treat * post + C(grade)")
 )
 ```
 
 ```{python}
 #| include: false
 #| eval: true
-fefm = pf.feols(
-    fml="score ~ I(post * treat) | grade + id",
-    data=camp_scores
+fefm = sp.feols(
+    fml="score ~ treat:post | grade + id",
+    data=camp_scores,
+    vcov="iid",
 )
+fefm.params
 ```
 
 ## Running regressions in Python
@@ -339,20 +349,27 @@ mean_by_grade
 ```
 
 4. Now let's return to our earlier regression specification, except this time we include fixed effects for `grade`.
-We now have two omitted grade indicators: the reference category `grade=5` and one additional grade indicator.
+We now have two omitted grade indicators: the reference category `grade=5` and the indicator for `grade=8`.
 The additional indicator omitted can depend on how the software handles collinearity.
 Why are we now losing two grade indicators, while above we lost just one?
 (*Hint:* Which variables can be expressed as linear combinations of the `grade` indicators?)
 
 ```{python}
 #| echo: false
-ETable(
-    [fm_dd_fe],
-    coef_fmt="b:.3f* \n (t:.3f)",
-    signif_code=[0.01, 0.05, 0.10],
-    model_stats=["N", "r2"],
+sp.regtable(
+    fm_dd_fe,
+    se_type="t", digits=3, stats=["N", "R2"],
 )
 ```
+
+```{python}
+#| include: true
+
+```
+
+In `fm_id`, the student indicators for `id=1` and `id=1000` are also omitted.
+Why are two student indicators omitted?
+How does the choice of omitted student indicators affect the interpretation of the coefficient on `treat`?
 
 ```{python}
 #| include: true
@@ -378,7 +395,8 @@ All of them? Some of them? None of them?
     .group_by(["grade", "treat"])
     .agg(pl.col("score").mean().alias("score"))
     .sort("grade", "treat")
-    .with_columns(pl.col("score").round(3))
+    .style
+    .fmt_number(columns="score", decimals=3)
 )
 ```
 
@@ -387,20 +405,21 @@ All of them? Some of them? None of them?
 
 ```
 
-7. The `feols()` function from the `pyfixest` package offers a succinct syntax for adding fixed effects and uses computationally efficient algorithms (much like our demeaning approach above) in estimating these.
+7. The `feols()` function from the `statspai` package offers a succinct syntax for adding fixed effects and uses computationally efficient algorithms (much like our demeaning approach above) in estimating these.
 What is the same in the results below and the two specifications we estimated above?
 What is different?
 Why might these differences exist?
-What is the `I()` function doing here?
-What happens if we omit it (i.e., just include `post * treat`)?
+What does `treat:post` include in this specification?
+What changes if you use `treat * post`?
 
 ```{python}
 #| echo: true
-fefm = pf.feols(
-    fml="score ~ I(post * treat) | grade + id",
+fefm = sp.feols(
+    fml="score ~ treat:post | grade + id",
     data=camp_scores,
+    vcov="iid",
 )
-fefm.coef()
+fefm.params
 ```
 
 ```{python}
@@ -410,17 +429,22 @@ fefm.coef()
 
 ```{python}
 #| include: false
-#| eval: true
 comp = (
     load_data("comp")
     .with_columns(pl.col("big_n").cast(pl.Int64))
 )
+```
 
+```{python}
+#| include: false
 comp_fwl = comp.drop_nulls(subset=[
     "ta", "big_n", "cfo", "size", "lev", "mtb", "fyear",
     "inv_at", "d_sale", "d_ar", "ppe",
 ])
+```
 
+```{python}
+#| include: false
 base = (
     "big_n + size + lev + mtb + "
     "C(fyear) * (inv_at + I(d_sale - d_ar) + ppe)"
@@ -431,35 +455,31 @@ fm = ols_fit(comp_fwl, f"ta ~ {base} + cfo")
 
 ```{python}
 #| include: false
-#| eval: true
 fm_aux_ta  = ols_fit(comp_fwl, f"ta ~ {base}")
 fm_aux_cfo = ols_fit(comp_fwl, f"cfo ~ {base}")
 ```
 
 ```{python}
 #| include: false
-#| eval: true
 aux_data = pl.DataFrame({
-    "ta":  fm_aux_ta.resid,
-    "cfo": fm_aux_cfo.resid
+    "ta":  fm_aux_ta.residuals(),
+    "cfo": fm_aux_cfo.residuals()
 })
 ```
 
 ```{python}
 #| include: false
-#| eval: true
 fm_aux = ols_fit(aux_data, "ta ~ cfo")
 ```
 
 ```{python}
 #| include: false
-#| eval: true
 fwl_cfo_checks = {
     "coefficient_matches": bool(np.isclose(
         fm.params["cfo"], fm_aux.params["cfo"], rtol=1e-10, atol=1e-10,
     )),
     "residuals_match": bool(np.allclose(
-        fm.resid, fm_aux.resid, rtol=1e-10, atol=1e-10,
+        fm.residuals(), fm_aux.residuals(), rtol=1e-10, atol=1e-10,
     )),
 }
 fwl_cfo_checks
@@ -467,7 +487,16 @@ fwl_cfo_checks
 
 ```{python}
 #| include: false
-#| eval: true
+sp.regtable(
+    fm, fm_aux,
+    model_labels=["Full model", "Auxiliary regression"],
+    se_type="t", digits=3, stats=["N", "R2"],
+    keep=["Intercept", "big_n", "size", "lev", "mtb", "cfo"],
+)
+```
+
+```{python}
+#| include: false
 (
     aux_data
     .drop_nulls(subset=["cfo", "ta"])
@@ -480,7 +509,6 @@ fwl_cfo_checks
 
 ```{python}
 #| include: false
-#| eval: true
 (
     aux_data
     .drop_nulls(subset=["cfo", "ta"])
@@ -507,7 +535,7 @@ Does the plot with `big_n` as the independent variable seem less helpful?
 
 2. Above we said that the standard errors of the main regression and the auxiliary regression using the Frisch-Waugh-Lovell theorem should be "very similar".
 Confirm that the standard errors are similar across the variants of `fm` and `fm_aux` that you calculated for the previous question.
-(*Hint:* `fm_aux.bse` and `fm.bse` provide the estimated standard errors, while `fm_aux.df_resid` and `fm.df_resid` provide the residual degrees of freedom.)
+(*Hint:* `fm_aux.std_errors` and `fm.std_errors` provide the estimated standard errors, while `fm_aux.data_info["df_resid"]` and `fm.data_info["df_resid"]` provide the residual degrees of freedom.)
 Can you guess what might explain any differences?
 (*Hint:* Compare the residual degrees of freedom and perhaps use `np.sqrt()`.)
 
@@ -517,7 +545,7 @@ Can you guess what might explain any differences?
 ```
 
 3. In words, what effect does converting `fyear` into a categorical variable and interacting it with `inv_at`, `I(d_sale - d_ar)`, and `ppe` have?
-(*Hint:* It may be helpful to visually inspect the more complete regression output produced without `drop=["fyear", "ppe", "inv_at", "d_sale"]`.)
+(*Hint:* It may be helpful to visually inspect the more complete regression output produced without the `keep` argument.)
 
 ```{python}
 #| include: true

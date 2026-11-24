@@ -12,10 +12,10 @@ format:
 :::{.content-visible when-format="markdown"}
 ## Instructions
 
-This document assumes that you have completed the instructions [here](https://github.com/iangow/era_pl_templates/blob/main/README.md).
+This document assumes that you have completed the instructions [here](https://github.com/iangow/era_pl_templates/blob/statspai/README.md).
 This chapter requires WRDS data: `ccmxpf_lnkhist` and `dsf` from CRSP, `funda` from Compustat, and `factors_daily` from Ken French's data library.
 
-This template extracts the visible code and exercises from [Chapter 22](https://iangow.github.io/era_pl_book/rdd.html) of the Python Polars edition of *Empirical Research in Accounting: Tools and Methods*.
+This template extracts the visible code and exercises from [Chapter 22](https://iangow.github.io/era_statpai/rdd.html) of the Python Polars/StatsPAI edition of *Empirical Research in Accounting: Tools and Methods*.
 This template includes all the code from the book chapter.
 
 Within Positron, you can run the code below in two ways.
@@ -46,38 +46,29 @@ More details on using Quarto markdown are provided on the [Quarto website](https
 
 ```{python}
 #| include: false
-#| eval: true
-from IPython.display import display
-import warnings
-
+#| warning: false
+import gt_typst
 import polars as pl
-import plotnine_polars as p9
-import pyfixest as pf
-from maketables import ETable
-from plotnine_polars import aes, element_text
-from rdrobust import rdrobust
+import statspai as sp
 
-from era_pl import load_data, load_parquet, rdplot
+from era_pl import load_data, load_parquet
+```
 
-p9.theme_set(p9.theme_gray())
-
+```{python}
+#| include: false
+# hidden-review: display-formatting
 pl.Config.set_tbl_cols(200)
 pl.Config.set_tbl_width_chars(120)
-warnings.filterwarnings("ignore", category=UserWarning, module="pyfixest")
 ```
 
 ```{python}
 #| include: false
-#| eval: true
-def show_etable(models, **kwargs):
-    display(ETable(models=models, **kwargs))
-```
-
-```{python}
-#| include: false
-#| eval: true
 iliev_2010 = load_data("iliev_2010")
+iliev_2010
+```
 
+```{python}
+#| include: false
 mr_req_df = (
     iliev_2010
     .filter(
@@ -91,7 +82,21 @@ mr_req_df = (
     .filter(pl.col("fdate") >= pl.date(2004, 11, 15))
     .with_columns(mr_required=pl.col("max_float") >= 75)
 )
+```
 
+```{python}
+#| include: false
+(
+    mr_req_df
+    .filter(pl.col("mr_required"), ~pl.col("mr"), ~pl.col("af"))
+    .select("cik", "fdate", "pfdate", "publicfloat")
+    .sort("publicfloat", descending=True)
+    .head(6)
+)
+```
+
+```{python}
+#| include: false
 bloomfield_2021 = load_data("bloomfield_2021")
 
 float_data = (
@@ -114,7 +119,6 @@ float_data = (
 
 ```{python}
 #| include: false
-#| eval: true
 ccmxpf_lnkhist = load_parquet("ccmxpf_lnkhist", "crsp")
 
 ccm_link = (
@@ -134,7 +138,6 @@ float_data_linked = float_data.join(ccm_link, on="gvkey", how="inner")
 
 ```{python}
 #| include: false
-#| eval: true
 funda = load_parquet("funda", "comp")
 
 funda_mod = (
@@ -151,12 +154,17 @@ firm_years = (
     funda_mod
     .select("gvkey", "fyear", "datadate", "auopic")
     .with_columns(
-        sox=(pl.col("auopic").cast(pl.Float64) > 0).fill_null(False)
+        sox=(
+            pl.col("auopic").cast(pl.Float64) > 0
+        ).fill_null(False)
     )
     .select("gvkey", "fyear", "datadate", "sox")
     .collect()
 )
+```
 
+```{python}
+#| include: false
 risk_asymm_sample = (
     bloomfield_2021
     .join(ccm_link, on="permco", how="inner")
@@ -174,7 +182,6 @@ risk_asymm_sample = (
 
 ```{python}
 #| include: false
-#| eval: true
 factors_daily = load_parquet("factors_daily", "ff")
 
 mkt_rets = (
@@ -188,7 +195,6 @@ mkt_rets = (
 
 ```{python}
 #| include: false
-#| eval: true
 dsf = load_parquet("dsf", "crsp")
 
 risk_asymmetry = (
@@ -224,7 +230,8 @@ risk_asymmetry = (
     })
     .with_columns(
         nobs=pl.sum_horizontal(
-            pl.col("nobs_minus", "nobs_plus").fill_null(0)
+            pl.col("nobs_minus", "nobs_plus")
+            .fill_null(0)
         )
     )
     .select(
@@ -236,7 +243,6 @@ risk_asymmetry = (
 
 ```{python}
 #| include: false
-#| eval: true
 cutoff = 75
 
 reg_data = (
@@ -252,14 +258,20 @@ reg_data = (
         post=pl.col("datadate") >= pl.date(2005, 11, 1),
         year=pl.col("datadate").dt.year(),
     )
-    .with_columns(pl.col("beta_minus", "beta_plus").era.winsorize())
+    .with_columns(
+        pl.col("beta_minus", "beta_plus").era.winsorize()
+    )
     .with_columns(risk_asymm=pl.col("beta_minus") - pl.col("beta_plus"))
 )
+```
 
+```{python}
+#| include: false
+#| warning: false
 fms = [
-    pf.feols("risk_asymm ~ I(treat * post)", data=reg_data, vcov="iid"),
-    pf.feols(
-        "risk_asymm ~ I(treat * post) | permco + year",
+    sp.feols("risk_asymm ~ treat:post", data=reg_data, vcov="iid"),
+    sp.feols(
+        "risk_asymm ~ treat:post | permco + year",
         data=reg_data,
         vcov="iid",
     ),
@@ -268,36 +280,72 @@ fms = [
 
 ```{python}
 #| include: false
-#| eval: true
 reg_data_fs = reg_data.filter(pl.col("post"))
-
-rd_fs_2002 = rdrobust(
-    reg_data_fs["sox"],
-    reg_data_fs["float2002"],
+rd_fs_2002 = sp.rdrobust(
+    reg_data_fs.drop_nulls("float2002"),
+    y="sox",
+    x="float2002",
     c=cutoff,
     masspoints="off",
+    manipulation_test=False,
 )
+```
 
-rd_fs = rdrobust(
-    reg_data_fs["sox"],
-    reg_data_fs["float2004"],
+```{python}
+#| include: false
+rd_fs = sp.rdrobust(
+    reg_data_fs,
+    y="sox",
+    x="float2004",
     c=cutoff,
     masspoints="off",
+    manipulation_test=False,
 )
+```
 
-rd_ss = rdrobust(
-    reg_data_fs["risk_asymm"],
-    reg_data_fs["float2004"],
-    fuzzy=reg_data_fs["sox"],
+```{python}
+#| include: false
+def rd_table(result):
+    detail = result.detail.rename(columns={
+        "method": "Method",
+        "estimate": "Estimate",
+        "se": "SE",
+        "pvalue": "p-value",
+    })
+    ci_label = f"{1 - result.alpha:.0%} CI"
+    detail[ci_label] = [
+        f"[{lower:.4f}, {upper:.4f}]"
+        for lower, upper in zip(detail["ci_lower"], detail["ci_upper"])
+    ]
+    print(
+        detail[["Method", "Estimate", "SE", "p-value", ci_label]].to_markdown(
+            index=False, floatfmt=".4f",
+        )
+    )
+```
+
+```{python}
+#| include: false
+rd_ss = sp.rdrobust(
+    reg_data_fs,
+    y="risk_asymm",
+    x="float2004",
+    fuzzy="sox",
     c=cutoff,
     masspoints="off",
+    manipulation_test=False,
 )
+```
 
-rd_rf = rdrobust(
-    reg_data_fs["risk_asymm"],
-    reg_data_fs["float2004"],
+```{python}
+#| include: false
+rd_rf = sp.rdrobust(
+    reg_data_fs,
+    y="risk_asymm",
+    x="float2004",
     c=cutoff,
     masspoints="off",
+    manipulation_test=False,
 )
 ```
 
@@ -339,51 +387,94 @@ How might the actual treatment effects for those groups differ and why?
 
 ```{python}
 #| echo: false
+#| label: tbl-rdd-did
 #| tbl-cap: "Effect of SOX 404 on risk asymmetry"
-show_etable(
-    fms,
-    signif_code=[0.01, 0.05, 0.1],
-    custom_model_stats={"Firm and year FE": ["No", "Yes"]},
+table = sp.regtable(
+    *fms,
+    digits=3,
+    stats=["N", "R2"],
+    star_levels=(0.1, 0.05, 0.01),
+    add_rows={"Firm and year FE": ["No", "Yes"]},
+    diagnostics=False,
+    consistency_check=False,
+    notes=["The fixed-effects model drops singleton observations."],
 )
+table
 ```
 
 ```{python}
 #| echo: false
+#| label: fig-stage-1-2002
 #| fig-cap: SOX 404 report indicator and 2002 public float
-rdplot(
+sp.rdplot(
     reg_data_fs,
     y="sox",
     x="float2002",
-    cutoff=cutoff,
+    c=cutoff,
+    masspoints="off",
+    hide_ci=True,
+    figsize=(7, 4),
     y_label="SOX 404 report indicator",
     x_label="Public float in 2002",
-)
+);
 ```
 
 ```{python}
 #| echo: false
-#| fig-cap: SOX 404 report and 2004 public float
-rdplot(
+#| label: fig-stage-1-2004
+#| fig-cap: SOX 404 report indicator and 2004 public float
+sp.rdplot(
     reg_data_fs,
     y="sox",
     x="float2004",
-    cutoff=cutoff,
+    c=cutoff,
+    masspoints="off",
+    hide_ci=True,
+    figsize=(7, 4),
     y_label="SOX 404 report indicator",
     x_label="Public float in 2004",
-)
+);
 ```
 
 ```{python}
 #| echo: false
+#| label: fig-itt
 #| fig-cap: Risk asymmetry and 2004 public float
-rdplot(
+sp.rdplot(
     reg_data_fs,
     y="risk_asymm",
     x="float2004",
-    cutoff=cutoff,
+    c=cutoff,
+    masspoints="off",
+    hide_ci=True,
+    figsize=(7, 4),
     y_label="Risk asymmetry",
     x_label="Public float in 2004",
-)
+);
+```
+
+```{python}
+#| echo: false
+#| label: tbl-rdd-first-stage
+#| tbl-cap: First-stage RD estimates for SOX 404 reporting using 2004 public float
+#| output: asis
+rd_table(rd_fs)
+```
+
+```{python}
+#| echo: false
+#| label: tbl-rdd-fuzzy
+#| tbl-cap: Fuzzy RD estimates of the effect of SOX 404 on risk asymmetry
+#| output: asis
+rd_table(rd_ss)
+```
+
+```{python}
+#| echo: false
+#| label: tbl-rdd-reduced-form
+#| tbl-cap: Reduced-form RD estimates for risk asymmetry
+#| output: asis
+rd_table(rd_rf)
 ```
 
 1. Compare the data in `iliev_2010` and `float_data` for the two firms shown in the output below.
@@ -461,10 +552,30 @@ What implications do you see for the fuzzy RDD analysis we ran above using `floa
 ```
 
 7. In Table 4, @Bloomfield:2021va [p. 884] uses "a difference-in-differences design to identify the causal effect of reporting flexibility on risk asymmetry."
-As we say in [the book’s section](https://iangow.github.io/era_pl_book/panel-data.html#sec-panel-data), a difference-in-differences estimator adjusts differences in post-treatment outcome values by subtracting differences in pre-treatment outcome values.
+As we say in [the book’s section](https://iangow.github.io/era_statpai/panel-data.html#sec-panel-data), a difference-in-differences estimator adjusts differences in post-treatment outcome values by subtracting differences in pre-treatment outcome values.
 Why might differences in pre-treatment outcome values between observations on either side of the threshold be particularly problematic in RDD?
 Does the use of firm and year fixed effects address this problem?
 Or does it just suppress it?
+
+```{python}
+#| include: true
+
+```
+
+8. Recreate `reg_data` using `sp.winsor()` to winsorize `beta_minus` and `beta_plus` at the 1st and 99th percentiles.
+Do you get the same values for `beta_minus`, `beta_plus`, and `risk_asymm`?
+Do the regression estimates change?
+(*Hint:* Use `.pipe(sp.winsor, vars=["beta_minus", "beta_plus"], replace=True)` in place of the `.with_columns()` call that winsorizes the betas.)
+
+```{python}
+#| include: true
+
+```
+
+9. In the SOX 404 example, rerun the fuzzy and reduced-form regressions at half and twice their selected bandwidths.
+How do the estimates, robust confidence intervals, and fuzzy first-stage F-statistic change?
+Would you draw a different conclusion about risk asymmetry?
+(*Hint:* For each regression, scale both `h` and `b` by the same factor and keep the other settings as in the chapter.)
 
 ```{python}
 #| include: true

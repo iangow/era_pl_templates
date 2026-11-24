@@ -12,11 +12,11 @@ format:
 :::{.content-visible when-format="markdown"}
 ## Instructions
 
-This document assumes that you have completed the instructions [here](https://github.com/iangow/era_pl_templates/blob/main/README.md).
+This document assumes that you have completed the instructions [here](https://github.com/iangow/era_pl_templates/blob/statspai/README.md).
 Note that this chapter uses CRSP and Compustat data from a local Parquet repository, which means you will need to complete **Steps 6 and 7: Configure and get data from WRDS** before running any code.
 Some cells also fetch data from Ken French's website and require internet access.
 
-This template extracts the visible code and exercises from [Chapter 15](https://iangow.github.io/era_pl_book/accruals.html) of the Python Polars edition of *Empirical Research in Accounting: Tools and Methods*.
+This template extracts the visible code and exercises from [Chapter 15](https://iangow.github.io/era_statpai/accruals.html) of the Python Polars/StatsPAI edition of *Empirical Research in Accounting: Tools and Methods*.
 This template includes all the code from the book chapter.
 
 Within Positron, you can run the code below in two ways.
@@ -56,37 +56,19 @@ p9.theme_set(p9.theme_matplotlib())
 
 ```{python}
 #| include: false
-#| eval: true
-import numpy as np
 import gt_typst
+import numpy as np
 import polars as pl
-import pyfixest as pf
-import statsmodels.formula.api as smf
-from maketables import ETable
+import statspai as sp
 from great_tables import GT
 from plotnine_polars import aes
 
 from era_pl import (get_me_breakpoints, get_size_rets_monthly,
-                    load_parquet, ptime)
+                    load_parquet)
 ```
 
 ```{python}
 #| include: false
-#| eval: true
-import warnings
-from pandas.errors import ChainedAssignmentError
-
-warnings.filterwarnings(
-    "ignore",
-    category=ChainedAssignmentError,
-    module="pyfixest",
-)
-```
-
-```{python}
-#| include: false
-#| echo: false
-#| eval: true
 def get_data(
     add_perc: float = 0.03,
     n_years: int = 20,
@@ -165,18 +147,30 @@ def get_data(
 
 def run_simulation(i: int, add_perc: float) -> pl.DataFrame:
     return get_data(add_perc=add_perc, seed=2021 + i)
+```
 
-
+```{python}
+#| include: false
 df_1000 = get_data(n_years=1000, seed=2021)
+```
 
+```{python}
+#| include: false
 rng = np.random.default_rng(2021)
-add_percs = rng.uniform(low=0.01, high=0.05, size=5000)
 
+add_percs = rng.uniform(low=0.01, high=0.05, size=5000)
+```
+
+```{python}
+#| include: false
 res_list = [
     run_simulation(i, add_perc)
     for i, add_perc in enumerate(add_percs, start=1)
 ]
+```
 
+```{python}
+#| include: false
 res_df = pl.concat(
     [
         df.with_columns(id=pl.lit(i, dtype=pl.Int32))
@@ -184,7 +178,10 @@ res_df = pl.concat(
     ],
     how="vertical",
 ).select("id", pl.exclude("id"))
+```
 
+```{python}
+#| include: false
 def get_coefs(df: pl.DataFrame) -> pl.DataFrame:
     fm_data = (
         df
@@ -202,7 +199,10 @@ def get_coefs(df: pl.DataFrame) -> pl.DataFrame:
             "persistence": [beta[1]],
         }
     )
+```
 
+```{python}
+#| include: false
 results = pl.concat(
     [
         get_coefs(df).with_columns(id=pl.lit(i, dtype=pl.Int32))
@@ -214,12 +214,14 @@ results = pl.concat(
 
 ```{python}
 #| include: false
-#| eval: true
 funda = load_parquet("funda", "comp")
 company = load_parquet("company", "comp")
 ccmxpf_lnkhist = load_parquet("ccmxpf_lnkhist", "crsp")
 msf = load_parquet("msf", "crsp")
+```
 
+```{python}
+#| include: false
 sics = (
     company
     .select("gvkey", "sic")
@@ -237,7 +239,10 @@ funda_mod = (
     .join(sics, on="gvkey", how="left")
     .with_columns(sic=pl.coalesce("sich", "sic"))
 )
+```
 
+```{python}
+#| include: false
 acc_data_raw = (
     funda_mod
     .filter(
@@ -276,7 +281,10 @@ acc_data_raw = (
         pl.col("avg_at") > 0,
     )
 )
+```
 
+```{python}
+#| include: false
 acc_data = (
     acc_data_raw
     .with_columns(
@@ -296,7 +304,10 @@ acc_data = (
         ),
     )
 )
+```
 
+```{python}
+#| include: false
 ccm_link = (
     ccmxpf_lnkhist
     .filter(
@@ -310,7 +321,10 @@ ccm_link = (
     )
     .select("gvkey", "permno", "linkdt", "linkenddt")
 )
+```
 
+```{python}
+#| include: false
 crsp_link = (
     acc_data_raw
     .select("gvkey", "datadate")
@@ -331,12 +345,17 @@ crsp_link = (
             .dt.truncate("1mo"),
     )
 )
+```
 
+```{python}
+#| include: false
 crsp_data = (
     msf
     .join(crsp_link, on="permno", how="inner")
     .filter(
-        pl.col("date").is_between(pl.col("start_month"), pl.col("end_month"), closed="left")
+        pl.col("date")
+        .is_between(pl.col("start_month"),
+                    pl.col("end_month"), closed="left")
     )
     .group_by("gvkey", "permno", "datadate")
     .agg(
@@ -348,18 +367,34 @@ crsp_data = (
         n_months=pl.len(),
     )
 )
+```
 
+```{python}
+#| include: false
 size_rets = get_size_rets_monthly()
 
+size_rets.limit(10).collect()
+```
+
+```{python}
+#| include: false
 me_breakpoints = get_me_breakpoints()
 
+me_breakpoints.collect()
+```
+
+```{python}
+#| include: false
 crsp_dates = (
     msf
     .select("date")
     .unique()
     .with_columns(month=pl.col("date").dt.truncate("1mo"))
 )
+```
 
+```{python}
+#| include: false
 me_values = (
     crsp_link
     .join(crsp_dates, on="month", how="inner")
@@ -371,11 +406,14 @@ me_values = (
 me_decile_assignments = (
     me_breakpoints
     .join(me_values, on="month", how="inner")
-    .filter(pl.col("mktcap").is_between("me_min", "me_max",
-                                        closed="left"))
+    .filter(pl.col("mktcap")
+            .is_between("me_min", "me_max", closed="left"))
     .select("permno", "datadate", "decile")
 )
+```
 
+```{python}
+#| include: false
 cum_size_rets = (
     me_decile_assignments
     .select("datadate", "decile")
@@ -401,7 +439,10 @@ cum_size_rets = (
         pl.len().alias("n_size_months"),
     )
 )
+```
 
+```{python}
+#| include: false
 size_adj_rets = (
     crsp_data
     .join(me_decile_assignments, on=["permno", "datadate"], how="inner")
@@ -412,7 +453,10 @@ size_adj_rets = (
         "n_months", "n_size_months"
     )
 )
+```
 
+```{python}
+#| include: false
 reg_data = (
     acc_data
     .join(size_adj_rets,
@@ -420,123 +464,16 @@ reg_data = (
     )
     .collect()
 )
+```
 
-fm_earn = pf.feols("lead_earn ~ earn", data=reg_data)
-fm_earn_decile = pf.feols("lead_earn_decile ~ earn_decile", data=reg_data)
-
-def run_table_ind(
-    sic2: str,
-    lhs: str = "lead_earn",
-    rhs: str = "earn",
-) -> pl.DataFrame:
-    df = reg_data.filter(pl.col("sic2") == sic2)
-    fm = smf.ols(f"{lhs} ~ {rhs}", data=df.to_pandas()).fit()
-    params = {name: float(value) for name, value in fm.params.items()}
-    return pl.DataFrame(
-        {"sic2": [sic2], **{key: [value] for key, value in params.items()}}
-    )
-
-def stats_for_table(x: pl.Series) -> pl.DataFrame:
-    return pl.DataFrame(
-        {
-            "mean": [x.mean()],
-            "q1": [x.quantile(0.25)],
-            "median": [x.quantile(0.50)],
-            "q3": [x.quantile(0.75)],
-        }
-    )
-
-def summ_for_table(
-    lhs: str = "lead_earn",
-    rhs: str = "earn",
-    digits: int = 3,
-) -> GT:
-    coefs = pl.concat(
-        [
-            run_table_ind(sic2, lhs=lhs, rhs=rhs)
-            for sic2 in reg_data["sic2"].unique().sort()
-        ],
-        how="vertical",
-    ).drop("sic2")
-    summ = (
-        pl.concat(
-            [
-                stats_for_table(coefs[col]).with_columns(term=pl.lit(col))
-                for col in coefs.columns
-            ],
-            how="vertical",
-        )
-        .select("term", "mean", "q1", "median", "q3")
-    )
-    return summ.style.fmt_number(
-        columns=["mean", "q1", "median", "q3"], decimals=digits
-    )
-
-fm_acc = pf.feols("lead_earn ~ acc + cfo", data=reg_data)
-fm_acc_decile = pf.feols(
-    "lead_earn_decile ~ acc_decile + cfo_decile",
-    data=reg_data,
-)
-
-mms = [
-    pf.feols("size_adj_ret ~ lead_earn + acc + cfo", data=reg_data),
-    pf.feols(
-        "size_adj_ret ~ lead_earn_decile + acc_decile + cfo_decile",
-        data=reg_data,
-    ),
-]
-
-mm0_tidy = pl.from_pandas(mms[0].tidy().reset_index())
-fm_acc_tidy = pl.from_pandas(fm_acc.tidy().reset_index())
-
-beta_hat = (
-    mm0_tidy.filter(pl.col("Coefficient") == "lead_earn")
-    .select("Estimate")
-    .item()
-)
-beta_gamma_hat = (
-    -mm0_tidy.filter(pl.col("Coefficient") == "acc")
-    .select("Estimate")
-    .item()
-)
-gamma_star_hat = beta_gamma_hat / beta_hat
-gamma_hat = (
-    fm_acc_tidy.filter(pl.col("Coefficient") == "acc")
-    .select("Estimate")
-    .item()
-)
-beta_gamma_implied = beta_hat * gamma_hat
-
-eff = [
-    pf.feols("size_adj_ret ~ acc + cfo", data=reg_data),
-    pf.feols("size_adj_ret ~ acc_decile + cfo_decile", data=reg_data),
-]
-
-portfolio_rets = (
+```{python}
+#| include: false
+(
     reg_data
-    .group_by("fyear", "acc_decile")
-    .agg(size_adj_ret=pl.col("size_adj_ret").mean())
+    .group_by("acc_decile")
+    .agg(pl.col(["acc", "earn", "cfo"]).mean())
+    .sort("acc_decile")
 )
-
-fm_tbl6 = smf.ols(
-    "size_adj_ret ~ C(acc_decile) - 1",
-    data=portfolio_rets.to_pandas(),
-).fit()
-
-hedge_data = (
-    portfolio_rets
-    .with_columns(acc_decile_str=pl.col("acc_decile").cast(pl.Utf8))
-    .filter(pl.col("acc_decile_str").is_in(["1", "10"]))
-    .with_columns(
-        low_accrual=(pl.col("acc_decile_str") == "1").cast(pl.Int8)
-    )
-)
-fm_tbl6_hedge = smf.ols(
-    "size_adj_ret ~ low_accrual",
-    data=hedge_data.to_pandas(),
-).fit()
-hedge_ret = float(fm_tbl6_hedge.params["low_accrual"])
-p_val = float(fm_tbl6_hedge.pvalues["low_accrual"])
 ```
 
 ## @Sloan:1996wd
@@ -718,41 +655,194 @@ How might we modify the simulation to incorporate the missing elements?
 #| echo: false
 #| label: tbl-table-2-pooled
 #| tbl-cap: Replication of Table 2 of @Sloan:1996wd
-ETable(
-    [fm_earn, fm_earn_decile],
-    model_heads=["Lead earnings", "Lead earnings decile"],
-    head_order="h",
-    coef_fmt="b:.3f* \n (t:.3f)",
-    signif_code=[0.01, 0.05, 0.10],
-    model_stats=["N", "r2"],
+#| warning: false
+fm_earn = sp.regress(
+    "lead_earn ~ earn", data=reg_data, robust="nonrobust"
 )
+fm_earn_decile = sp.regress(
+    "lead_earn_decile ~ earn_decile", data=reg_data, robust="nonrobust"
+)
+
+sp.regtable(
+    fm_earn, fm_earn_decile,
+    model_labels=["Lead earnings", "Lead earnings decile"],
+    se_type="t", digits=3, stats=["N", "R2"],
+)
+```
+
+```{python}
+#| include: false
+def run_table_ind(
+    sic2: str,
+    lhs: str = "lead_earn",
+    rhs: str = "earn",
+) -> pl.DataFrame:
+    df = reg_data.filter(pl.col("sic2") == sic2)
+    predictors = rhs.split(" + ")
+    n_usable = df.select(lhs, *predictors).drop_nulls().drop_nans().height
+    if n_usable == len(predictors) + 1:
+        # Request coefficients without inference for saturated full-rank designs.
+        fm = sp.regress(f"{lhs} ~ {rhs}", data=df, coef_only=True)
+    else:
+        fm = sp.regress(
+            f"{lhs} ~ {rhs}", data=df, robust="nonrobust"
+        )
+    params = {name: float(value) for name, value in fm.params.items()}
+    return pl.DataFrame(
+        {"sic2": [sic2], **{key: [value] for key, value in params.items()}}
+    )
+```
+
+```{python}
+#| include: false
+def stats_for_table(x: pl.Series) -> pl.DataFrame:
+    return pl.DataFrame(
+        {
+            "mean": [x.mean()],
+            "q1": [x.quantile(0.25)],
+            "median": [x.quantile(0.50)],
+            "q3": [x.quantile(0.75)],
+        }
+    )
+```
+
+```{python}
+#| include: false
+def summ_for_table(
+    lhs: str = "lead_earn",
+    rhs: str = "earn",
+    digits: int = 3,
+) -> GT:
+    coefs = pl.concat(
+        [
+            run_table_ind(sic2, lhs=lhs, rhs=rhs)
+            for sic2 in reg_data["sic2"].unique().sort()
+        ],
+        how="vertical",
+    ).drop("sic2")
+    summ = (
+        pl.concat(
+            [
+                stats_for_table(coefs[col]).with_columns(term=pl.lit(col))
+                for col in coefs.columns
+            ],
+            how="vertical",
+        )
+        .select("term", "mean", "q1", "median", "q3")
+    )
+    return summ.style.fmt_number(
+        columns=["mean", "q1", "median", "q3"], decimals=digits
+    )
+```
+
+```{python}
+#| include: false
+#| warning: false
+summ_for_table(lhs="lead_earn", rhs="earn")
+```
+
+```{python}
+#| include: false
+#| warning: false
+summ_for_table(lhs="lead_earn_decile", rhs="earn_decile")
 ```
 
 ```{python}
 #| echo: false
 #| label: tbl-sloan-3
 #| tbl-cap: Replication of Table 3 of @Sloan:1996wd
-ETable(
-    [fm_acc, fm_acc_decile],
-    model_heads=["Lead earnings", "Lead earnings decile"],
-    head_order="h",
-    coef_fmt="b:.3f* \n (t:.3f)",
-    signif_code=[0.01, 0.05, 0.10],
-    model_stats=["N", "r2"],
+#| warning: false
+fm_acc = sp.regress(
+    "lead_earn ~ acc + cfo", data=reg_data, robust="nonrobust"
 )
+fm_acc_decile = sp.regress(
+    "lead_earn_decile ~ acc_decile + cfo_decile",
+    data=reg_data,
+    robust="nonrobust",
+)
+
+sp.regtable(
+    fm_acc, fm_acc_decile,
+    model_labels=["Lead earnings", "Lead earnings decile"],
+    se_type="t", digits=3, stats=["N", "R2"],
+)
+```
+
+```{python}
+#| include: false
+#| warning: false
+summ_for_table(lhs="lead_earn", rhs="acc + cfo", digits=4)
+```
+
+```{python}
+#| include: false
+#| warning: false
+summ_for_table(lhs="lead_earn_decile", rhs="acc_decile + cfo_decile", digits=4)
+```
+
+```{python}
+#| include: false
+#| warning: false
+mms = [
+    sp.regress(
+        "size_adj_ret ~ lead_earn + acc + cfo",
+        data=reg_data,
+        robust="nonrobust",
+    ),
+    sp.regress(
+        "size_adj_ret ~ lead_earn_decile + acc_decile + cfo_decile",
+        data=reg_data,
+        robust="nonrobust",
+    ),
+]
 ```
 
 ```{python}
 #| echo: false
 #| label: tbl-5
 #| tbl-cap: Abnormal returns, earnings, and lagged components
-ETable(
-    mms,
-    model_heads=["Levels", "Deciles"],
-    head_order="h",
-    coef_fmt="b:.3f* \n (t:.3f)",
-    signif_code=[0.01, 0.05, 0.10],
-    model_stats=["N", "r2"],
+sp.regtable(
+    *mms,
+    model_labels=["Levels", "Deciles"],
+    se_type="t", digits=3, stats=["N", "R2"],
+)
+```
+
+```{python}
+#| include: false
+beta_hat = float(mms[0].params["lead_earn"])
+beta_gamma_hat = -float(mms[0].params["acc"])
+gamma_star_hat = beta_gamma_hat / beta_hat
+gamma_hat = float(fm_acc.params["acc"])
+beta_gamma_implied = beta_hat * gamma_hat
+```
+
+```{python}
+#| include: false
+print(
+    "With estimates of "
+    f"$\\hat{{\\beta}} = {beta_hat:.4f}$ and "
+    f"$\\widehat{{\\beta \\gamma^*_1}} = {beta_gamma_hat:.4f}$, "
+    "we have an implied estimate of "
+    f"$\\hat{{\\gamma}}^*_1 = {gamma_star_hat:.4f}$."
+)
+```
+
+```{python}
+#| include: false
+print(
+    f"This estimate $\\hat{{\\gamma}}^*_1 = {gamma_star_hat:.4f}$ is higher than "
+    f"the estimate of $\\hat{{\\gamma}}_1 = {gamma_hat:.4f}$ from the persistence "
+    "regression."
+)
+```
+
+```{python}
+#| include: false
+print(
+    "The implied value from the persistence regression is "
+    f"$\\hat{{\\beta}} \\times \\hat{{\\gamma}}_1 = {beta_hat:.4f} \\times "
+    f"{gamma_hat:.4f} = {beta_gamma_implied:.4f}$."
 )
 ```
 
@@ -760,13 +850,22 @@ ETable(
 #| echo: false
 #| label: tbl-rational
 #| tbl-cap: Regressions for @Abel:1983um test
-ETable(
-    eff,
-    model_heads=["Levels", "Deciles"],
-    head_order="h",
-    coef_fmt="b:.3f* \n (t:.3f)",
-    signif_code=[0.01, 0.05, 0.10],
-    model_stats=["N", "r2"],
+#| warning: false
+eff = [
+    sp.regress(
+        "size_adj_ret ~ acc + cfo", data=reg_data, robust="nonrobust"
+    ),
+    sp.regress(
+        "size_adj_ret ~ acc_decile + cfo_decile",
+        data=reg_data,
+        robust="nonrobust",
+    ),
+]
+
+sp.regtable(
+    *eff,
+    model_labels=["Levels", "Deciles"],
+    se_type="t", digits=3, stats=["N", "R2"],
 )
 ```
 
@@ -774,7 +873,7 @@ ETable(
 
 1. In creating `acc_data_raw`, we used `fill_null(0)` to set the value of certain variables to zero when missing on Compustat.
 Does this seem appropriate here?
-Are the issues similar to those observed with regard to R&D in [the financial-statements reprise chapter](https://iangow.github.io/era_pl_book/fin-state-reprise.html#sec-fin-state-reprise)?
+Are the issues similar to those observed with regard to R&D in [the financial-statements reprise chapter](https://iangow.github.io/era_statpai/fin-state-reprise.html#sec-fin-state-reprise)?
 It may be helpful to find some observations from recent years where this use of `fill_null(0)` has an effect and think about the issues in context of financial statements for those firm-years.
 
 ```{python}
@@ -838,6 +937,7 @@ sim_reg_data = (
 ```{python}
 #| include: false
 #| eval: true
+# hidden-review: exercise-solution
 sim_reg_data = (
     res_df
     .with_columns(
@@ -845,12 +945,7 @@ sim_reg_data = (
         acc=pl.col("ni") - (pl.col("collect") - pl.col("cogs")),
     )
     .sort(["id", "year"])
-    .with_columns(
-        lag_cfo=pl.col("cfo").shift(1).over("id"),
-        lag_acc=pl.col("acc").shift(1).over("id"),
-    )
 )
-
 ```
 
 6. Which hypothesis does Figure 1 of @Sloan:1996wd relate to?
@@ -943,14 +1038,43 @@ reg_data_deciles = sim_reg_data.join(decile_data, on="id", how="inner")
 #| echo: false
 #| label: tbl-6
 #| tbl-cap: Partial replication of Table 6 of @Sloan:1996wd
-ETable(
-    [fm_tbl6],
-    model_heads=["Accrual deciles"],
-    head_order="h",
-    coef_fmt="b:.3f* \n (t:.3f)",
-    signif_code=[0.01, 0.05, 0.10],
-    model_stats=["N", "r2"],
+#| warning: false
+portfolio_rets = (
+    reg_data
+    .group_by("fyear", "acc_decile")
+    .agg(size_adj_ret=pl.col("size_adj_ret").mean())
 )
+
+fm_tbl6 = sp.feols(
+    "size_adj_ret ~ C(acc_decile) - 1",
+    data=portfolio_rets,
+    vcov="iid",
+)
+sp.regtable(
+    fm_tbl6,
+    model_labels=["Accrual deciles"],
+    se_type="t", digits=3, stats=["N", "R2"],
+)
+```
+
+```{python}
+#| include: false
+# hidden-review: keep-inline-result
+hedge_data = (
+    portfolio_rets
+    .with_columns(acc_decile_str=pl.col("acc_decile").cast(pl.Utf8))
+    .filter(pl.col("acc_decile_str").is_in(["1", "10"]))
+    .with_columns(
+        low_accrual=(pl.col("acc_decile_str") == "1").cast(pl.Int8)
+    )
+)
+fm_tbl6_hedge = sp.regress(
+    "size_adj_ret ~ low_accrual",
+    data=hedge_data,
+    robust="nonrobust",
+)
+hedge_ret = float(fm_tbl6_hedge.params["low_accrual"])
+p_val = float(fm_tbl6_hedge.pvalues["low_accrual"])
 ```
 
 ### Discussion questions
@@ -1003,7 +1127,7 @@ What is the equivalent to #308 in Compustat today?
 ```
 
 6. Study the empirical model on p. 361 of @Xie:2001th, which is labelled equation (1).
-(This is the much-used "Jones model" from @Jones:1991vx, which we examine in [the earnings-management chapter](https://iangow.github.io/era_pl_book/earnings-mgt.html#sec-earnings-mgt).)
+(This is the much-used "Jones model" from @Jones:1991vx, which we examine in [the earnings-management chapter](https://iangow.github.io/era_statpai/earnings-mgt.html#sec-earnings-mgt).)
 What are the assumptions implicit in this model and the labelling of the residual as "abnormal accruals"?
 (*Hint:* Take each component of the model and identify circumstances where it would be a reasonable model of "normal" accruals.)
 

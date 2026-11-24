@@ -12,13 +12,13 @@ format:
 :::{.content-visible when-format="markdown"}
 ## Instructions
 
-This document assumes that you have completed the instructions [here](https://github.com/iangow/era_pl_templates/blob/main/README.md).
+This document assumes that you have completed the instructions [here](https://github.com/iangow/era_pl_templates/blob/statspai/README.md).
 
 The Leone replication section requires WRDS data (`funda` from Compustat).
 The Call replication section uses the `cmsw_2018` dataset bundled with the `era_pl` package (no WRDS access required).
 The simulation section in the appendix runs with no external data.
 
-This template extracts the visible code and exercises from [Chapter 24](https://iangow.github.io/era_pl_book/extreme-vals.html) of the Python Polars edition of *Empirical Research in Accounting: Tools and Methods*.
+This template extracts the visible code and exercises from [Chapter 24](https://iangow.github.io/era_statpai/extreme-vals.html) of the Python Polars/StatsPAI edition of *Empirical Research in Accounting: Tools and Methods*.
 This template includes all the code from the book chapter.
 
 Within Positron, you can run the code below in two ways.
@@ -49,18 +49,15 @@ More details on using Quarto markdown are provided on the [Quarto website](https
 
 ```{python}
 #| include: false
-#| eval: true
+#| warning: false
+import gt_typst
 from itertools import product
 
 import numpy as np
 import polars as pl
-import gt_typst
 import polars.selectors as cs
 
-import pyfixest as pf
-import statsmodels.api as sm
-import statsmodels.formula.api as smf
-from maketables import ETable
+import statspai as sp
 from scipy import stats
 
 from era_pl import load_parquet, load_data, ptime
@@ -68,23 +65,17 @@ from era_pl import load_parquet, load_data, ptime
 
 ```{python}
 #| include: false
-#| eval: true
-import warnings
-
-warnings.filterwarnings("ignore")
 pl.Config.set_tbl_cols(200)
 pl.Config.set_tbl_width_chars(120)
 ```
 
 ```{python}
 #| include: false
-#| eval: true
 funda = load_parquet("funda", "comp")
 ```
 
 ```{python}
 #| include: false
-#| eval: true
 comp = (
     funda
     .filter(
@@ -176,9 +167,11 @@ def truncate(x: pl.Expr, prob: float = 0.01) -> pl.Expr:
 
 ```{python}
 #| include: false
-#| eval: true
 value_cols = comp.drop("gvkey", "datadate", "fyear", "big_n").columns
+```
 
+```{python}
+#| include: false
 comp_win = (
     comp
     .with_columns(pl.col(value_cols).era.winsorize())
@@ -192,7 +185,6 @@ comp_trunc = (
 
 ```{python}
 #| include: false
-#| eval: true
 formula_wins = (
     "ta ~ big_n + roa + cfo + size + lev + mtb + "
     "fyear * (inv_at + I(d_sale - d_ar) + ppe)"
@@ -202,47 +194,48 @@ formula_raw = (
     "fyear * (inv_at + I(d_sale - d_ar) + ppe)"
 )
 
-fms_leone = {
-    "Wins, w/ROA": pf.feols(formula_wins, data=comp_win),
-    "Raw": pf.feols(formula_raw, data=comp),
-}
-fms_leone["Wins"] = pf.feols(formula_raw, data=comp_win)
-fms_leone["Trunc"] = pf.feols(formula_raw, data=comp_trunc)
+with sp.silence("listwise_deletion"):
+    fms_leone = {
+        "Wins, w/ROA": sp.regress(formula_wins, data=comp_win),
+        "Raw": sp.regress(formula_raw, data=comp),
+    }
+```
+
+```{python}
+#| include: false
+with sp.silence("listwise_deletion"):
+    fms_leone["Wins"] = sp.regress(formula_raw, data=comp_win)
+    fms_leone["Trunc"] = sp.regress(formula_raw, data=comp_trunc)
 ```
 
 ```{python}
 #| include: false
 #| eval: false
 fms_leone["Trunc"] = (
-    pf.feols(
+    sp.regress(
         formula_raw,
-        data=comp.with_columns(pl.col(value_cols).era.truncate())
+        data=comp.with_columns(pl.col(value_cols).era.truncate()),
     )
 )
 ```
 
 ```{python}
 #| include: false
-#| eval: true
 comp_idx = comp.with_row_index("row_id")
 
-fm_cooksd = smf.ols(
-    "ta ~ big_n + cfo + size + lev + mtb + "
-    "fyear * (inv_at + I(d_sale - d_ar) + ppe)",
-    data=comp_idx.to_pandas(),
-).fit()
+fm = fms_leone["Raw"]
 
 cooksd_df = pl.DataFrame(
     {
-        "row_id": np.asarray(fm_cooksd.model.data.row_labels),
-        "cooksd": fm_cooksd.get_influence().cooks_distance[0],
+        "row_id": fm.sample_index.to_numpy(),
+        "cooksd": sp.influence_measures(fm)["cooksd"].to_numpy(),
     }
 )
 
 comp_cook = (
     comp_idx
     .join(cooksd_df, on="row_id", how="left")
-    .with_columns(extreme=pl.col("cooksd") > (4 / fm_cooksd.nobs))
+    .with_columns(extreme=pl.col("cooksd") > (4 / fm.nobs))
     .with_columns(
         ta=(
             pl.when(pl.col("extreme").fill_null(False))
@@ -253,179 +246,24 @@ comp_cook = (
     .drop("row_id")
 )
 
-fms_leone["Cook's D"] = pf.feols(formula_raw, data=comp_cook)
+with sp.silence("listwise_deletion"):
+    fms_leone["Cook's D"] = sp.regress(formula_raw, data=comp_cook)
 ```
 
 ```{python}
 #| include: false
-#| eval: true
-fmrob = sm.RLM.from_formula(
-    (
-        "ta ~ big_n + cfo + size + lev + mtb "
-        "+ fyear * (inv_at + I(d_sale - d_ar) + ppe)"
-    ),
-    data=comp_idx.to_pandas(),
-    M=sm.robust.norms.TukeyBiweight(c=3.4437),
-).fit()
-
-fms_leone["Robust"] = fmrob
+fms_leone["Robust"] = sp.robreg(
+    formula_raw, data=comp, method="mm", efficiency=0.85, random_state=0,
+)
 ```
 
 ```{python}
 #| include: false
-#| eval: true
 cmsw_2018 = load_data("cmsw_2018")
 ```
 
 ```{python}
 #| include: false
-#| eval: true
-yvars = ["firmpenalty", "emppenalty", "empprisonmos"]
-
-win_cols = ["blckownpct", "initabret", "pctinddir",
-            "mkt2bk", "lev"]
-
-cmsw = (
-    cmsw_2018
-    .with_columns(
-        pl.col(win_cols).era.winsorize(),
-        pl.col(yvars).log1p().name.prefix("ln_"),
-        pl.col("ff12").cast(pl.Utf8),
-        pl.col(pl.Boolean).cast(pl.Int8),
-    )
-    .filter(pl.col("tousesox") == 1)
-)
-```
-
-```{python}
-#| include: false
-#| eval: true
-x = "wbflag"
-controls = [
-    "selfdealflag", "blckownpct", "initabret", "lnvioperiod",
-    "bribeflag", "mobflag", "deter", "lnempcleveln", "lnuscodecnt",
-    "viofraudflag", "misledflag", "audit8flag", "exectermflag",
-    "coopflag", "impedeflag", "pctinddir", "recidivist",
-    "lnmktcap", "mkt2bk", "lev", "lndistance", "ff12",
-]
-
-def get_poisson_fit(y: str, df: pl.DataFrame = cmsw):
-    form = f"{y} ~ " + " + ".join([x, *controls])
-    return smf.glm(
-        form,
-        data=df.to_pandas(),
-        family=sm.families.Poisson(),
-    ).fit(maxiter=100, cov_type="HC1")
-
-fms_cmsw = [get_poisson_fit(y) for y in yvars]
-```
-
-```{python}
-#| include: false
-#| eval: true
-def get_ols_fit(y: str, df: pl.DataFrame = cmsw):
-    form = f"ln_{y} ~ " + " + ".join([x, *controls])
-    return smf.ols(form, data=df.to_pandas()).fit(cov_type="HC1")
-
-fms_ols = [get_ols_fit(y) for y in yvars]
-```
-
-```{python}
-#| include: false
-#| eval: true
-def get_itcvs(fm, var: str) -> pl.DataFrame:
-    tstats = dict(
-        zip(fm.model.exog_names, fm.tvalues, strict=True)
-    )
-    tstat = float(tstats[var])
-    df_resid = float(fm.df_resid)
-    numer = tstat**2 / df_resid
-    r_yx = np.sqrt(numer / (1 + numer))
-
-    alpha = np.array([0.01, 0.05, 0.10])
-    crit_val = stats.t.ppf(1 - alpha / 2, df_resid)
-    rhash = crit_val / np.sqrt(df_resid + crit_val**2)
-    itcv = (r_yx - rhash) / (1 - np.abs(rhash))
-
-    return pl.DataFrame(
-        {
-            "alpha": alpha,
-            "crit_val": crit_val,
-            "itcv": itcv,
-        }
-    )
-
-def pcor(df: pl.DataFrame) -> dict[str, float]:
-    mat = df.to_numpy()
-    cvx = np.cov(mat, rowvar=False)
-    icvx = np.linalg.pinv(cvx)
-    d = np.sqrt(np.diag(icvx))
-    pcor_mat = -icvx / np.outer(d, d)
-    np.fill_diagonal(pcor_mat, 1.0)
-    return dict(zip(df.columns[1:], pcor_mat[1:, 0], strict=True))
-
-def get_impacts(
-    df: pl.DataFrame,
-    y: str,
-    x: str,
-    controls: list[str],
-) -> pl.DataFrame:
-    corr_data = (
-        df
-        .select([y, x, *controls])
-        .to_dummies(columns=cs.string() | cs.categorical(),
-                    separator="_")
-        .drop_nulls()
-    )
-    z_vars = [col for col in corr_data.columns if col not in [y, x]]
-    r_yz = pcor(corr_data.select([y, *z_vars]))
-    r_xz = pcor(corr_data.select([x, *z_vars]))
-
-    return (
-        pl.DataFrame(
-            {
-                "var": z_vars,
-                "r_yz": [float(r_yz[v]) for v in z_vars],
-                "r_xz": [float(r_xz[v]) for v in z_vars],
-            }
-        )
-        .with_columns(impact=pl.col("r_yz") * pl.col("r_xz"))
-        .sort("impact", descending=True)
-    )
-
-def get_combined_impact(
-    df: pl.DataFrame,
-    y: str,
-    x: str,
-    controls: list[str],
-) -> pl.DataFrame:
-    form = f"{x} ~ " + " + ".join(controls)
-    fm = smf.ols(form, data=df.to_pandas()).fit()
-    df_aug = df.with_columns(z=pl.Series("z", fm.fittedvalues.to_numpy()))
-    return get_impacts(df_aug, y=y, x=x, controls=["z"])
-```
-
-```{python}
-#| include: false
-#| eval: true
-itcv = (
-    get_itcvs(fms_ols[0], "wbflag")
-    .filter(pl.col("alpha") == 0.05)
-    .get_column("itcv")
-    .item()
-)
-
-res = get_combined_impact(
-    cmsw,
-    y="ln_firmpenalty",
-    x="wbflag",
-    controls=controls,
-)
-```
-
-```{python}
-#| include: false
-#| eval: true
 (
     cmsw_2018
     .filter(pl.col("tousesox") == 1)
@@ -461,7 +299,72 @@ res = get_combined_impact(
 
 ```{python}
 #| include: false
-#| eval: true
+yvars = ["firmpenalty", "emppenalty", "empprisonmos"]
+
+win_cols = ["blckownpct", "initabret", "pctinddir",
+            "mkt2bk", "lev"]
+
+cmsw = (
+    cmsw_2018
+    .with_columns(
+        pl.col(win_cols).era.winsorize(),
+        pl.col(yvars).log1p().name.prefix("ln_"),
+        pl.col("ff12").cast(pl.Utf8),
+        pl.col(pl.Boolean).cast(pl.Int8),
+    )
+    .filter(pl.col("tousesox") == 1)
+)
+```
+
+```{python}
+#| include: false
+x = "wbflag"
+controls = [
+    "selfdealflag", "blckownpct", "initabret", "lnvioperiod",
+    "bribeflag", "mobflag", "deter", "lnempcleveln", "lnuscodecnt",
+    "viofraudflag", "misledflag", "audit8flag", "exectermflag",
+    "coopflag", "impedeflag", "pctinddir", "recidivist",
+    "lnmktcap", "mkt2bk", "lev", "lndistance", "ff12",
+]
+
+def get_poisson_fit(y: str, df: pl.DataFrame = cmsw):
+    terms = ["C(ff12)" if term == "ff12" else term for term in [x, *controls]]
+    form = f"{y} ~ " + " + ".join(terms)
+    return sp.poisson(form, data=df, robust="hc1")
+```
+
+```{python}
+#| include: false
+fms_cmsw = [get_poisson_fit(y) for y in yvars]
+```
+
+```{python}
+#| include: false
+def get_ols_fit(y: str, df: pl.DataFrame = cmsw):
+    form = f"ln_{y} ~ " + " + ".join([x, *controls])
+    fit = sp.regress(form, data=df, robust="hc1")
+    return fit.normal_reference()
+
+fms_ols = [get_ols_fit(y) for y in yvars]
+```
+
+```{python}
+#| include: false
+def get_itcvs(fm, var: str) -> pl.DataFrame:
+    df_resid = fm.data_info["df_resid"]
+    alpha = np.array([0.01, 0.05, 0.10])
+    return pl.DataFrame(
+        {
+            "alpha": alpha,
+            "crit_val": stats.t.ppf(1 - alpha / 2, df_resid),
+            "itcv": [sp.itcv(fm, var, alpha=a)["itcv"]
+                     for a in alpha],
+        }
+    )
+```
+
+```{python}
+#| include: false
 (
     get_itcvs(fms_ols[0], "wbflag")
     .style
@@ -472,15 +375,10 @@ res = get_combined_impact(
 
 ```{python}
 #| include: false
-#| eval: true
+impacts = sp.itcv(fms_ols[0], "wbflag")["impacts"]
 (
-    get_impacts(
-        cmsw,
-        y="ln_firmpenalty",
-        x="wbflag",
-        controls=controls,
-    )
-    .head(10)
+    pl.from_pandas(impacts.head(10), include_index=True)
+    .rename({"control": "var"})
     .style
     .fmt_number(columns=cs.numeric(), decimals=3)
 )
@@ -488,10 +386,28 @@ res = get_combined_impact(
 
 ```{python}
 #| include: false
-#| eval: true
+def get_combined_impact(
+    df: pl.DataFrame,
+    y: str,
+    x: str,
+    controls: list[str],
+) -> pl.DataFrame:
+    form = f"{x} ~ " + " + ".join(controls)
+    fm = sp.regress(form, data=df)
+    df_aug = df.with_columns(z=pl.Series("z", fm.fitted_values()))
+    correlations = sp.pwcorr(df_aug, vars=[y, x, "z"], output="dataframe")
+    r_yz, r_xz = correlations["z"][y], correlations["z"][x]
+    return pl.DataFrame(
+        {"var": ["z"], "r_yz": [r_yz], "r_xz": [r_xz], "impact": [r_yz * r_xz]}
+    )
+```
+
+```{python}
+#| include: false
+firm_penalty_data = cmsw.select("ln_firmpenalty", "wbflag", *controls).drop_nulls()
 (
     get_combined_impact(
-        cmsw,
+        firm_penalty_data,
         y="ln_firmpenalty",
         x="wbflag",
         controls=controls,
@@ -503,7 +419,6 @@ res = get_combined_impact(
 
 ```{python}
 #| include: false
-#| eval: true
 def get_data(
     b_true: float = 0.8,
     clean: bool = False,
@@ -547,40 +462,50 @@ def get_data(
         pl.col(win_vars).era.winsorize().name.suffix("w"),
         pl.col(win_vars).era.truncate().name.suffix("t"),
     )
+```
 
+```{python}
+#| include: false
+get_data()
+```
+
+```{python}
+#| include: false
 def fit_models(df: pl.DataFrame) -> dict[str, object]:
-    pdf = df.to_pandas()
+    formula_raw = "cy ~ x1 + x2 + x3"
     fms = {
-        "Do nothing": smf.ols("cy ~ x1 + x2 + x3", data=pdf).fit(),
-        "Winsorize all variables": smf.ols(
-            "cyw ~ x1w + x2w + x3w", data=pdf
-        ).fit(),
-        "Winsorize only X": smf.ols(
-            "cy ~ x1w + x2w + x3w", data=pdf
-        ).fit(),
-        "Truncate all variables": smf.ols(
-            "cyt ~ x1t + x2t + x3t", data=pdf
-        ).fit(),
-        "Truncate only X": smf.ols(
-            "cy ~ x1t + x2t + x3t", data=pdf
-        ).fit(),
+        "Do nothing": sp.regress(formula_raw, data=df),
+        "Winsorize all variables": sp.regress("cyw ~ x1w + x2w + x3w", data=df),
+        "Winsorize only X": sp.regress("cy ~ x1w + x2w + x3w", data=df),
     }
-    cooksd = fms["Do nothing"].get_influence().cooks_distance[0]
-    keep = cooksd <= (4 / len(pdf))
-    fms["Cook's distance"] = smf.ols("cy ~ x1 + x2 + x3", data=pdf[keep]).fit()
-    fms["Robust regression"] = smf.rlm(
-        "cy ~ x1 + x2 + x3",
-        data=pdf,
-        M=sm.robust.norms.TukeyBiweight(c=3.4437),
-    ).fit()
-    return fms
+    with sp.silence("listwise_deletion"):
+        fms["Truncate all variables"] = sp.regress("cyt ~ x1t + x2t + x3t", data=df)
+        fms["Truncate only X"] = sp.regress("cy ~ x1t + x2t + x3t", data=df)
 
+    raw_fit = fms["Do nothing"]
+    cooksd = sp.influence_measures(raw_fit)["cooksd"].to_numpy()
+    keep = pl.Series(cooksd <= (4 / raw_fit.nobs))
+    fms["Cook's distance"] = sp.regress(formula_raw, data=df.filter(keep))
+    fms["Robust regression"] = sp.robreg(
+        formula_raw,
+        data=df,
+        method="mm",
+        efficiency=0.85,
+        n_resample=50,
+        n_keep=5,
+        random_state=0,
+    )
+    return fms
+```
+
+```{python}
+#| include: false
 def extract_stats(fm, b_null: float) -> pl.DataFrame:
     coef_name = next(name for name in fm.params.index if name.startswith("x1"))
     est = fm.params[coef_name]
-    se = fm.bse[coef_name]
+    se = fm.std_errors[coef_name]
+    df_resid = fm.data_info["df_resid"]
     tval = (est - b_null) / se
-    df_resid = getattr(fm, "df_resid", np.nan)
     pval = 2 * (1 - stats.t.cdf(abs(tval), df_resid))
 
     return pl.DataFrame(
@@ -590,21 +515,27 @@ def extract_stats(fm, b_null: float) -> pl.DataFrame:
             "p_1": pval < 0.01,
         }
     )
+```
 
+```{python}
+#| include: false
 def compile_stats(
     fms: dict[str, object],
     b_null: float) -> pl.DataFrame:
     return pl.concat(
-        [
-            extract_stats(fm, b_null).with_columns(
-                model_num=pl.lit(i),
-                model=pl.lit(name),
-            )
-            for i, (name, fm) in enumerate(fms.items(), start=1)
-        ],
-        how="vertical",
-    )
+            [
+                extract_stats(fm, b_null).with_columns(
+                    model_num=pl.lit(i),
+                    model=pl.lit(name),
+                )
+                for i, (name, fm) in enumerate(fms.items(), start=1)
+            ],
+            how="vertical",
+        )
+```
 
+```{python}
+#| include: false
 def run_sim(
     sim_num: int = 1,
     b_true: float = 0.8,
@@ -624,21 +555,10 @@ def run_sim(
         clean=pl.lit(clean),
         random=pl.lit(random),
     )
+```
 
-def get_results(
-    b_true: float = 0.0,
-    clean: bool = False,
-    random: bool = False,
-    n_sims: int = 1000,
-) -> pl.DataFrame:
-    return pl.concat(
-        [
-            run_sim(sim_num=i, b_true=b_true, clean=clean, random=random)
-            for i in range(n_sims)
-        ],
-        how="vertical",
-    )
-
+```{python}
+#| include: false
 params = (
     pl.DataFrame(
         product([0.0, 0.8], [True, False], [False, True]),
@@ -650,8 +570,24 @@ params = (
 
 ```{python}
 #| include: false
+def get_results(
+    b_true: float = 0.0,
+    clean: bool = False,
+    random: bool = False,
+    n_sims: int = 1000,
+) -> pl.DataFrame:
+    return pl.concat(
+        [
+        run_sim(sim_num=i, b_true=b_true, clean=clean, random=random)
+        for i in range(n_sims)
+        ],
+        how="vertical",
+    )
+```
+
+```{python}
+#| include: false
 #| eval: false
-# Simulation takes more than a minute to run; no exercises depend on these results.
 with ptime():
     all_results = pl.concat(
         [
@@ -670,14 +606,20 @@ with ptime():
 #| label: tbl-leone-repl
 #| echo: false
 #| tbl-cap: "Results from various approaches to extreme values"
-ETable(
-    list(fms_leone.values()),
-    model_heads=list(fms_leone.keys()),
-    head_order="h",
-    coef_fmt="b:.3f* \n (t:.3f)",
-    signif_code=[0.01, 0.05, 0.10],
-    model_stats=["N", "r2"],
-    drop=["fyear", "ppe", "inv_at", "d_sale", "d_ar"],
+sp.regtable(
+    *fms_leone.values(),
+    model_labels=list(fms_leone),
+    keep=["Intercept", "big_n", "roa", "cfo", "size", "lev", "mtb"],
+    se_type="t",
+    digits=3,
+    star_levels=(0.10, 0.05, 0.01),
+    stats=["N", "R2"],
+    diagnostics=False,
+    consistency_check=False,
+    notes=[
+        "Each model uses complete cases. Truncation and Cook’s D exclude "
+        "additional observations."
+    ],
 )
 ```
 
@@ -722,32 +664,34 @@ How probative is the evidence of prior studies if it is based on approaches (e.g
 ### Discussion questions
 
 ```{python}
-#| label: tbl-cmsw-4
 #| echo: false
+#| label: tbl-cmsw-4
 #| tbl-cap: "Enforcement outcomes (Table 4 of CMSW)"
-ETable(
-    fms_cmsw,
-    model_heads=yvars,
-    head_order="h",
-    coef_fmt="b:.3f* \n (t:.3f)",
+sp.regtable(
+    *fms_cmsw,
+    model_labels=yvars,
     keep=["wbflag"],
-    signif_code=[0.01, 0.05, 0.10],
-    model_stats=["N"],
+    se_type="t",
+    digits=3,
+    star_levels=(0.10, 0.05, 0.01),
+    stats=["N"],
+    diagnostics=False,
 )
 ```
 
 ```{python}
-#| label: tbl-cmsw-8a
 #| echo: false
+#| label: tbl-cmsw-8a
 #| tbl-cap: "Enforcement outcomes with OLS (Table 8 of CMSW)"
-ETable(
-    fms_ols,
-    model_heads=yvars,
-    head_order="h",
-    coef_fmt="b:.3f* \n (t:.3f)",
+sp.regtable(
+    *fms_ols,
+    model_labels=yvars,
     keep=["wbflag"],
-    signif_code=[0.01, 0.05, 0.10],
-    model_stats=["N", "r2"],
+    se_type="t",
+    digits=3,
+    star_levels=(0.10, 0.05, 0.01),
+    stats=["N", "R2"],
+    diagnostics=False,
 )
 ```
 
@@ -772,7 +716,7 @@ Do you agree that "CMSW makes this point clearly throughout the paper"?
 ```
 
 3. "The published version of CMSW empirically addresses the role of extreme observations in enforcement actions with an estimator designed specifically to handle skewed data (Poisson pseudo-maximum likelihood) and with additional robustness tests, including one focused on the incidence rather than the magnitude of penalties."
-As we see in @tbl-cmsw-4, the estimator used in @Call:2018aa is standard Poisson regression, which is implemented here with `statsmodels` GLM and `family=Poisson`.
+As we see in @tbl-cmsw-4, the estimator used in @Call:2018aa is standard Poisson regression, which is implemented here with `sp.glm()` and `family="poisson"`.
 How might we use data sets covered in the Leone section or the simulation appendix to evaluate the claim that the Poisson regression estimator is "designed specifically to handle skewed data"?
 
 ```{python}

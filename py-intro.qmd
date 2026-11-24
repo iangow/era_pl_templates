@@ -11,10 +11,10 @@ format:
 :::{.content-visible when-format="markdown"}
 ## Instructions
 
-This document assumes that you have completed the instructions [here](https://github.com/iangow/era_pl_templates/blob/main/README.md).
+This document assumes that you have completed the instructions [here](https://github.com/iangow/era_pl_templates/blob/statspai/README.md).
 As mentioned there, there is no need to complete **Steps 6 and 7: Configure and get data from WRDS** for this chapter.
 
-This template extracts the visible code and exercises from [Chapter 2](https://iangow.github.io/era_pl_book/py-intro.html) of the Python Polars edition of *Empirical Research in Accounting: Tools and Methods*.
+This template extracts the visible code and exercises from [Chapter 2](https://iangow.github.io/era_statpai/py-intro.html) of the Python Polars/StatsPAI edition of *Empirical Research in Accounting: Tools and Methods*.
 This template includes all the code from the book chapter.
 
 Within Positron, you can run the code below in two ways.
@@ -50,9 +50,11 @@ import numpy as np
 import polars as pl
 import gt_typst
 import polars.selectors as cs
-import seaborn as sns
-import matplotlib.pyplot as plt
+import plotnine_polars as p9
+from plotnine_polars import aes
 from era_pl import load_data
+
+p9.theme_set(p9.theme_matplotlib())
 ```
 
 ```{python}
@@ -511,10 +513,10 @@ latest_mkt_cap = (
 #| label: fig-bank-mkt-cap-raw
 #| fig-cap: Market capitalization of Australian banks (initial version)
 #| fig-alt: "Plot of market capitalization of Australian banks with poorly labelled axes and unhelpful legend. Purpose of plot is to illustrate problems with initial attempt."
-sns.barplot(
-    data=latest_mkt_cap.to_pandas(),
-    x="gvkey",
-    y="Market capitalization",
+(
+    latest_mkt_cap
+    .ggplot(aes(x="gvkey", y="Market capitalization"))
+    .geom_col()
 )
 ```
 
@@ -547,19 +549,12 @@ latest_mkt_cap = (
 #| label: fig-bank-mkt-cap-clean
 #| fig-cap: Market capitalization of Australian banks
 #| fig-alt: "Plot of market capitalization of Australian banks with well-labelled axis and no legend. Purpose of plot is to illustrate improvements over initial attempt."
-plt.figure()
-ax = sns.barplot(
-    data=latest_mkt_cap.to_pandas(),
-    x="ticker",
-    y="mkt_cap",
-    color="steelblue",
+(
+    latest_mkt_cap
+    .ggplot(aes(x="reorder(ticker, -mkt_cap)", y="mkt_cap"))
+    .geom_col(fill="steelblue")
+    .labs(x="Ticker", y="Market capitalization (A$ millions)")
 )
-
-ax.set(
-    xlabel="Ticker",
-    ylabel="Market capitalization (A$ millions)",
-)
-plt.show()
 ```
 
 ```{python}
@@ -668,10 +663,10 @@ aus_bank_funds.select(
 ```{python}
 #| include: false
 #| eval: true
-sns.histplot(
-    data=aus_bank_roes.to_pandas(),
-    x="roe",
-    bins=25,
+(
+    aus_bank_roes
+    .ggplot(aes(x="roe"))
+    .geom_histogram(bins=25)
 )
 ```
 
@@ -858,15 +853,12 @@ aus_bank_mb.filter(pl.col("datadate") >= pl.date(1987, 9, 30))
 #| label: fig-mb-ts
 #| fig-cap: Time-series of market-to-book for Australian banks
 #| fig-alt: "Plot of monthly market-to-book ratios for Australian banks from late 1980s to early 2020s. Most values between 1 and 2, with some spikes as high as 6."
-plt.figure()
-ax = sns.lineplot(
-    data=aus_bank_mb.to_pandas(),
-    x="datadate",
-    y="mb",
-    hue="ticker",
+(
+    aus_bank_mb
+    .ggplot(aes(x="datadate", y="mb", color="ticker"))
+    .geom_line()
+    .labs(x="Date", y="Market-to-Book Ratio")
 )
-ax.set(xlabel="Date", ylabel="Market-to-Book Ratio")
-plt.show()
 ```
 
 
@@ -965,7 +957,7 @@ How would you check this claim?
 
 ```
 
-9. [the market-to-book figure in the book](https://iangow.github.io/era_pl_book/py-intro.html#fig-mb-ts) is a plot of market-to-book ratios.
+9. [the market-to-book figure in the book](https://iangow.github.io/era_statpai/py-intro.html#fig-mb-ts) is a plot of market-to-book ratios.
 Another measure linking stock prices to fundamentals is the **price-to-earnings ratio** (also known as the **PE ratio**).
 Typically, PE ratios are calculated as
 
@@ -987,7 +979,7 @@ Typically, PE ratios are calculated as
 
 ```
 
-10. Calculating the PE ratio using `pe = mkt_cap / ib`, create a plot similar to [the market-to-book figure in the book](https://iangow.github.io/era_pl_book/py-intro.html#fig-mb-ts), but for the PE ratios of Australian banks over time.
+10. Calculating the PE ratio using `pe = mkt_cap / ib`, create a plot similar to [the market-to-book figure in the book](https://iangow.github.io/era_statpai/py-intro.html#fig-mb-ts), but for the PE ratios of Australian banks over time.
 
 ```{python}
 #| include: true

@@ -12,14 +12,14 @@ format:
 :::{.content-visible when-format="markdown"}
 ## Instructions
 
-This document assumes that you have completed the instructions [here](https://github.com/iangow/era_pl_templates/blob/main/README.md).
+This document assumes that you have completed the instructions [here](https://github.com/iangow/era_pl_templates/blob/statspai/README.md).
 
 The application section of this chapter requires pre-generated parquet files in the `glms` subdirectory of your `DATA_DIR`.
 These are produced by running the data pipeline in the book chapter, which requires internet access (for SEC EDGAR downloads) and WRDS data (`funda`, `ccmxpf_lnkhist`, `dsi`, `dsf` from Compustat and CRSP).
 The simulation section runs with no external data.
 
-This template extracts the visible code and exercises from [Chapter 23](https://iangow.github.io/era_pl_book/glms.html) of the Python Polars edition of *Empirical Research in Accounting: Tools and Methods*.
-This template includes all the code from the book chapter.
+This template extracts the visible code and exercises from [Chapter 23](https://iangow.github.io/era_statpai/glms.html) of the Python Polars/StatsPAI edition of *Empirical Research in Accounting: Tools and Methods*.
+The application uses the pre-generated files described above to start at the regression stage.
 
 Within Positron, you can run the code below in two ways.
 
@@ -50,38 +50,24 @@ More details on using Quarto markdown are provided on the [Quarto website](https
 ```{python}
 #| include: false
 #| eval: true
-from IPython.display import display
-import warnings
-
 import numpy as np
 import polars as pl
+import statspai as sp
+import gt_typst
 import plotnine_polars as p9
-import pyfixest as pf
-import statsmodels.api as sm
-import statsmodels.formula.api as smf
-from maketables import ETable
 from plotnine_polars import aes
 from scipy.stats import logistic, norm
 
-from era_pl import load_parquet
+from era_pl import load_parquet, ptime
 
 p9.theme_set(p9.theme_matplotlib())
 
 pl.Config.set_tbl_cols(200)
 pl.Config.set_tbl_width_chars(120)
-warnings.filterwarnings("ignore", category=UserWarning, module="pyfixest")
 ```
 
 ```{python}
 #| include: false
-#| eval: true
-def show_etable(models, **kwargs):
-    display(ETable(models=models, **kwargs))
-```
-
-```{python}
-#| include: false
-#| eval: true
 def get_probit_data(
     beta_0: float = -2.0,
     beta_1: float = 0.3,
@@ -93,41 +79,45 @@ def get_probit_data(
     h = norm.cdf(beta_0 + x * beta_1)
     y = rng.uniform(size=n) < h
     return pl.DataFrame({"x": x, "y": y.astype(np.int8)})
+```
 
+```{python}
+#| include: false
 def get_mfx(fm, model_type: str) -> float:
-    X = fm.model.exog
     if model_type == "probit":
-        pdf = float(norm.pdf(X @ fm.params).mean())
+        mean_derivative = norm.pdf(fm.predict(what="link")).mean()
     elif model_type == "logit":
-        pdf = float(logistic.pdf(X @ fm.params).mean())
+        mean_derivative = logistic.pdf(fm.predict(what="link")).mean()
     elif model_type == "Poisson":
-        pdf = float(np.exp(X @ fm.params).mean())
+        mean_derivative = fm.predict().mean()
     else:
-        pdf = 1.0
-    return float(pdf * fm.params[1])
+        mean_derivative = 1.0
+    return float(mean_derivative * fm.params["x"])
+```
 
+```{python}
+#| include: false
 def fit_model(data: pl.DataFrame, model_type: str = "OLS") -> pl.DataFrame:
-    X = sm.add_constant(data["x"].to_numpy())
-    y = data["y"].to_numpy()
-
-    if model_type == "probit":
-        fm = sm.Probit(y, X).fit(disp=0)
-    elif model_type == "logit":
-        fm = sm.Logit(y, X).fit(disp=0)
-    elif model_type == "Poisson":
-        fm = sm.Poisson(y, X).fit(disp=0)
-    else:
-        fm = sm.OLS(y, X).fit()
+    estimators = {
+        "probit": sp.probit,
+        "logit": sp.logit,
+        "Poisson": sp.poisson,
+        "OLS": sp.regress,
+    }
+    fm = estimators[model_type]("y ~ x", data=data, robust="nonrobust")
 
     return pl.DataFrame({
         "type": [model_type],
-        "coef": [float(fm.params[1])],
-        "se": [float(fm.bse[1])],
-        "t_stat": [float(fm.tvalues[1])],
-        "p": [float(fm.pvalues[1])],
+        "coef": [float(fm.params["x"])],
+        "se": [float(fm.std_errors["x"])],
+        "t_stat": [float(fm.tvalues["x"])],
+        "p": [float(fm.pvalues["x"])],
         "mfx": [get_mfx(fm, model_type)],
     })
+```
 
+```{python}
+#| include: false
 def run_probit_sim(i: int, beta_1: float) -> pl.DataFrame:
     df = get_probit_data(beta_1=beta_1, seed=2024 + i)
     fits = [
@@ -145,7 +135,10 @@ def run_probit_sim(i: int, beta_1: float) -> pl.DataFrame:
             "se", "t_stat", "p", "mfx"
         )
     )
+```
 
+```{python}
+#| include: false
 def get_pois_data(
     beta_0: float = -2.0,
     beta_1: float = 0.3,
@@ -157,7 +150,10 @@ def get_pois_data(
     h = np.exp(beta_0 + x * beta_1)
     y = rng.poisson(lam=h)
     return pl.DataFrame({"x": x, "y": y})
+```
 
+```{python}
+#| include: false
 def run_pois_sim(i: int, beta_1: float) -> pl.DataFrame:
     df = get_pois_data(beta_1=beta_1, seed=2024 + i)
     fits = [fit_model(df, model_type=t) for t in ("Poisson", "OLS")]
@@ -177,39 +173,51 @@ def run_pois_sim(i: int, beta_1: float) -> pl.DataFrame:
 ```{python}
 #| include: false
 #| eval: false
-# Simulation takes time; no exercises depend on these results.
 n_iters = 1000
 
-results = pl.concat(
-    [
-        run_probit_sim(i, beta_1)
-        for beta_1 in (0.0, 0.3)
-        for i in range(n_iters)
-    ],
-    how="vertical",
-)
+with ptime():
+    results = pl.concat(
+        [
+            run_probit_sim(i, beta_1)
+            for beta_1 in (0.0, 0.3)
+            for i in range(n_iters)
+        ],
+        how="vertical",
+    )
+```
 
+```{python}
+#| include: false
+#| eval: false
 rel_df = (
     results
     .filter(pl.col("beta_1_true") != 0)
     .pivot(index="i", on="type", values=["coef", "mfx"])
 )
 
-fms = [
-    smf.ols("coef_logit ~ coef_probit", data=rel_df.to_pandas()).fit(),
-    smf.ols("coef_OLS ~ coef_probit", data=rel_df.to_pandas()).fit(),
-    smf.ols("mfx_logit ~ mfx_probit", data=rel_df.to_pandas()).fit(),
-    smf.ols("coef_OLS ~ mfx_probit", data=rel_df.to_pandas()).fit(),
-]
+def fit_ols(formula, data):
+    return sp.regress(formula, data=data, robust="nonrobust")
 
-results_pois = pl.concat(
-    [
-        run_pois_sim(i, beta_1)
-        for beta_1 in (0.0, 0.3)
-        for i in range(n_iters)
-    ],
-    how="vertical",
-)
+fms = [
+    fit_ols("coef_logit ~ coef_probit", data=rel_df),
+    fit_ols("coef_OLS ~ coef_probit", data=rel_df),
+    fit_ols("mfx_logit ~ mfx_probit", data=rel_df),
+    fit_ols("coef_OLS ~ mfx_probit", data=rel_df),
+]
+```
+
+```{python}
+#| include: false
+#| eval: false
+with ptime():
+    results_pois = pl.concat(
+        [
+            run_pois_sim(i, beta_1)
+            for beta_1 in (0.0, 0.3)
+            for i in range(n_iters)
+        ],
+        how="vertical",
+    )
 ```
 
 ```{python}
@@ -304,8 +312,6 @@ plot_data = (
 
 ```{python}
 #| include: false
-#| eval: true
-#| warning: false
 reg_data_glms = (
     vdis_df
     .join(
@@ -318,24 +324,22 @@ reg_data_glms = (
     .with_columns(pl.col("grossfilesize").log().name.prefix("ln_"))
     .collect()
 )
+```
 
+```{python}
+#| include: false
+#| warning: false
 controls = ["mkt_cap", "size", "roa", "mtb", "special_items"]
 model = "vdis_p1y ~ " + " + ".join(["ln_grossfilesize", *controls])
 
-fm_ols = pf.feols(model, data=reg_data_glms)
-fm_fe = pf.feols(
+fm_ols = sp.feols(model, data=reg_data_glms, vcov="iid")
+fm_fe = sp.feols(
     model + " | gvkey + iid",
     data=reg_data_glms,
-    demeaner_backend="scipy",
+    vcov="iid",
+    fixef_rm="singleton",
 )
-fm_pois = (
-    sm.GLM.from_formula(
-        model,
-        data=reg_data_glms.to_pandas(),
-        family=sm.families.Poisson(),
-    )
-    .fit(cov_type="HC1")
-)
+fm_pois = sp.poisson(model, data=reg_data_glms, robust="HC0")
 ```
 
 ## Complexity and voluntary disclosure
@@ -368,7 +372,7 @@ When might you expect these changes to have the opposite sign?
 ```
 
 4. @Guay:2016aa [p. 234] conclude that "collectively, these findings suggest managers use voluntary disclosure to mitigate the negative effects of complex financial statements on the information environment."
-Suppose you wanted to design a field experiment to test the propositions embedded in this sentence and were given the support of a regulator to do so (e.g., you can randomize firms to different regimes, as was done with [Reg SHO](https://iangow.github.io/era_pl_book/natural-revisited.html#sec-reg-sho)).
+Suppose you wanted to design a field experiment to test the propositions embedded in this sentence and were given the support of a regulator to do so (e.g., you can randomize firms to different regimes, as was done with [Reg SHO](https://iangow.github.io/era_statpai/natural-revisited.html#sec-reg-sho)).
 How would you implement this experiment?
 What empirical tests would you use?
 Are some elements of the hypothesis more difficult than others to test?
@@ -422,13 +426,17 @@ labels_df = (
 ```{python}
 #| echo: false
 #| tbl-cap: "Financial statement complexity and voluntary disclosure"
-show_etable(
-    [fm_ols, fm_fe, fm_pois],
-    model_heads=["OLS", "Firm FE", "Poisson"],
-    head_order="h",
-    coef_fmt="b:.3f* \n (se:.3f)",
-    signif_code=[0.01, 0.05, 0.10],
-    model_stats=["N"],
+sp.regtable(
+    fm_ols, fm_fe, fm_pois,
+    model_labels=["OLS", "Firm FE", "Poisson"],
+    order=["ln_grossfilesize", *controls, "Intercept"],
+    coef_labels={"_cons": "Intercept"},
+    digits=3,
+    star_levels=(0.10, 0.05, 0.01),
+    stats=["N"],
+    diagnostics=False,
+    add_rows={"gvkey FE": ["No", "Yes", "No"], "iid FE": ["No", "Yes", "No"]},
+    notes=["The fixed-effects regression also drops singleton observations."],
 )
 ```
 

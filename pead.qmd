@@ -12,10 +12,10 @@ format:
 :::{.content-visible when-format="markdown"}
 ## Instructions
 
-This document assumes that you have completed the instructions [here](https://github.com/iangow/era_pl_templates/blob/main/README.md).
+This document assumes that you have completed the instructions [here](https://github.com/iangow/era_pl_templates/blob/statspai/README.md).
 Note that this chapter uses CRSP and Compustat data from a local Parquet repository, which means you will need to complete **Steps 6 and 7: Configure and get data from WRDS** before running any code.
 
-This template extracts the visible code and exercises from [Chapter 14](https://iangow.github.io/era_pl_book/pead.html) of the Python Polars edition of *Empirical Research in Accounting: Tools and Methods*.
+This template extracts the visible code and exercises from [Chapter 14](https://iangow.github.io/era_statpai/pead.html) of the Python Polars/StatsPAI edition of *Empirical Research in Accounting: Tools and Methods*.
 This template includes all the code from the book chapter.
 
 Within Positron, you can run the code below in two ways.
@@ -57,10 +57,11 @@ p9.theme_set(p9.theme_matplotlib())
 ```{python}
 #| include: false
 #| eval: true
+import gt_typst
 import polars as pl
 import numpy as np
-from maketables import ETable
-import statsmodels.formula.api as smf
+import statspai as sp
+from great_tables import GT
 from era_pl import (load_parquet, ptime,
                     get_annc_dates, get_trading_dates)
 
@@ -112,7 +113,6 @@ apple_dates = (
 
 ```{python}
 #| include: false
-#| eval: true
 fyear_data = (
     funda_mod
     .select("fyear", "datadate")
@@ -124,19 +124,24 @@ fyear_data = (
     )
     .collect()
 )
+```
 
-def ols_fit(formula, data):
-    return smf.ols(formula, data=data.to_pandas()).fit()
+```{python}
+#| include: false
+fyear_formulas = ["fyear ~ C(month) + year - 1", "fyear ~ month + year"]
+fms = [
+    sp.regress(formula, data=fyear_data, robust="nonrobust")
+    for formula in fyear_formulas
+]
+```
 
-fms = [ols_fit(form, fyear_data)
-       for form in ["fyear ~ C(month) + year - 1",
-                    "fyear ~ month + year"]]
-
+```{python}
+#| include: false
 fyear_plot_data = (
     fyear_data
     .with_columns(
-        pred_1=pl.Series("pred_1", fms[0].predict(fyear_data.to_pandas())),
-        pred_2=pl.Series("pred_2", fms[1].predict(fyear_data.to_pandas())),
+        pred_1=pl.Series("pred_1", fms[0].fitted_values()),
+        pred_2=pl.Series("pred_2", fms[1].fitted_values()),
     )
     .with_columns(
         resid_1=pl.col("pred_1") - pl.col("fyear"),
@@ -225,20 +230,26 @@ fyr_plot_data = (
 
 ```{python}
 #| include: false
-#| eval: true
 n_qtrs = 20
 n_firms = 70
 focus_years = [1974, 2019]
+# See Table 1 of Foster (1977) for SICs
 sic2s = [f"{x:02d}" for x in [29, 49, 28, 35, 32, 33,
                               37, 20, 26, 10, 36, 59]]
+```
 
+```{python}
+#| include: false
 companies = (
     company
     .with_columns(sic2=pl.col("sic").cast(pl.String).str.slice(0, 2))
     .filter(pl.col("sic2").is_in(sic2s))
     .select("gvkey", "sic2")
 )
+```
 
+```{python}
+#| include: false
 fundq_merged = (
     fundq_mod
     .join(companies.select("gvkey"), on="gvkey", how="semi")
@@ -249,12 +260,18 @@ fundq_merged = (
             "rdq", "niq", "saleq", "ibq")
     .rename({"datadate": "datadateq"})
 )
+```
 
+```{python}
+#| include: false
 firm_years = (
     funda_mod
     .select("gvkey", "datadate")
 )
+```
 
+```{python}
+#| include: false
 merged_data = (
     firm_years
     .join(link_table,
@@ -264,7 +281,10 @@ merged_data = (
           on=["gvkey", "datadateq", "fyearq", "fyr"],
           how="inner")
 )
+```
 
+```{python}
+#| include: false
 qtr_num = (
     merged_data
     .group_by("gvkey", "datadate")
@@ -290,7 +310,10 @@ regular_fyears = (
     .filter(pl.col("regular_year"))
     .select("gvkey", "datadate")
 )
+```
 
+```{python}
+#| include: false
 reg_data = (
     merged_data
     .join(companies.select("gvkey"), on="gvkey", how="semi")
@@ -321,7 +344,6 @@ reg_data = (
 
 ```{python}
 #| include: false
-#| eval: true
 def fit_model(gvkey, datadateq):
 
     firm_data = (
@@ -358,27 +380,33 @@ def fit_model(gvkey, datadateq):
         sale_m4=pl.col("sale_lag_1") + pl.lit(model_24["sale_diff"]),
     )
 
-    try:
-        train_pd = train_data.to_pandas()
-        test_pd = test_data.to_pandas()
-        sale_fm5 = smf.ols("sale_seas_diff ~ lag_sale_seas_diff",
-                           data=train_pd).fit()
-        ni_fm5 = smf.ols("ni_seas_diff ~ lag_ni_seas_diff",
-                         data=train_pd).fit()
-        sale_fm6 = smf.ols("saleq ~ sale_lag_1 + sale_lag_4 + sale_lag_5",
-                           data=train_pd).fit()
-        ni_fm6 = smf.ols("niq ~ ni_lag_1 + ni_lag_4 + ni_lag_5",
-                         data=train_pd).fit()
-    except Exception:
-        return None
+    models = [
+        ("sale_m5", "sale_seas_diff", ["lag_sale_seas_diff"]),
+        ("ni_m5", "ni_seas_diff", ["lag_ni_seas_diff"]),
+        ("sale_m6", "saleq", ["sale_lag_1", "sale_lag_4", "sale_lag_5"]),
+        ("ni_m6", "niq", ["ni_lag_1", "ni_lag_4", "ni_lag_5"]),
+    ]
+    forecasts = {}
+    for name, outcome, predictors in models:
+        train = train_data.select(outcome, *predictors).drop_nulls().drop_nans()
+        if train.is_empty():
+            return None
+
+        holdout = test_data.select(predictors)
+        if holdout.drop_nulls().drop_nans().is_empty():
+            predicted = np.full(holdout.height, np.nan)
+        else:
+            formula = f"{outcome} ~ {' + '.join(predictors)}"
+            model = sp.regress(formula, data=train, collinear="raise",
+                               coef_only=True)
+            predicted = model.predict(holdout)
+        forecasts[name] = pl.Series(predicted, nan_to_null=True)
 
     df = df.with_columns(
-        ni_m5=pl.col("ni_lag_4") +
-                  pl.Series("ni_m5_pred", ni_fm5.predict(test_pd)),
-        sale_m5=pl.col("sale_lag_4") +
-                    pl.Series("sale_m5_pred", sale_fm5.predict(test_pd)),
-        ni_m6=pl.Series("ni_m6_pred", ni_fm6.predict(test_pd)),
-        sale_m6=pl.Series("sale_m6_pred", sale_fm6.predict(test_pd)),
+        ni_m5=pl.col("ni_lag_4") + forecasts["ni_m5"],
+        sale_m5=pl.col("sale_lag_4") + forecasts["sale_m5"],
+        ni_m6=forecasts["ni_m6"],
+        sale_m6=forecasts["sale_m6"],
     )
 
     out = (
@@ -411,7 +439,11 @@ def fit_model(gvkey, datadateq):
         .drop("niq", "saleq", "item_model")
     )
     return out
+```
 
+```{python}
+#| include: false
+#| warning: false
 top_firms = (
     reg_data
     .filter(pl.col("fyearq").is_in(focus_years))
@@ -434,7 +466,6 @@ test_years = (
 ```{python}
 #| include: false
 #| eval: false
-# Long-running: fits Foster (1977) models for ~70 firms × 2 years
 with ptime():
     results_list = [
         fit_model(row["gvkey"], row["datadateq"])
@@ -460,7 +491,6 @@ def fix_outliers(expr: pl.Expr) -> pl.Expr:
 ```{python}
 #| include: false
 #| eval: false
-# Depends on results from the long-running cell above
 model_ranks = (
     results
     .sort("gvkey", "datadateq", "item", "abe")
@@ -476,7 +506,11 @@ model_ranks = (
     .pivot(on="model", index=["fyearq", "item"], values="avg_rank")
     .sort("fyearq", "item")
 )
+```
 
+```{python}
+#| include: false
+#| eval: false
 results_summ = (
     results
     .with_columns(fix_outliers(pl.col("abe", "se")))
@@ -488,7 +522,6 @@ results_summ = (
 
 ```{python}
 #| include: false
-#| eval: true
 reg_data_fos = (
     merged_data
     .join(regular_fyears, on=["gvkey", "datadate"], how="semi")
@@ -509,7 +542,10 @@ reg_data_fos = (
     )
     .collect()
 )
+```
 
+```{python}
+#| include: false
 def fast_ols_predict(train_df, test_df, y_col, x_col):
     train_clean = train_df.select(y_col, x_col).drop_nulls()
     if train_clean.height == 0:
@@ -588,7 +624,10 @@ def fit_model_fos(gvkey, quarter):
     return out.with_columns(
         pl.col("fib", "fe1", "fe2").fill_nan(None)
     )
+```
 
+```{python}
+#| include: false
 quarters = (
     reg_data_fos
     .filter(pl.col("qtr").is_between(1974, 1987, closed='none'))
@@ -598,7 +637,10 @@ quarters = (
     .to_series()
     .to_list()
 )
+```
 
+```{python}
+#| include: false
 def get_results(quarter):
     gvkeys = (
         reg_data_fos
@@ -618,8 +660,7 @@ def get_results(quarter):
 ```{python}
 #| include: false
 #| eval: false
-# Long-running: fits PEAD models for all firms across 1974-1986 quarters
-# Only run this if you want to explore the PEAD results interactively.
+#| warning: false
 from concurrent.futures import ThreadPoolExecutor
 
 with ptime():
@@ -632,7 +673,6 @@ with ptime():
 ```{python}
 #| include: false
 #| eval: false
-# All cells below this point depend on the long-running PEAD results above
 deciles_inner = list(range(1, 10))
 
 decile_ranges = (
@@ -667,6 +707,12 @@ decile_ranges = (
     .select("qtr", "measure", "decile", "minimum", "maximum")
 )
 
+decile_ranges
+```
+
+```{python}
+#| include: false
+#| eval: false
 results_deciles = (
     results
     .select("gvkey", "datadateq", "qtr", "rdq", "fe1", "fe2")
@@ -701,7 +747,11 @@ results_deciles = (
     })
     .lazy()
 )
+```
 
+```{python}
+#| include: false
+#| eval: false
 ccm_link = (
     ccmxpf_lnkhist
     .filter(
@@ -714,7 +764,7 @@ ccm_link = (
     .select("gvkey", "permno", "linkdt", "linkenddt")
 )
 
-pead_link = (
+link_table = (
     results_deciles
     .select("gvkey", "rdq")
     .unique()
@@ -723,7 +773,11 @@ pead_link = (
                                      pl.col("linkenddt")))
     .select("gvkey", "rdq", "permno")
 )
+```
 
+```{python}
+#| include: false
+#| eval: false
 def get_event_rets(df, event_date, win_start=-1, win_end=1):
 
     dsf = load_parquet("dsf", "crsp")
@@ -773,10 +827,18 @@ def get_event_rets(df, event_date, win_start=-1, win_end=1):
     )
 
     return rets_data
+```
 
-rets = get_event_rets(pead_link, event_date="rdq",
+```{python}
+#| include: false
+#| eval: false
+rets = get_event_rets(link_table, event_date="rdq",
                       win_start=-60, win_end=60)
+```
 
+```{python}
+#| include: false
+#| eval: false
 with ptime():
     plot_data = (
         results_deciles
@@ -785,7 +847,7 @@ with ptime():
         .unique(subset=["gvkey", "rdq"],
                 keep="last", maintain_order=True)
         .with_columns(decile=pl.col("fe2_decile"))
-        .join(pead_link, on=["gvkey", "rdq"], how="inner")
+        .join(link_table, on=["gvkey", "rdq"], how="inner")
         .join(rets, on=["rdq", "permno"], how="inner")
         .group_by("decile", "relative_td")
         .agg(ar=(pl.col("ret") - pl.col("decret")).mean())
@@ -799,13 +861,18 @@ with ptime():
 #| echo: false
 #| label: tbl-fyear
 #| tbl-cap: "Regression of `fyear` on month indicators"
-ETable(
-    fms,
-    model_heads=["fyear ~ C(month) + year - 1", "fyear ~ month + year"],
-    head_order="h",
-    coef_fmt="b:.3f",
-    model_stats=["r2"],
+fyear_table = sp.regtable(
+    *fms,
+    model_labels=fyear_formulas,
+    order=[*fms[0].params.index, "month", "Intercept"],
+    coef_labels={f"C(month)[{m}]": f"month={m}" for m in range(1, 13)},
+    fmt=3,
+    se_type="none",
+    stars=False,
+    stats=["R2"],
 )
+table_rows = pl.DataFrame(fyear_table.to_dict()["table"])
+GT(table_rows, rowname_col="term")
 ```
 
 ### Exercises
@@ -936,14 +1003,13 @@ What would you do differently?
 
 ```
 
-3. How do the results in @fig-table-3 compare with those in @Foster:1977wy?
+3. How do the results in [the forecast-error figure](https://iangow.github.io/era_statpai/pead.html#fig-table-3) compare with those in @Foster:1977wy?
 
 ```{python}
 #| echo: false
 #| eval: false
 #| label: fig-abe-histo
 #| fig-cap: Histograms of abe
-#| fig-alt: "Histograms of abnormal earnings by model for six models discussed in the text by year (either 1974 or 2019)."
 (
     results
     .filter(pl.col("item") == "ni", pl.col("abe").is_not_null())
@@ -959,7 +1025,6 @@ What would you do differently?
 #| eval: false
 #| label: fig-table-3
 #| fig-cap: Plot of results like Table 3 of Foster (1977)
-#| fig-alt: "Plots of results analogous to those in Table 3 of Foster (1977). Plots show that Model 5 generally performs best for both net income and sales."
 (
     results_summ
     .unpivot(index=["fyearq", "item", "model"],
@@ -994,7 +1059,6 @@ Can you suggest an alternative approach to measuring performance that might plac
 #| eval: false
 #| label: fig-pre
 #| fig-cap: Pre-announcement returns
-#| fig-alt: "Plot of cumulative abnormal returns over 60 days prior to earnings announcement by earnings surprise decile."
 (
     plot_data
     .filter(pl.col("relative_td") <= 0)
@@ -1027,7 +1091,6 @@ Can you suggest an alternative approach to measuring performance that might plac
 #| eval: false
 #| label: fig-post
 #| fig-cap: Post-announcement returns
-#| fig-alt: "Plot of cumulative abnormal returns over 60 days after earnings announcement by earnings surprise decile."
 (
     plot_data
     .filter(pl.col("relative_td") >= 0)
@@ -1083,7 +1146,7 @@ What evidence and arguments do you find persuasive or not persuasive?
 
 ```
 
-4. The analysis underlying @fig-post considers the 13-year period from 1974 to 1986.
+4. The analysis underlying [the post-announcement returns figure](https://iangow.github.io/era_statpai/pead.html#fig-post) considers the 13-year period from 1974 to 1986.
 What changes would you need to make to the code to run the analysis for the 13-year period from 2007 to 2019?
 (If you choose to make this change and run the code, what do you notice about the profile of returns in the post-announcement period?
 Does it seem necessary to make an additional tweak to the code to address this?)

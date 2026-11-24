@@ -12,10 +12,10 @@ format:
 :::{.content-visible when-format="markdown"}
 ## Instructions
 
-This document assumes that you have completed the instructions [here](https://github.com/iangow/era_pl_templates/blob/main/README.md).
+This document assumes that you have completed the instructions [here](https://github.com/iangow/era_pl_templates/blob/statspai/README.md).
 Note that this chapter uses Compustat data from a local Parquet repository, which means you will need to complete **Steps 6 and 7: Configure and get data from WRDS** before running any code.
 
-This template extracts the visible code and exercises from [Chapter 8](https://iangow.github.io/era_pl_book/fin-state-reprise.html) of the Python Polars edition of *Empirical Research in Accounting: Tools and Methods*.
+This template extracts the visible code and exercises from [Chapter 8](https://iangow.github.io/era_statpai/fin-state-reprise.html) of the Python Polars/StatsPAI edition of *Empirical Research in Accounting: Tools and Methods*.
 This template includes all the code from the book chapter.
 
 Within Positron, you can run the code below in two ways.

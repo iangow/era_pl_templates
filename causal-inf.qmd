@@ -11,10 +11,10 @@ format:
 :::{.content-visible when-format="markdown"}
 ## Instructions {#sec-causal-inf}
 
-This document assumes that you have completed the instructions [here](https://github.com/iangow/era_pl_templates/blob/main/README.md).
+This document assumes that you have completed the instructions [here](https://github.com/iangow/era_pl_templates/blob/statspai/README.md).
 As mentioned there, there is no need to complete **Steps 6 and 7: Configure and get data from WRDS** for this chapter.
 
-This template extracts the visible code and exercises from [Chapter 4](https://iangow.github.io/era_pl_book/causal-inf.html) of the Python Polars edition of *Empirical Research in Accounting: Tools and Methods*.
+This template extracts the visible code and exercises from [Chapter 4](https://iangow.github.io/era_statpai/causal-inf.html) of the Python Polars/StatsPAI edition of *Empirical Research in Accounting: Tools and Methods*.
 This template includes all the code from the book chapter.
 
 Within Positron, you can run the code below in two ways.
@@ -46,13 +46,18 @@ More details on using Quarto markdown are provided on the [Quarto website](https
 
 ```{python}
 #| include: false
+# hidden-review: plot-theme
+import plotnine_polars as p9
+p9.theme_set(p9.theme_matplotlib())
+```
+
+```{python}
+#| include: false
+import gt_typst
 import numpy as np
 import polars as pl
-import plotnine_polars as p9
 from plotnine_polars import aes
 import statspai as sp
-import statsmodels.formula.api as smf
-from maketables import ETable
 ```
 
 ```{python}
@@ -66,68 +71,55 @@ pl.Config.set_tbl_hide_column_data_types(True)
 
 ```{python}
 #| include: false
-#| eval: true
-def get_e(rng, n=100_000):
-    return rng.standard_normal(n)
-
-def fit_ols(formula, data, subset=None):
-    data = data.to_pandas()
-    if subset is not None:
-        subset = subset.to_numpy()
-    return smf.ols(formula, data=data, subset=subset).fit()
-```
-
-```{python}
-#| include: false
-#| eval: true
 rng = np.random.default_rng(2021)
+
+def get_e(rng, n = 100_000):
+    return rng.standard_normal(n)
 
 industry = get_e(rng)
 intelligence = get_e(rng)
 education = 3 * intelligence + 4 * industry + get_e(rng)
 income = 10 + 5 * education + 6 * intelligence + 7 * industry + get_e(rng)
 
-df = pl.DataFrame({
-    "industry": industry,
-    "intelligence": intelligence,
-    "education": education,
-    "income": income,
-})
-
-formulas = [
-    "income ~ education",
-    "income ~ education + intelligence + industry",
-    "income ~ intelligence + industry",
-]
-
-fms = [fit_ols(f, data=df) for f in formulas]
-```
-
-```{python}
-#| echo: false
-#| eval: true
-ETable(
-    fms,
-    model_stats=["N", "r2"],
-    coef_fmt="b:.3f \n (t:.3f)",
+df = pl.DataFrame(
+    {
+        "industry": industry,
+        "intelligence": intelligence,
+        "education": education,
+        "income": income,
+    }
 )
 ```
 
 ```{python}
 #| include: false
-#| eval: true
+formulas = ["income ~ education",
+            "income ~ education + intelligence + industry",
+            "income ~ intelligence + industry"]
+
+fms = [sp.regress(f, data=df, robust="nonrobust") for f in formulas]
+```
+
+```{python}
+#| echo: false
+#| tbl-cap: Income regressed on education and other variables
+#| label: tbl-income
+sp.regtable(
+    *fms,
+    se_type="t", digits=3, stats=["N", "R2"], stars=False,
+)
+```
+
+```{python}
+#| include: false
 def get_admissions_data(n, rng):
-    test = get_e(rng, n)
-    interview = get_e(rng, n)
-    score = test + interview
-    cutoff = np.quantile(score, 0.90)
     return pl.DataFrame({
-        "test": test,
-        "interview": interview,
-        "score": score,
-        "cutoff": cutoff,
-        "admitted": score >= cutoff,
-    })
+            "test": (test := get_e(rng, n)),
+            "interview": (interview := get_e(rng, n)),
+            "score": (score := test + interview),
+            "cutoff": (cutoff := np.quantile(score, 0.90)),
+            "admitted": score >= cutoff
+        })
 
 rng = np.random.default_rng(2021)
 admissions = get_admissions_data(100_000, rng)
@@ -135,7 +127,6 @@ admissions = get_admissions_data(100_000, rng)
 
 ```{python}
 #| include: false
-#| eval: true
 (
     admissions
     .ggplot(aes(x="test", y="interview", color="admitted"))
@@ -146,7 +137,6 @@ admissions = get_admissions_data(100_000, rng)
 
 ```{python}
 #| include: false
-#| eval: true
 specs = [
     ("interview ~ test", None),
     ("interview ~ test", ~admissions["admitted"]),
@@ -155,54 +145,53 @@ specs = [
 ]
 
 fms_collider = [
-    fit_ols(formula, admissions, subset=subset)
+    sp.regress(
+        formula,
+        data=(admissions if subset is None else admissions.filter(subset)),
+        robust="nonrobust",
+    )
     for formula, subset in specs
 ]
 ```
 
 ```{python}
 #| include: false
-#| eval: true
-ETable(
-    fms_collider,
-    model_stats=["N", "r2"],
-    coef_fmt="b:.3f* \n (t:.3f)",
-    signif_code=[0.01, 0.05, 0.10],
+sp.regtable(
+    *fms_collider,
+    consistency_check=False,
+    se_type="t", digits=3, stats=["N", "R2"],
+    notes=[
+        "Model (1) uses the full sample; model (2) uses non-admitted applicants; "
+        "model (3) uses admitted applicants; and model (4) uses the full sample."
+    ],
 )
 ```
 
 ```{python}
 #| include: false
-#| eval: true
 def get_disc_df(n, rng):
-    female = rng.random(n) >= 0.5
-    disc = female
-    occ = 1 + 0 * female - 2 * disc + get_e(rng, n)
-    salary = 1 - 1 * disc + 2 * occ + get_e(rng, n)
     return pl.DataFrame({
-        "female": female,
-        "discrimination": disc,
-        "occupation": occ,
-        "salary": salary,
-    })
+            "female": (female := rng.random(n) >= 0.5),
+            "discrimination": (disc := female),
+            "occupation": (
+                occ := 1 + 0 * female - 2 * disc + get_e(rng, n)
+            ),
+            "salary":  1 - 1 * disc + 2 * occ + get_e(rng, n),
+        })
 
 rng = np.random.default_rng(2023)
 disc_df = get_disc_df(100_000, rng)
-
-fms_discrim = [
-    fit_ols("salary ~ female", disc_df),
-    fit_ols("salary ~ female + occupation", disc_df),
-]
 ```
 
 ```{python}
 #| include: false
-#| eval: true
-ETable(
-    fms_discrim,
-    model_stats=["N", "r2"],
-    coef_fmt="b:.3f* \n (t:.3f)",
-    signif_code=[0.01, 0.05, 0.10],
+disc_formulas = ["salary ~ female", "salary ~ female + occupation"]
+
+fms_discrim = [sp.regress(f, data=disc_df, robust="nonrobust") for f in disc_formulas]
+
+sp.regtable(
+    *fms_discrim,
+    se_type="t", digits=3, stats=["N", "R2"],
 )
 ```
 
@@ -268,11 +257,14 @@ Which of the four models seems to do worst?
 
 ```{python}
 #| echo: false
-ETable(
-    fms_collider,
-    model_stats=["N", "r2"],
-    coef_fmt="b:.3f* \n (t:.3f)",
-    signif_code=[0.01, 0.05, 0.10],
+sp.regtable(
+    *fms_collider,
+    consistency_check=False,
+    se_type="t", digits=3, stats=["N", "R2"],
+    notes=[
+        "Model (1) uses the full sample; model (2) uses non-admitted applicants; "
+        "model (3) uses admitted applicants; and model (4) uses the full sample."
+    ],
 )
 ```
 
@@ -351,11 +343,9 @@ How do each of these effects show up in the regression results shown below?
 
 ```{python}
 #| echo: false
-ETable(
-    fms_discrim,
-    model_stats=["N", "r2"],
-    coef_fmt="b:.3f* \n (t:.3f)",
-    signif_code=[0.01, 0.05, 0.10],
+sp.regtable(
+    *fms_discrim,
+    se_type="t", digits=3, stats=["N", "R2"],
 )
 ```
 
@@ -376,7 +366,7 @@ $D$ (discrimination) and $A$ (ability) are unobserved.
 ```{python}
 #| eval: false
 "ability": (abil := get_e(rng, n)),
-"occupation": (occ := 1 + 0 * female - 2 * disc + 2 * abil +
+"occupation": (occ:= 1 + 0 * female - 2 * disc + 2 * abil +
                         get_e(rng, n)),
 "salary":  1 - 1 * disc + 2 * occ + 0.3 * abil + get_e(rng, n),
 ```

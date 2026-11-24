@@ -12,10 +12,10 @@ format:
 :::{.content-visible when-format="markdown"}
 ## Instructions
 
-This document assumes that you have completed the instructions [here](https://github.com/iangow/era_pl_templates/blob/main/README.md).
+This document assumes that you have completed the instructions [here](https://github.com/iangow/era_pl_templates/blob/statspai/README.md).
 Note that this chapter does not require WRDS data.
 
-This template extracts the exercises from [Chapter 20](https://iangow.github.io/era_pl_book/iv.html) of the Python Polars edition of *Empirical Research in Accounting: Tools and Methods*.
+This template extracts the exercises from [Chapter 20](https://iangow.github.io/era_statpai/iv.html) of the Python Polars/StatsPAI edition of *Empirical Research in Accounting: Tools and Methods*.
 This template includes all the code from the book chapter.
 
 Within Positron, you can run the code below in two ways.
@@ -46,20 +46,13 @@ More details on using Quarto markdown are provided on the [Quarto website](https
 
 ```{python}
 #| include: false
-#| eval: true
 import numpy as np
 import polars as pl
-import pyfixest as pf
-import statsmodels.api as sm
-import statsmodels.formula.api as smf
-
-from scipy.stats import chi2
-from statsmodels.sandbox.regression.gmm import IV2SLS
+import statspai as sp
 ```
 
 ```{python}
 #| include: false
-#| eval: true
 # Parameters for generating simulated data
 n = 1000
 beta = 0
@@ -81,7 +74,6 @@ rng = np.random.default_rng(2019)
 
 ```{python}
 #| include: false
-#| eval: true
 def generate_data(rng: np.random.Generator) -> pl.DataFrame:
     x_e = rng.multivariate_normal(mean=[0, 0], cov=Sigma, size=n)
     return pl.DataFrame({
@@ -96,7 +88,6 @@ df = generate_data(rng=rng)
 
 ```{python}
 #| include: false
-#| eval: true
 def generate_ivs(
     df: pl.DataFrame,
     rng: np.random.Generator,
@@ -118,80 +109,67 @@ def generate_ivs(
 
 ```{python}
 #| include: false
-#| eval: true
 df_ivs = generate_ivs(df, rng=rng, sd_eta=sd_eta)
 ```
 
 ```{python}
 #| include: false
-#| eval: true
 fms = {
-    "OLS": pf.feols("y ~ X", data=df),
-    "IV": pf.feols("y ~ 1 | X ~ z_1 + z_2 + z_3", data=df_ivs),
+    "OLS": sp.regress("y ~ X", data=df, robust="nonrobust"),
+    "IV": sp.ivreg(
+        "y ~ (X ~ z_1 + z_2 + z_3)", data=df_ivs, robust="nonrobust"
+    ),
 }
 ```
 
 ```{python}
+#| echo: false
+#| label: tbl-iv-res
+#| tbl-cap: Regression results
+sp.regtable(
+    fms["OLS"],
+    fms["IV"],
+    model_labels=["OLS", "IV"],
+    keep=["X"],
+    star_levels=(0.1, 0.05, 0.01),
+    digits=3,
+    stats=["N"],
+    add_rows={"R²": [f"{fms['OLS'].r2:.3f}", "—"]},
+    diagnostics=False,
+)
+```
+
+```{python}
 #| include: false
-#| eval: true
-iv = fms["IV"]
-iv_data = df_ivs.to_pandas()
+diagnostics = fms["IV"].diagnostics
 
-sargan_aux = smf.ols(
-    "iv_resid ~ z_1 + z_2 + z_3",
-    data=iv_data.assign(iv_resid=iv.resid()),
-).fit()
-sargan_stat = sargan_aux.nobs * sargan_aux.rsquared
-sargan_df = 3 - 1  # Excluded instruments minus endogenous regressors.
-sargan_p = chi2.sf(sargan_stat, df=sargan_df)
-
-first_stage = smf.ols(
-    "X ~ z_1 + z_2 + z_3",
-    data=iv_data,
-).fit()
-f_stat = first_stage.fvalue
-f_p = first_stage.f_pvalue
+sargan_stat = diagnostics["Sargan statistic"]
+sargan_p = diagnostics["Sargan p-value"]
+f_stat = diagnostics["First-stage F (X)"]
+f_p = diagnostics["First-stage F p-value (X)"]
 ```
 
 ```{python}
 #| include: false
 #| eval: false
-# Simulation takes time; no exercises depend on these results.
 def run_simulation(run: int) -> dict:
     local_rng = np.random.default_rng(run)
+    sim_data = generate_data(rng=local_rng)
+    sim_ivs = generate_ivs(sim_data, rng=local_rng, sd_eta=sd_eta)
 
-    x_e = local_rng.multivariate_normal(mean=[0, 0], cov=Sigma, size=n)
-    x = x_e[:, 0]
-    e = x_e[:, 1]
-    y = x * beta + e
-
-    z_1 = x + local_rng.normal(loc=0.0, scale=sd_eta, size=n)
-    z_2 = local_rng.normal(loc=0.0, scale=sd_eta, size=n)
-    z_3 = local_rng.normal(loc=0.0, scale=sd_eta, size=n)
-
-    X = sm.add_constant(x, has_constant="add")
-    Z = sm.add_constant(
-        np.column_stack([z_1, z_2, z_3]),
-        has_constant="add",
+    iv_fit = sp.ivreg(
+        "y ~ (X ~ z_1 + z_2 + z_3)", data=sim_ivs, robust="nonrobust"
     )
-
-    iv_fit = IV2SLS(y, X, Z).fit()
-
-    sargan_aux = sm.OLS(iv_fit.resid, Z).fit()
-    sargan_df = Z.shape[1] - X.shape[1]
-    sim_sargan_stat = n * sargan_aux.rsquared
-
-    fs_fit = sm.OLS(x, Z).fit()
-    fs_test = fs_fit.f_test("x1 = x2 = x3 = 0")
+    diagnostics = iv_fit.diagnostics
 
     return {
         "run": run,
-        "coeff": iv_fit.params[1],
-        "p_value": iv_fit.pvalues[1],
-        "Sargan_stat": sim_sargan_stat,
-        "Sargan_p": chi2.sf(sim_sargan_stat, df=sargan_df),
-        "F_stat": np.asarray(fs_test.fvalue).item(),
-        "F_p": np.asarray(fs_test.pvalue).item(),
+        "coeff": iv_fit.params["X"],
+        "p_value": iv_fit.pvalues["X"],
+        "Sargan_stat": diagnostics["Sargan statistic"],
+        "Sargan_p": diagnostics["Sargan p-value"],
+        "F_stat": diagnostics["First-stage F (X)"],
+        "F_p": diagnostics["First-stage F p-value (X)"],
     }
 ```
 
@@ -306,7 +284,7 @@ epsilon_0 = rng.normal(loc=0.0, scale=sd_epsilon, size=n)
 min_d = 3
 epsilon_1 = rng.normal(loc=0.0, scale=sd_epsilon, size=n)
 
-df_1 = (
+df = (
     pl.DataFrame({
         "a": np.repeat(a, n),
         "b": b,
@@ -316,10 +294,10 @@ df_1 = (
         V_0=alpha + beta * pl.col("b") + pl.col("epsilon_0"),
         d_0=pl.Series(d_opt_fun(a, b)),
         epsilon_1=pl.Series(epsilon_1),
-        d_1=pl.Series(d_opt_fun(a, b, min_d=min_d)),
+        d_1=pl.Series(d_opt_fun(a, b, min_d=min_d))
     )
     .with_columns(
-        V_1=alpha + beta * pl.col("b") + pl.col("epsilon_1"),
+        V_1=alpha + beta * pl.col("b") + pl.col("epsilon_1")
     )
 )
 ```
@@ -385,21 +363,21 @@ There are two kinds of Sneetches:
 
 ```
 
-   e. Using OLS and data in `df_1` after running the code in @lst-sneetches, estimate the relationship between firm value at time $t=1$ ($V_1$) and the number of Plain-Belly directors on the board ($d_1$).
+   e. Using `sp.regress()` to fit OLS with data in `df_1` after running the code in @lst-sneetches, estimate the relationship between firm value at time $t=1$ ($V_1$) and the number of Plain-Belly directors on the board ($d_1$).
 
 ```{python}
 #| include: true
 
 ```
 
-   f. Using the data in `df_1`, estimate an IV regression using the strategy of @Ahern:2012kca.
+   f. Using the data in `df_1`, estimate an IV regression with `sp.ivreg()` using the strategy of @Ahern:2012kca.
 
 ```{python}
 #| include: true
 
 ```
 
-   g. Using the data in `df_1`, estimate an IV regression using the strategy of @Armstrong:2014aa (note that rather than `Min % change X`, you might use something like `Min change X`, as the denominator is 10 for all observations).
+   g. Using the data in `df_1`, estimate an IV regression with `sp.ivreg()` using the strategy of @Armstrong:2014aa (note that rather than `Min % change X`, you might use something like `Min change X`, as the denominator is 10 for all observations).
    (*Hint:* The `np.minimum()` function in Python gives the point-wise minimum of two vectors of values (e.g., `np.minimum(x, y)` returns the lower of `x` and `y` for each pair.).)
 
 ```{python}
@@ -415,49 +393,14 @@ There are two kinds of Sneetches:
 #| tbl-cap: Effect of Plain-Belly Sneetches on firm value
 #| echo: false
 #| eval: false
-# Run after fitting fm_ols, fm_ad, and fm_armstrong in exercises e-g.
-def _format_estimate(estimate: float, p_value: float) -> str:
-    stars = "***" if p_value < 0.01 else "**" if p_value < 0.05 else "*" if p_value < 0.1 else ""
-    return f"{estimate:.3f}{stars}"
-
-def _extract_pyfixest(fit) -> dict:
-    return {
-        "estimate": float(fit.coef()["d_1"]),
-        "std_error": float(fit.se()["d_1"]),
-        "p_value": float(fit.pvalue()["d_1"]),
-        "nobs": int(fit._N),
-    }
-
-def _extract_statsmodels(fit) -> dict:
-    return {
-        "estimate": float(fit.params["d_1"]),
-        "std_error": float(fit.bse["d_1"]),
-        "p_value": float(fit.pvalues["d_1"]),
-        "nobs": int(fit.nobs),
-    }
-
-model_results = {
-    "(1) OLS": _extract_statsmodels(fm_ols),
-    "(2) Ahern-Dittmar IV": _extract_pyfixest(fm_ad),
-    "(3) Armstrong et al. IV": _extract_pyfixest(fm_armstrong),
-}
-
-pl.DataFrame(
-    {
-        "Model": list(model_results.keys()),
-        "Estimate": [
-            _format_estimate(res["estimate"], res["p_value"])
-            for res in model_results.values()
-        ],
-        "Std. error": [
-            f"{res['std_error']:.3f}"
-            for res in model_results.values()
-        ],
-        "N": [
-            f"{res['nobs']:,}"
-            for res in model_results.values()
-        ],
-    }
+# Assign your StatsPAI models from parts e, f, and g to the names below before running this cell.
+sp.regtable(
+    fm_ols, fm_ad, fm_armstrong,
+    model_labels=["OLS", "Ahern-Dittmar IV", "Armstrong et al. IV"],
+    keep=["d_1"],
+    digits=3,
+    stats=["N"],
+    diagnostics=False,
 )
 ```
 

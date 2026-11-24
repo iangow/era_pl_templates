@@ -12,10 +12,10 @@ format:
 :::{.content-visible when-format="markdown"}
 ## Instructions
 
-This document assumes that you have completed the instructions [here](https://github.com/iangow/era_pl_templates/blob/main/README.md).
+This document assumes that you have completed the instructions [here](https://github.com/iangow/era_pl_templates/blob/statspai/README.md).
 Note that this chapter requires WRDS data (`seg_customer` and `names_seg` from Compustat Segments, and `funda` from Compustat).
 
-This template extracts the exercises from [Chapter 21](https://iangow.github.io/era_pl_book/panel-data.html) of the Python Polars edition of *Empirical Research in Accounting: Tools and Methods*.
+This template extracts the exercises from [Chapter 21](https://iangow.github.io/era_statpai/panel-data.html) of the Python Polars/StatsPAI edition of *Empirical Research in Accounting: Tools and Methods*.
 This template includes all the code from the book chapter.
 
 Within Positron, you can run the code below in two ways.
@@ -46,64 +46,60 @@ More details on using Quarto markdown are provided on the [Quarto website](https
 
 ```{python}
 #| include: false
-#| eval: true
-from IPython.display import display
+# hidden-review: plot-theme
 import plotnine_polars as p9
 p9.theme_set(p9.theme_matplotlib())
 ```
 
 ```{python}
 #| include: false
-#| eval: true
-import polars as pl
+#| warning: false
 import gt_typst
+import polars as pl
 import polars.selectors as cs
-import numpy as np
-import pyfixest as pf
-from maketables import ETable
-from plotnine_polars import aes
+import statspai as sp
 from scipy import stats
+from plotnine_polars import aes
 
 from era_pl import (
-    fit_test_score_panel, get_idd_periods, get_test_scores,
-    load_data, load_parquet, ptime,
+    fit_test_score_panel, get_idd_periods,
+    get_test_scores, load_data, load_parquet, ptime,
 )
 ```
 
 ```{python}
 #| include: false
-#| eval: true
-import warnings
-
 pl.Config.set_tbl_cols(200)
 pl.Config.set_tbl_width_chars(120)
-warnings.filterwarnings("ignore", category=UserWarning, module="pyfixest")
-```
-
-```{python}
-#| include: false
-#| eval: true
-def show_etable(models, **kwargs):
-    display(ETable(models=models, **kwargs))
 ```
 
 ```{python}
 #| include: false
 #| eval: false
-# Simulated data narrative — no exercises depend on these results.
+# hidden-review: keep-inline-result
 test_scores = get_test_scores(seed=442)
-fm_id = pf.feols("score ~ I(treat * post) | grade + id", data=test_scores)
-est_effect = float(fm_id.coef()["I(treat * post)"])
+fm_id = sp.feols("score ~ treat:post | grade + id", data=test_scores, vcov="iid")
+est_effect = float(fm_id.params["treat:post"])
+```
 
+```{python}
+#| include: false
+#| eval: false
 test_scores_alt = get_test_scores(effect_size=0, seed=442)
+```
+
+```{python}
+#| include: false
+#| eval: false
+#| warning: false
 fms = [
-    pf.feols(
-        "score ~ I(treat * post) | grade + id",
+    sp.feols(
+        "score ~ treat:post | grade + id",
         data=test_scores_alt,
         vcov="iid",
     ),
-    pf.feols(
-        "score ~ I(treat * post) | grade + id",
+    sp.feols(
+        "score ~ treat:post | grade + id",
         data=test_scores_alt,
         vcov={"CRV1": "grade + id"},
     ),
@@ -113,13 +109,29 @@ fms = [
 ```{python}
 #| include: false
 #| eval: false
+sp.regtable(
+    *fms,
+    dep_var_labels=["score", "score"],
+    digits=3,
+    stats=["N", "R2"],
+    diagnostics=False,
+    add_rows={
+        "Grade FE": ["Yes", "Yes"],
+        "Student FE": ["Yes", "Yes"],
+        "SE type": ["OLS", "CL-2"],
+    },
+)
+```
+
+```{python}
+#| include: false
+#| eval: false
 def sim_run(i: int, **kwargs) -> pl.DataFrame:
     df = get_test_scores(effect_size=0, seed=i, **kwargs)
     return pl.concat(
         [
-            fit_test_score_panel(df, vcov="iid").with_columns(
-                model=pl.lit("OLS")
-            ),
+            fit_test_score_panel(df, vcov="iid")
+            .with_columns(model=pl.lit("OLS")),
             fit_test_score_panel(
                 df, vcov={"CRV1": "grade + id"}
             ).with_columns(model=pl.lit("CL-2")),
@@ -131,13 +143,16 @@ def sim_run(i: int, **kwargs) -> pl.DataFrame:
 ```{python}
 #| include: false
 #| eval: false
-# 1000-simulation runs — no exercises depend on these results.
 num_sims = 1000
 with ptime():
-    sim_results = pl.concat(
-        [sim_run(i) for i in range(num_sims)], how="vertical"
-    )
+    sim_results = pl.concat([sim_run(i)
+                             for i in range(num_sims)],
+                            how="vertical")
+```
 
+```{python}
+#| include: false
+#| eval: false
 sim_results_summary = (
     sim_results
     .group_by("model")
@@ -148,82 +163,116 @@ sim_results_summary = (
     .sort("model")
 )
 
+sim_results_summary
+```
+
+```{python}
+#| include: false
+#| eval: false
 rejection_stats = (
     sim_results
     .filter(pl.col("model") == "OLS")
     .select(
-        (pl.col("p_value") <= 0.01).mean().alias("prop_01"),
-        (pl.col("p_value") <= 0.05).mean().alias("prop_05"),
+        (pl.col("p_value") <= 0.01)
+        .mean().alias("prop_01"),
+        (pl.col("p_value") <= 0.05)
+        .mean().alias("prop_05"),
     )
 )
+
+rejection_stats
 ```
 
 ```{python}
 #| include: false
 #| eval: false
 sim_results_wide = pl.concat(
-    [sim_run(i, n_grades=12) for i in range(num_sims)], how="vertical"
-)
-
-rejection_stats = (
-    sim_results_wide
-    .filter(pl.col("model") == "OLS")
-    .select(
-        (pl.col("p_value") <= 0.01).mean().alias("prop_01"),
-        (pl.col("p_value") <= 0.05).mean().alias("prop_05"),
-    )
+    [sim_run(i, n_grades=12) for i in range(num_sims)],
+    how="vertical",
 )
 ```
 
 ```{python}
 #| include: false
 #| eval: false
-sim_results_rand = pl.concat(
-    [sim_run(i, random_assignment=True) for i in range(num_sims)],
-    how="vertical",
+rejection_stats = (
+    sim_results_wide
+    .filter(pl.col("model") == "OLS")
+    .select(
+        (pl.col("p_value") <= 0.01)
+        .mean().alias("prop_01"),
+        (pl.col("p_value") <= 0.05)
+        .mean().alias("prop_05"),
+    )
 )
 
+rejection_stats
+```
+
+```{python}
+#| include: false
+#| eval: false
+sim_results_rand = pl.concat(
+    [sim_run(i, random_assignment=True)
+     for i in range(num_sims)],
+    how="vertical",
+)
+```
+
+```{python}
+#| include: false
+#| eval: false
 rejection_stats = (
     sim_results_rand
     .filter(pl.col("model") == "OLS")
     .select(
-        (pl.col("p_value") <= 0.01).mean().alias("prop_01"),
-        (pl.col("p_value") <= 0.05).mean().alias("prop_05"),
+        (pl.col("p_value") <= 0.01)
+        .mean().alias("prop_01"),
+        (pl.col("p_value") <= 0.05)
+        .mean().alias("prop_05"),
     )
 )
+
+rejection_stats
 ```
 
 ```{python}
 #| include: false
-#| eval: true
 seg_customer = load_parquet("seg_customer", "compseg")
 names_seg = load_parquet("names_seg", "compseg")
 funda = load_parquet("funda", "comp")
-
-undisclosed_names = load_data("undisclosed_names")
-llz_2018 = load_data("llz_2018")
-state_hq = load_data("state_hq")
-idd_dates = load_data("idd_dates")
 ```
 
 ```{python}
 #| include: false
-#| eval: true
+undisclosed_names = load_data("undisclosed_names")
+undisclosed_names
+```
+
+```{python}
+#| include: false
 sample_start = pl.date(1994, 1, 1)
 sample_end = pl.date(2010, 12, 31)
 
 disclosure_raw = (
     seg_customer
-    .filter(
-        pl.col("ctype") == "COMPANY",
-        pl.col("datadate").is_between(sample_start, sample_end),
-    )
+    .filter(pl.col("ctype") == "COMPANY",
+            pl.col("datadate").is_between(sample_start,
+                                          sample_end))
     .collect()
     .join(undisclosed_names, on="cnms", how="left")
-    .with_columns(pl.col("disclosed").fill_null(True))
-    .select("gvkey", "datadate", "cnms", "salecs", "disclosed")
+    .with_columns(
+        pl.col("disclosed").fill_null(True)
+    )
+    .select(
+        "gvkey", "datadate", "cnms", "salecs",
+        "disclosed",
+    )
 )
+```
 
+```{python}
+#| include: false
 sales = (
     funda
     .filter(
@@ -236,16 +285,44 @@ sales = (
     .collect()
 )
 
+biggest_customers = (
+    disclosure_raw
+    .filter(pl.col("disclosed"))
+    .join(sales, on=["gvkey", "datadate"], how="inner")
+    .filter(
+        pl.col("sale").is_not_null(),
+        pl.col("salecs").is_not_null(),
+        pl.col("sale") > 0,
+    )
+    .group_by("gvkey", "datadate")
+    .agg(
+        (pl.col("salecs").max() / pl.col("sale").first())
+        .alias("max_customer")
+    )
+)
+```
+
+```{python}
+#| include: false
 prin_custs = (
     disclosure_raw
     .join(sales, on=["gvkey", "datadate"], how="inner")
-    .filter(pl.col("salecs").is_not_null(), pl.col("sale") > 0)
+    .filter(pl.col("salecs").is_not_null(),
+            pl.col("sale") > 0)
     .group_by("gvkey", "datadate")
     .agg(
-        (pl.col("salecs").max() / pl.col("sale").first()).alias("prin_cust")
+        (pl.col("salecs").max() / pl.col("sale").first())
+        .alias("prin_cust")
     )
-    .with_columns(has_prin_cust=pl.col("prin_cust") >= 0.1)
+    .with_columns(
+        has_prin_cust=pl.col("prin_cust") >= 0.1
+    )
 )
+```
+
+```{python}
+#| include: false
+llz_2018 = load_data("llz_2018")
 
 disclosure = (
     disclosure_raw
@@ -258,12 +335,12 @@ disclosure = (
         .then(None)
         .otherwise(
             (
-                pl.col("disclosed").not_().cast(pl.Float64)
+                pl.col("disclosed").not_()
+                .cast(pl.Float64)
                 * pl.col("salecs")
             ).sum()
             / pl.col("salecs").sum()
-        )
-        .alias("ratio_sale"),
+        ).alias("ratio_sale"),
     )
     .with_columns(year=pl.col("datadate").dt.year())
 )
@@ -271,23 +348,42 @@ disclosure = (
 
 ```{python}
 #| include: false
-#| eval: true
+idd_dates = load_data("idd_dates")
+idd_dates
+```
+
+```{python}
+#| include: false
 idd_periods = get_idd_periods(
     min_date=sample_start,
     max_date=sample_end,
 )
+idd_periods
+```
 
+```{python}
+#| include: false
+state_hq = load_data("state_hq")
+state_hq
+```
+
+```{python}
+#| include: false
 ciks = (
     names_seg
     .filter(pl.col("cik").is_not_null())
     .select("gvkey", "cik")
     .collect()
 )
+```
 
+```{python}
+#| include: false
 state_hq_linked = (
     state_hq
     .join(ciks, on="cik", how="inner")
-    .join(disclosure.select("gvkey", "datadate"), on="gvkey", how="inner")
+    .join(disclosure.select("gvkey", "datadate"),
+          on="gvkey", how="inner")
     .filter(
         pl.col("datadate").is_between(
             pl.col("min_date"), pl.col("max_date")
@@ -296,13 +392,19 @@ state_hq_linked = (
     .select("gvkey", "datadate", "ba_state")
     .rename({"ba_state": "state"})
 )
+```
 
+```{python}
+#| include: false
 reg_data = (
     disclosure
-    .join(prin_custs, on=["gvkey", "datadate"], how="inner")
+    .join(prin_custs,
+          on=["gvkey", "datadate"], how="inner")
     .filter(pl.col("has_prin_cust"))
-    .join(state_hq_linked, on=["gvkey", "datadate"], how="inner")
-    .join(idd_periods, on="state", how="inner")
+    .join(state_hq_linked,
+          on=["gvkey", "datadate"], how="inner")
+    .join(idd_periods,
+          on="state", how="inner")
     .filter(
         pl.col("datadate").is_between(
             pl.col("start_date"), pl.col("end_date")
@@ -311,13 +413,41 @@ reg_data = (
     .filter(pl.col("period_type") != "Post-rejection")
     .with_columns(
         (pl.col("period_type") == "Post-adoption")
-        .cast(pl.Int8)
-        .alias("post"),
-        pl.col("ratio", "ratio_sale").add(1).log().name.prefix("ln_"),
+        .cast(pl.Int8).alias("post"),
+        pl.col("ratio", "ratio_sale")
+        .add(1).log().name.prefix("ln_"),
     )
     .select(pl.exclude("start_date", "end_date"))
 )
 
+(
+    reg_data
+    .group_by("period_type")
+    .agg(pl.len().alias("n"))
+    .sort("period_type")
+)
+```
+
+```{python}
+#| include: false
+#| warning: false
+fms_orig = [
+    sp.feols(
+        "ln_ratio ~ post | gvkey + year",
+        data=reg_data,
+        vcov="iid",
+    ),
+    sp.feols(
+        "ln_ratio_sale ~ post | gvkey + year",
+        data=reg_data,
+        vcov="iid",
+    ),
+]
+```
+
+```{python}
+#| include: false
+#| warning: false
 switchers = (
     reg_data
     .select("gvkey", "post")
@@ -328,23 +458,32 @@ switchers = (
     .select("gvkey")
 )
 
-reg_data_switchers = reg_data.join(switchers, on="gvkey", how="inner")
+reg_data_switchers = (
+    reg_data
+    .join(switchers, on="gvkey", how="inner")
+)
+
+fms_orig.extend([
+    sp.feols(
+        "ln_ratio ~ post | gvkey + year",
+        data=reg_data_switchers,
+        vcov="iid",
+    ),
+    sp.feols(
+        "ln_ratio_sale ~ post | gvkey + year",
+        data=reg_data_switchers,
+        vcov="iid",
+    ),
+])
 ```
 
 ```{python}
 #| include: false
-#| eval: true
-def format_event_time(value):
-    if value is None:
-        return -np.inf
-    value = int(value)
-    return float(max(-5, min(5, value)))
-
-
 switch_years = (
     reg_data
     .sort(["gvkey", "datadate"])
-    .with_columns(prev_period=pl.col("period_type").shift(1).over("gvkey"))
+    .with_columns(prev_period=pl.col("period_type")
+                              .shift(1).over("gvkey"))
     .filter(
         pl.col("period_type") == "Post-adoption",
         pl.col("prev_period") == "Pre-adoption",
@@ -352,36 +491,65 @@ switch_years = (
     .group_by("gvkey")
     .agg(pl.col("year").min().alias("adoption_year"))
 )
+```
 
+```{python}
+#| include: false
 reg_data_t = (
     reg_data
     .join(switch_years, on="gvkey", how="left")
     .with_columns(
-        (pl.col("year") - pl.col("adoption_year"))
-        .map_elements(
-            format_event_time,
-            return_dtype=pl.Float64,
-            skip_nulls=False,
-        )
-        .alias("t"),
+        t=(pl.col("year") - pl.col("adoption_year"))
+        .clip(-5, 5)
+        .cast(pl.Float64)
+        .fill_null(float("-inf"))
     )
 )
+```
 
+```{python}
+#| include: false
+fms_year = [
+    sp.feols(
+        "ln_ratio ~ i(t, ref=[-1, -inf]) "
+        "| gvkey + year",
+        data=reg_data_t,
+        vcov="iid",
+    ),
+    sp.feols(
+        "ln_ratio_sale ~ i(t, ref=[-1, -inf]) "
+        "| gvkey + year",
+        data=reg_data_t,
+        vcov="iid",
+    ),
+    sp.feols(
+        "ln_ratio ~ i(t, ref=-1) | gvkey + year",
+        data=reg_data_t.filter(pl.col("t").is_finite()),
+        vcov="iid",
+    ),
+    sp.feols(
+        "ln_ratio_sale ~ i(t, ref=-1) | gvkey + year",
+        data=reg_data_t.filter(pl.col("t").is_finite()),
+        vcov="iid",
+    ),
+]
+```
 
+```{python}
+#| include: false
 def plot_coefs(fm, ref=-1):
     coefs = (
         pl.DataFrame({
-            "term": fm.coef().index,
-            "value": fm.coef(),
-            "se": fm.se(),
+            "term": fm.params.index,
+            "value": fm.params,
+            "se": fm.std_errors,
         })
         .with_columns(
             t=pl.col("term")
-            .str.extract(r"\[T\.(-?\d+(?:\.0)?)\]")
-            .cast(pl.Float64)
+            .str.extract(r"^t::(-?\d+)(?:\.0)?$")
+            .cast(pl.Int64)
         )
-        .filter(pl.col("t").is_not_null(),
-                pl.col("t").is_finite())
+        .filter(pl.col("t").is_not_null())
         .select("t", "value", "se")
     )
 
@@ -391,7 +559,7 @@ def plot_coefs(fm, ref=-1):
     return (
         pl.concat([
             pl.DataFrame({
-                "t": [float(ref)],
+                "t": [ref],
                 "value": [0.0],
                 "se": [0.0]
             }),
@@ -404,7 +572,9 @@ def plot_coefs(fm, ref=-1):
         )
         .sort("t")
         .ggplot(aes(x="t", y="mean"))
-        .geom_errorbar(aes(ymin="bot", ymax="top"), width=0.1)
+        .geom_errorbar(
+            aes(ymin="bot", ymax="top"), width=0.1
+        )
         .geom_line()
         .geom_point()
         .scale_x_continuous(
@@ -416,55 +586,17 @@ def plot_coefs(fm, ref=-1):
     )
 ```
 
-```{python}
-#| include: false
-#| eval: true
-fms_orig = [
-    pf.feols("ln_ratio ~ post | gvkey + year", data=reg_data, vcov="iid"),
-    pf.feols("ln_ratio_sale ~ post | gvkey + year", data=reg_data, vcov="iid"),
-    pf.feols("ln_ratio ~ post | gvkey + year", data=reg_data_switchers, vcov="iid"),
-    pf.feols(
-        "ln_ratio_sale ~ post | gvkey + year",
-        data=reg_data_switchers,
-        vcov="iid",
-    ),
-]
-
-fms_year = [
-    pf.feols(
-        "ln_ratio ~ C(t, Treatment(reference=-1)) | gvkey + year",
-        data=reg_data_t,
-        vcov="iid",
-    ),
-    pf.feols(
-        "ln_ratio_sale ~ C(t, Treatment(reference=-1)) | gvkey + year",
-        data=reg_data_t,
-        vcov="iid",
-    ),
-    pf.feols(
-        "ln_ratio ~ C(t, Treatment(reference=-1)) | gvkey + year",
-        data=reg_data_t.filter(pl.col("t").is_finite()),
-        vcov="iid",
-    ),
-    pf.feols(
-        "ln_ratio_sale ~ C(t, Treatment(reference=-1)) | gvkey + year",
-        data=reg_data_t.filter(pl.col("t").is_finite()),
-        vcov="iid",
-    ),
-]
-```
-
 ## Analysis of simulated data
 
 ### Exercises
 
 1. Generate a random sample of test scores using `get_test_scores()` with some value of `effect_size` and some value of `seed`.
    Assign this to the variable `df_1`.
-   Estimate the model `"score ~ I(treat * post) | grade + id"` using `pf.feols()` with `data=df_1` and `vcov="iid"` and store the result in `fm`.
+   Estimate the model `"score ~ treat:post | grade + id"` using `sp.feols()` with `data=df_1` and `vcov="iid"` and store the result in `fm`.
    Compare the output of `fm.tidy()` with that from `fit_test_score_panel(df_1, vcov="iid")`.
    What do you observe?
    
-   Estimate the model `"score ~ I(treat * post) | grade + id"` using `pf.feols()` with `data=df_1` and `vcov={"CRV1": "grade + id"}` and store the result in `fm2`.
+   Estimate the model `"score ~ treat:post | grade + id"` using `sp.feols()` with `data=df_1` and `vcov={"CRV1": "grade + id"}` and store the result in `fm2`.
    Compare the output of `fm2.tidy()` with that from `fit_test_score_panel(df_1, vcov={"CRV1": "grade + id"})`.
    What do you observe?
 
@@ -478,7 +610,7 @@ fms_year = [
 
 ```
 
-2. Given the above, why do you think we included `fit_test_score_panel()` rather than using `pf.feols()`?
+2. Given the above, why do you think we used `fit_test_score_panel()` for the simulation?
 Develop and run a test of your hypothesis for why we did so.
 
 ```{python}
@@ -494,14 +626,23 @@ Develop and run a test of your hypothesis for why we did so.
 #| label: tbl-table-2
 #| tbl-cap: Effect of IDD adoption
 #| echo: false
-show_etable(
-    fms_orig,
-    signif_code=[0.01, 0.05, 0.1],
-    coef_fmt="b* \n (se)",
-    custom_model_stats={
-        "Sample": ["All", "All", "Switchers", "Switchers"]
+table = sp.regtable(
+    *fms_orig,
+    dep_var_labels=["ln_ratio", "ln_ratio_sale"] * 2,
+    digits=3,
+    stats=["N", "R2"],
+    diagnostics=False,
+    consistency_check=False,
+    notes=["The switcher columns restrict the sample to firms with an observed switch."],
+    add_rows={
+        "Firm FE": ["Yes"] * 4,
+        "Year FE": ["Yes"] * 4,
+        "Sample": [
+            "All", "All", "Switchers", "Switchers"
+        ],
     },
 )
+table
 ```
 
 1. The proprietary cost hypothesis tested by @Li:2018tj posits that increased cost of disclosure will lead to reduced supply of disclosure.
@@ -516,7 +657,7 @@ Why do you think @Li:2018tj focused on this specific element of the proprietary 
 
 2. In the analysis above, we do not include the control variables considered by @Li:2018tj.
 For example, @Li:2018tj "include R&D expenditures to sales, advertisement [sic] expenditure to sales, and intangible assets scaled by total assets to control for a firm's proprietary costs of disclosure."
-Using the approach outlined in [Chapter 4](https://iangow.github.io/era_pl_book/causal-inf.html#sec-causal-inf), in what circumstances would it be necessary to control for "a firm's proprietary costs of disclosure" in this way?
+Using the approach outlined in [Chapter 4](https://iangow.github.io/era_statpai/causal-inf.html#sec-causal-inf), in what circumstances would it be necessary to control for "a firm's proprietary costs of disclosure" in this way?
 Do these circumstances seem applicable in this setting, where the treatment is a (presumably exogenous) shock to disclosure costs and the outcome is disclosure choices?
 
 ```{python}
@@ -546,15 +687,27 @@ Why or why not?
 #| label: tbl-idd-by-year
 #| tbl-cap: Effect of IDD adoption by year
 #| echo: false
-show_etable(
-    fms_year,
-    signif_code=[0.01, 0.05, 0.1],
-    coef_fmt="b* \n (se)",
-    cat_template="t = {value_int}",
-    custom_model_stats={
-        "Sample": ["All", "All", "Switchers", "Switchers"]
+table = sp.regtable(
+    *fms_year,
+    dep_var_labels=["ln_ratio", "ln_ratio_sale"] * 2,
+    coef_labels={
+        term: f"t = {term.removeprefix('t::').removesuffix('.0')}"
+        for term in fms_orig[0].params.index
+    },
+    digits=3,
+    stats=["N", "R2"],
+    diagnostics=False,
+    consistency_check=False,
+    notes=["The switcher columns restrict the sample to firms with an observed switch."],
+    add_rows={
+        "Firm FE": ["Yes"] * 4,
+        "Year FE": ["Yes"] * 4,
+        "Sample": [
+            "All", "All", "Switchers", "Switchers"
+        ],
     },
 )
+table
 ```
 
 5. What differs between the regressions reported in columns (1) and (3), and (2) and (4) of @tbl-idd-by-year, respectively?

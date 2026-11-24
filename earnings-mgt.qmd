@@ -12,10 +12,10 @@ format:
 :::{.content-visible when-format="markdown"}
 ## Instructions
 
-This document assumes that you have completed the instructions [here](https://github.com/iangow/era_pl_templates/blob/main/README.md).
+This document assumes that you have completed the instructions [here](https://github.com/iangow/era_pl_templates/blob/statspai/README.md).
 Note that this chapter uses Compustat data from a local Parquet repository, which means you will need to complete **Steps 6 and 7: Configure and get data from WRDS** before running any code.
 
-This template extracts the visible code and exercises from [Chapter 16](https://iangow.github.io/era_pl_book/earnings-mgt.html) of the Python Polars edition of *Empirical Research in Accounting: Tools and Methods*.
+This template extracts the visible code and exercises from [Chapter 16](https://iangow.github.io/era_statpai/earnings-mgt.html) of the Python Polars/StatsPAI edition of *Empirical Research in Accounting: Tools and Methods*.
 This template includes all the code from the book chapter.
 
 Within Positron, you can run the code below in two ways.
@@ -55,26 +55,23 @@ p9.theme_set(p9.theme_matplotlib())
 
 ```{python}
 #| include: false
-#| eval: true
-import numpy as np
 import gt_typst
+import numpy as np
 from scipy import stats
 import polars as pl
-import statsmodels.formula.api as smf
+import statspai as sp
 from plotnine_polars import aes
 from era_pl import load_parquet, ptime
 ```
 
 ```{python}
 #| include: false
-#| eval: true
 funda = load_parquet("funda", "comp")
 company = load_parquet("company", "comp")
 ```
 
 ```{python}
 #| include: false
-#| eval: true
 sics = (
     company
     .select("gvkey", "sic")
@@ -96,7 +93,30 @@ funda_mod = (
 
 ```{python}
 #| include: false
-#| eval: true
+acc_data_raw = (
+    funda_mod
+    .filter(
+        pl.col("at").is_not_null(),
+        pl.col("pddur") == 12,
+        ~pl.col("sic").is_between(6000, 6999),
+    )
+    .with_columns(
+        pl.col("che", "dlc", "sale", "rect")
+        .fill_null(0),
+    )
+    .select(
+        "gvkey", "datadate", "fyear", "at", "ib",
+        "dp", "rect", "ppegt", "ni", "sale",
+        "act", "che", "lct", "dlc", "sic",
+    )
+    .filter(pl.col("fyear").is_between(1950, 1991))
+    .sort("gvkey", "fyear")
+    .collect()
+)
+```
+
+```{python}
+#| include: false
 def calc_accruals(df: pl.DataFrame) -> pl.DataFrame:
     return (
         df
@@ -122,32 +142,6 @@ def calc_accruals(df: pl.DataFrame) -> pl.DataFrame:
 
 ```{python}
 #| include: false
-#| eval: true
-acc_data_raw = (
-    funda_mod
-    .filter(
-        pl.col("at").is_not_null(),
-        pl.col("pddur") == 12,
-        ~pl.col("sic").is_between(6000, 6999),
-    )
-    .with_columns(
-        pl.col("che", "dlc", "sale", "rect")
-        .fill_null(0),
-    )
-    .select(
-        "gvkey", "datadate", "fyear", "at", "ib",
-        "dp", "rect", "ppegt", "ni", "sale",
-        "act", "che", "lct", "dlc", "sic",
-    )
-    .filter(pl.col("fyear").is_between(1950, 1991))
-    .sort("gvkey", "fyear")
-    .collect()
-)
-```
-
-```{python}
-#| include: false
-#| eval: true
 test_sample = (
     calc_accruals(acc_data_raw)
     .filter(
@@ -169,7 +163,6 @@ test_sample = (
 
 ```{python}
 #| include: false
-#| eval: true
 rng = np.random.default_rng(2022)
 
 sample_1_firm_years = (
@@ -187,7 +180,10 @@ sample_1_firm_years = (
     .select("gvkey", "fyear")
     .with_columns(part=True)
 )
+```
 
+```{python}
+#| include: false
 sample_1 = (
     test_sample
     .join(
@@ -198,7 +194,10 @@ sample_1 = (
     .join(sample_1_firm_years, on=["gvkey", "fyear"], how="left")
     .with_columns(part=pl.col("part").fill_null(False))
 )
+```
 
+```{python}
+#| include: false
 merged_sample_1 = sample_1.join(
     acc_data_raw, on=["gvkey", "fyear"], how="inner"
 )
@@ -206,7 +205,7 @@ merged_sample_1 = sample_1.join(
 
 ```{python}
 #| include: false
-#| eval: true
+#| warning: false
 def predict_ols(
     df: pl.DataFrame,
     *,
@@ -225,7 +224,11 @@ def predict_ols(
         return pl.Series([None] * df.height, dtype=pl.Float64)
 
     full = df.select(*x_cols)
-    valid = full.select(pl.all_horizontal(pl.all().is_finite()).fill_null(False)).to_series()
+    valid = (
+        full
+        .select(pl.all_horizontal(pl.all().is_finite()).fill_null(False))
+        .to_series()
+    )
     out = np.full(df.height, np.nan)
 
     X = train.select(x_cols).to_numpy()
@@ -366,13 +369,12 @@ def get_nda(df: pl.DataFrame) -> pl.DataFrame:
 
 ```{python}
 #| include: false
-#| eval: true
+#| warning: false
 reg_data = get_nda(merged_sample_1)
 ```
 
 ```{python}
 #| include: false
-#| eval: true
 def fit_model(subdf: pl.DataFrame, measure: str = "healy") -> pl.DataFrame:
     fit_data = (
         subdf
@@ -413,8 +415,10 @@ def fit_model(subdf: pl.DataFrame, measure: str = "healy") -> pl.DataFrame:
             "df_resid": [float(df_resid)],
         }
     )
+```
 
-
+```{python}
+#| include: false
 def multi_fit(df: pl.DataFrame) -> pl.DataFrame:
     return pl.concat(
         [
@@ -429,13 +433,16 @@ def multi_fit(df: pl.DataFrame) -> pl.DataFrame:
 
 ```{python}
 #| include: false
-#| eval: true
 results = multi_fit(reg_data)
 ```
 
 ```{python}
 #| include: false
-#| eval: true
+results.head()
+```
+
+```{python}
+#| include: false
 tbl_em_1_stats = (
     results
     .unpivot(
@@ -454,11 +461,18 @@ tbl_em_1_stats = (
     )
     .sort(["measure", "stat"])
 )
+
+(
+    tbl_em_1_stats
+    .style.
+    fmt_number(columns=["mean", "sd", "q1", "median", "q3"],
+               decimals=3
+    )
+)
 ```
 
 ```{python}
 #| include: false
-#| eval: true
 def h_test(t_stat: float | None, df_resid: float | None) -> dict[str, bool | None]:
     if (t_stat is None or df_resid is None
             or not np.isfinite(t_stat) or not np.isfinite(df_resid)
@@ -473,7 +487,10 @@ def h_test(t_stat: float | None, df_resid: float | None) -> dict[str, bool | Non
         "pos_p01": bool(stats.t.sf(t_stat, df=df_resid) < 0.01),
         "pos_p05": bool(stats.t.sf(t_stat, df=df_resid) < 0.05),
     }
+```
 
+```{python}
+#| include: false
 test_results = results.hstack(
     pl.DataFrame(
         [
@@ -482,73 +499,25 @@ test_results = results.hstack(
         ]
     )
 )
+```
 
-num_cols = ["neg_p01", "neg_p05", "pos_p01", "pos_p05"]
+```{python}
+#| include: false
+print(sp.bitest(successes=10, n=1000, p=0.05).pvalue)
+print(sp.bitest(successes=90, n=1000, p=0.05).pvalue)
+```
 
+```{python}
+#| include: false
 def binom_test(x: pl.Series, p: float) -> float:
-    values = x.drop_nulls()
-    if len(values) == 0:
+    n = x.count()
+    if n == 0:
         return float("nan")
-    n_success = int(values.cast(pl.Int8).sum())
-    return float(stats.binomtest(k=n_success, n=len(values), p=p).pvalue)
+    return sp.bitest(successes=x.sum(), n=n, p=p).pvalue
 ```
 
 ```{python}
 #| include: false
-#| eval: true
-earn_deciles = (
-    acc_data_raw
-    .sort("gvkey", "fyear")
-    .with_columns(earn=pl.col("ib") / pl.col("at").shift(1).over("gvkey"))
-    .join(test_sample, on=["gvkey", "fyear"], how="inner")
-    .with_columns(pl.col("earn").era.ntile(10).alias("earn_dec"))
-    .select("gvkey", "fyear", "earn_dec", "event_eligible")
-)
-
-sample_2_firm_years = (
-    earn_deciles
-    .filter(pl.col("earn_dec") == 10, pl.col("event_eligible"))
-    .with_columns(
-        min_fyear=pl.col("fyear").min().over("gvkey"),
-        rand=pl.Series(
-            "rand",
-            rng.normal(
-                size=earn_deciles.filter(pl.col("earn_dec") == 10, pl.col("event_eligible")).height
-            ),
-        ),
-    )
-    .filter(pl.col("event_eligible"))
-    .sort(["gvkey", "rand"])
-    .group_by("gvkey")
-    .first()
-    .sort("rand", descending=True)
-    .head(1000)
-    .select("gvkey", "fyear")
-    .with_columns(part=True)
-)
-
-sample_2 = (
-    test_sample
-    .join(
-        sample_2_firm_years.select("gvkey").unique(),
-        on="gvkey",
-        how="inner",
-    )
-    .join(sample_2_firm_years, on=["gvkey", "fyear"], how="left")
-    .with_columns(part=pl.col("part").fill_null(False))
-)
-
-merged_sample_2 = (
-    sample_2
-    .join(acc_data_raw,
-          on=["gvkey", "fyear"], how="inner"
-    )
-)
-```
-
-```{python}
-#| include: false
-#| eval: true
 one_gvkey = (
     merged_sample_1
     .group_by("gvkey")
@@ -559,9 +528,20 @@ one_gvkey = (
     .sort()
     .item(0)
 )
+```
 
+```{python}
+#| include: false
+print(f"```python\none_gvkey = {one_gvkey!r}\n```")
+```
+
+```{python}
+#| include: false
 df_test = merged_sample_1.filter(pl.col("gvkey") == one_gvkey)
+```
 
+```{python}
+#| include: false
 df_mod = (
     calc_accruals(df_test)
     .with_columns(
@@ -575,48 +555,117 @@ df_mod = (
         part_i=pl.col("part").cast(pl.Int8),
     )
 )
+```
 
-fm1a = smf.ols(
+```{python}
+#| include: false
+fm1a = sp.regress(
     "acc_at ~ one_at + d_rev_at + ppe_at",
-    data=df_mod.filter(~pl.col("part")).to_pandas(),
-).fit()
+    data=df_mod.filter(~pl.col("part")),
+    robust="nonrobust",
+)
+```
 
+```{python}
+#| include: false
 res1 = (
     df_mod
     .with_columns(
         nda_jones=pl.Series(
             "nda_jones",
             fm1a.predict(
-                df_mod.select("one_at", "d_rev_at", "ppe_at").to_pandas()
+                df_mod.select("one_at", "d_rev_at", "ppe_at")
             ),
+            nan_to_null=True,
         )
     )
     .select("fyear", "part", "part_i", "acc_at", "nda_jones")
     .with_columns(da_jones=pl.col("acc_at") - pl.col("nda_jones"))
 )
+```
 
-fm2a = smf.ols("da_jones ~ part_i", data=res1.to_pandas()).fit()
+```{python}
+#| include: false
+fm2a = sp.regress("da_jones ~ part_i", data=res1, robust="nonrobust")
+```
 
-fm2 = smf.ols(
+```{python}
+#| include: false
+fm2 = sp.regress(
     "acc_at ~ one_at + d_rev_at + ppe_at + part_i",
-    data=df_mod.to_pandas(),
-).fit()
+    data=df_mod,
+    robust="nonrobust",
+)
 ```
 
 ```{python}
 #| include: false
-#| eval: true
-def h_test_5(t_stat: float | None, df_resid: float | None) -> bool | None:
-    if (t_stat is None or df_resid is None
-            or not np.isfinite(t_stat) or not np.isfinite(df_resid)
-            or df_resid <= 0):
-        return None
-    return bool(stats.t.sf(t_stat, df=df_resid) < 0.05)
+earn_deciles = (
+    acc_data_raw
+    .sort("gvkey", "fyear")
+    .with_columns(earn=pl.col("ib") / pl.col("at").shift(1).over("gvkey"))
+    .join(test_sample, on=["gvkey", "fyear"], how="inner")
+    .with_columns(pl.col("earn").era.ntile(10).alias("earn_dec"))
+    .select("gvkey", "fyear", "earn_dec", "event_eligible")
+)
 ```
 
 ```{python}
 #| include: false
-#| eval: true
+sample_2_firm_years = (
+    earn_deciles
+    .filter(pl.col("earn_dec") == 10, pl.col("event_eligible"))
+    .with_columns(
+        min_fyear=pl.col("fyear").min().over("gvkey"),
+        rand=pl.Series(
+            "rand",
+            rng.normal(
+                size=(
+                    earn_deciles
+                    .filter(pl.col("earn_dec") == 10,
+                            pl.col("event_eligible"))
+                    .height
+                )
+            ),
+        ),
+    )
+    .filter(pl.col("event_eligible"))
+    .sort(["gvkey", "rand"])
+    .group_by("gvkey")
+    .first()
+    .sort("rand", descending=True)
+    .head(1000)
+    .select("gvkey", "fyear")
+    .with_columns(part=True)
+)
+```
+
+```{python}
+#| include: false
+sample_2 = (
+    test_sample
+    .join(
+        sample_2_firm_years.select("gvkey").unique(),
+        on="gvkey",
+        how="inner",
+    )
+    .join(sample_2_firm_years, on=["gvkey", "fyear"], how="left")
+    .with_columns(part=pl.col("part").fill_null(False))
+)
+```
+
+```{python}
+#| include: false
+merged_sample_2 = (
+    sample_2
+    .join(acc_data_raw,
+          on=["gvkey", "fyear"], how="inner"
+    )
+)
+```
+
+```{python}
+#| include: false
 def manipulate(
     df: pl.DataFrame,
     level: float = 0.0,
@@ -641,7 +690,10 @@ def manipulate(
         .with_columns(
             manip_amt_gross=pl.col("manip_amt") / pl.col("ni_ratio"),
             reversal_amt=pl.col("manip_amt").shift(1).over("gvkey"),
-            reversal_amt_gross=(pl.col("manip_amt") / pl.col("ni_ratio")).shift(1).over("gvkey"),
+            reversal_amt_gross=(
+                (pl.col("manip_amt") / pl.col("ni_ratio"))
+                .shift(1).over("gvkey")
+            ),
             part_lag=(
                 pl.col("part").shift(1).over("gvkey").fill_null(False)
             ),
@@ -683,8 +735,16 @@ def manipulate(
         )
 
     if type == "margin":
-        cond = pl.col("part") & pl.col("ni_ratio").is_finite() & (pl.col("ni_ratio") > 0)
-        cond_lag = pl.col("part_lag") & pl.col("reversal_amt_gross").is_finite() & (pl.col("ni_ratio") > 0)
+        cond = (
+            pl.col("part")
+            & pl.col("ni_ratio").is_finite()
+            & (pl.col("ni_ratio") > 0)
+        )
+        cond_lag = (
+            pl.col("part_lag")
+            & pl.col("reversal_amt_gross").is_finite()
+            & (pl.col("ni_ratio") > 0)
+        )
         return (
             df_mod
             .with_columns(
@@ -722,9 +782,17 @@ def manipulate(
 
 ```{python}
 #| include: false
+def h_test_5(t_stat: float | None, df_resid: float | None) -> bool | None:
+    if (t_stat is None or df_resid is None
+            or not np.isfinite(t_stat) or not np.isfinite(df_resid)
+            or df_resid <= 0):
+        return None
+    return bool(stats.t.sf(t_stat, df=df_resid) < 0.05)
+```
+
+```{python}
+#| include: false
 #| eval: false
-# Long-running: iterates over a grid of 33 (level, type) combinations,
-# calling get_nda() and multi_fit() for each — takes several minutes.
 grid = [
     (level, manip_type)
     for level in np.arange(0, 1.01, 0.1)
@@ -775,7 +843,6 @@ power_plot_data = pl.concat(power_rows, how="vertical")
 ```{python}
 #| include: false
 #| eval: false
-# Depends on power_plot_data above (eval: false).
 (
     power_plot_data
     .ggplot(aes(x="level", y="prop_reject"))
@@ -926,6 +993,7 @@ Do you observe similar relations in @tbl-em-1?
 #| label: tbl-em-2
 #| tbl-cap: Type I error rates
 #| echo: false
+num_cols = ["neg_p01", "neg_p05", "pos_p01", "pos_p05"]
 (
     test_results
     .group_by("measure")
@@ -1036,7 +1104,7 @@ If not, are there "one-stage" equivalents to the Healy Model and DeAngelo Model 
 
 ### Discussion questions
 
-1. How do the results in [the book’s power figure](https://iangow.github.io/era_pl_book/earnings-mgt.html#fig-power) compare with those in Figure 4 of @Dechow:1995wr?
+1. How do the results in [the book’s power figure](https://iangow.github.io/era_statpai/earnings-mgt.html#fig-power) compare with those in Figure 4 of @Dechow:1995wr?
 
 ```{python}
 #| include: true

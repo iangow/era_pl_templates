@@ -11,10 +11,10 @@ format:
 :::{.content-visible when-format="markdown"}
 ## Instructions
 
-This document assumes that you have completed the instructions [here](https://github.com/iangow/era_pl_templates/blob/main/README.md).
+This document assumes that you have completed the instructions [here](https://github.com/iangow/era_pl_templates/blob/statspai/README.md).
 As mentioned there, there is no need to complete **Steps 6 and 7: Configure and get data from WRDS** for this chapter.
 
-This template extracts the visible code and exercises from [Chapter 5](https://iangow.github.io/era_pl_book/stat-inf.html) of the Python Polars edition of *Empirical Research in Accounting: Tools and Methods*.
+This template extracts the visible code and exercises from [Chapter 5](https://iangow.github.io/era_statpai/stat-inf.html) of the Python Polars/StatsPAI edition of *Empirical Research in Accounting: Tools and Methods*.
 This template includes all the code from the book chapter.
 
 Within Positron, you can run the code below in two ways.
@@ -55,16 +55,13 @@ p9.theme_set(p9.theme_matplotlib())
 ```{python}
 #| include: false
 #| eval: true
+import gt_typst
 import numpy as np
 import polars as pl
-import gt_typst
 from scipy import stats
 from era_pl import get_got_data
-import plotnine_polars as p9
 from plotnine_polars import aes, after_stat
-from linearmodels.panel import FamaMacBeth, PanelOLS
-import statsmodels.formula.api as smf
-from maketables import ETable
+import statspai as sp
 ```
 
 ```{python}
@@ -449,9 +446,8 @@ make_clt_plot(bs_stats)
 ```{python}
 #| include: false
 #| eval: true
-def ols_fit(formula, data, **fit_kwargs):
-    df = data.to_pandas()
-    return smf.ols(formula, data=df).fit(**fit_kwargs)
+def ols_fit(formula, data, *, robust="nonrobust", cluster=None):
+    return sp.regress(formula, data=data, robust=robust, cluster=cluster)
 ```
 
 ## Hypothesis testing
@@ -635,7 +631,8 @@ p_vals = 2 * (1 - stats.t.cdf(np.abs(t_vals), df=N - 2))
 #| eval: true
 df = pl.DataFrame({'y': y, 'x': x})
 fm = ols_fit('y ~ x', data=df)
-fm.summary().tables[1]
+sp.regtable(fm, keep=["Intercept", "x"], stats=["N"], fmt=4,
+            stars=False, diagnostics=False)
 ```
 
 ```{python}
@@ -712,40 +709,32 @@ fm_x = ols_fit('x ~ 1', data=coefs_df)
 ```{python}
 #| include: false
 #| eval: true
-test_panel = test.to_pandas().set_index(['firm', 'year'])
-fm_fmt = FamaMacBeth.from_formula('y ~ 1 + x', data=test_panel).fit(debiased=True)
-fm_fmnw = FamaMacBeth.from_formula('y ~ 1 + x', data=test_panel).fit(
-    cov_type='kernel', kernel='bartlett', bandwidth=1, debiased=True
-)
+fm_fmt = sp.fama_macbeth("y ~ x", data=test, time="year")
+fm_fmnw = sp.fama_macbeth("y ~ x", data=test, time="year", lags=1)
 ```
 
 ```{python}
 #| include: false
-#| eval: true
-test_pd = test.to_pandas()
+# OLS with default standard errors
+fm_ols = ols_fit('y ~ x', data=test)
 
-fm_ols = ols_fit('y ~ x', data=test, use_t=True)
-fm_white = ols_fit('y ~ x', data=test, cov_type="HC1", use_t=False)
-fm_cl_i = ols_fit('y ~ x', data=test,
-                  cov_type='cluster',
-                  use_t=False,
-                  cov_kwds={'groups': test_pd['firm'],
-                            'use_correction': True, 'df_correction': True})
-fm_cl_t = ols_fit('y ~ x', data=test,
-                  cov_type='cluster', use_t=False,
-                  cov_kwds={'groups': test_pd['year'],
-                            'use_correction': True, 'df_correction': True})
+# OLS with White (HC1) standard errors
+fm_white = ols_fit('y ~ x', data=test, robust="hc1")
+# Clustered by firm
+fm_cl_i = ols_fit('y ~ x', data=test, cluster="firm")
+
+# Clustered by year
+fm_cl_t = ols_fit('y ~ x', data=test, cluster="year")
+
+fm_white_table = fm_white.normal_reference()
+fm_cl_i_table = fm_cl_i.normal_reference()
+fm_cl_t_table = fm_cl_t.normal_reference()
 ```
 
 ```{python}
 #| include: false
-#| eval: true
-test_panel = test_pd.set_index(['firm', 'year'])
-fm_cl_2 = (
-    PanelOLS.from_formula('y ~ 1 + x', data=test_panel)
-    .fit(cov_type='clustered', cluster_entity=True, cluster_time=True,
-         debiased=True, group_debias=False)
-)
+# Two-way clustered standard errors
+fm_cl_2 = ols_fit('y ~ x', data=test, cluster=["year", "firm"])
 ```
 
 ## Dependence
@@ -754,13 +743,13 @@ fm_cl_2 = (
 #| label: tbl-fm
 #| tbl-cap: Results from second-step of FM
 #| echo: false
-ETable(
-    [fm_intercept, fm_x],
-    model_heads=["Intercept", "x"],
-    head_order="h",
-    coef_fmt="b:.4f \n (se:.4f)",
-    model_stats=["N"],
-    show_fe=False,
+sp.regtable(
+    fm_intercept, fm_x,
+    model_labels=["Intercept", "x"],
+    keep=["Intercept"],
+    fmt=4,
+    stats=["N"],
+    diagnostics=False,
 )
 ```
 
@@ -768,13 +757,13 @@ ETable(
 #| label: tbl-fm-nw
 #| tbl-cap: Standard errors using FM-t and FM-NW
 #| echo: false
-ETable(
-    [fm_fmt, fm_fmnw],
-    model_heads=["FM-t", "FM-NW"],
-    head_order="h",
-    coef_fmt="b:.4f \n (se:.4f)",
-    model_stats=["N"],
-    show_fe=False,
+sp.regtable(
+    fm_fmt, fm_fmnw,
+    model_labels=["FM-t", "FM-NW"],
+    keep=["Intercept", "x"],
+    fmt=4,
+    stats=["N"],
+    diagnostics=False,
 )
 ```
 
@@ -792,14 +781,15 @@ Explain why @tbl-fm and @tbl-fm-nw report different numbers of observations.
 #| label: tbl-ses-all
 #| tbl-cap: Standard errors using various methods
 #| echo: false
-ETable(
-    [fm_ols, fm_white, fm_cl_i, fm_cl_t, fm_cl_2, fm_fmt],
-    model_heads=["OLS", "White", "CL-i (firm)",
-                 "CL-t (year)", "CL-2", "FM-t"],
-    head_order="h",
-    coef_fmt="b:.4f \n (se:.4f)",
-    model_stats=["N"],
-    show_fe=False,
+sp.regtable(
+    fm_ols, fm_white_table, fm_cl_i_table, fm_cl_t_table,
+    fm_cl_2, fm_fmt,
+    model_labels=["OLS", "White", "CL-i (firm)",
+                  "CL-t (year)", "CL-2", "FM-t"],
+    keep=["Intercept", "x"],
+    fmt=4,
+    stats=["N"],
+    diagnostics=False,
 )
 ```
 

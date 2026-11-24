@@ -11,10 +11,10 @@ format:
 :::{.content-visible when-format="markdown"}
 ## Instructions
 
-This document assumes that you have completed the instructions [here](https://github.com/iangow/era_pl_templates/blob/main/README.md).
+This document assumes that you have completed the instructions [here](https://github.com/iangow/era_pl_templates/blob/statspai/README.md).
 As mentioned there, there is no need to complete **Steps 6 and 7: Configure and get data from WRDS** for this chapter.
 
-This template extracts the visible code and exercises from [Chapter 9](https://iangow.github.io/era_pl_book/web-data.html) of the Python Polars edition of *Empirical Research in Accounting: Tools and Methods*.
+This template extracts the visible code and exercises from [Chapter 9](https://iangow.github.io/era_statpai/web-data.html) of the Python Polars/StatsPAI edition of *Empirical Research in Accounting: Tools and Methods*.
 This template includes all the code from the book chapter.
 
 Within Positron, you can run the code below in two ways.

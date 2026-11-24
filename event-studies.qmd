@@ -12,10 +12,10 @@ format:
 :::{.content-visible when-format="markdown"}
 ## Instructions
 
-This document assumes that you have completed the instructions [here](https://github.com/iangow/era_pl_templates/blob/main/README.md).
+This document assumes that you have completed the instructions [here](https://github.com/iangow/era_pl_templates/blob/statspai/README.md).
 Note that this chapter uses CRSP and Compustat data from a local Parquet repository, which means you will need to complete **Steps 6 and 7: Configure and get data from WRDS** before running any code.
 
-This template extracts the visible code and exercises from [Chapter 13](https://iangow.github.io/era_pl_book/event-studies.html) of the Python Polars edition of *Empirical Research in Accounting: Tools and Methods*.
+This template extracts the visible code and exercises from [Chapter 13](https://iangow.github.io/era_statpai/event-studies.html) of the Python Polars/StatsPAI edition of *Empirical Research in Accounting: Tools and Methods*.
 This template includes all the code from the book chapter.
 
 Within Positron, you can run the code below in two ways.
@@ -52,13 +52,12 @@ p9.theme_set(p9.theme_matplotlib())
 
 ```{python}
 #| include: false
-#| eval: true
+import gt_typst
 from datetime import date, timedelta
 
 import polars as pl
-import statsmodels.formula.api as smf
+import statspai as sp
 from scipy.stats import norm
-from maketables import ETable
 from era_pl import (load_data, load_parquet,
                     get_trading_dates, get_event_dates)
 from plotnine_polars import aes
@@ -66,25 +65,6 @@ from plotnine_polars import aes
 
 ```{python}
 #| include: false
-#| eval: true
-stocknames = load_parquet("stocknames", "crsp")
-dsf = load_parquet("dsf", "crsp")
-dsi = load_parquet("dsi", "crsp")
-idx_daily = load_parquet("idx_daily", "comp")
-```
-
-```{python}
-#| include: false
-#| eval: true
-apple_permno = (
-    stocknames
-    .filter(pl.col("ticker") == "AAPL")
-    .select("permno")
-    .unique()
-    .collect()
-    .item()
-)
-
 apple_sample_start = date(2005, 1, 1)
 apple_sample_end = date(2023, 12, 31)
 apple_events = (
@@ -94,7 +74,31 @@ apple_events = (
         pl.col("end_event_date") <= apple_sample_end,
     )
 )
+apple_events.tail()
+```
 
+```{python}
+#| include: false
+stocknames = load_parquet("stocknames", "crsp")
+dsf = load_parquet("dsf", "crsp")
+dsi = load_parquet("dsi", "crsp")
+idx_daily = load_parquet("idx_daily", "comp")
+```
+
+```{python}
+#| include: false
+apple_permno = (
+    stocknames
+    .filter(pl.col("ticker") == "AAPL")
+    .select("permno")
+    .unique()
+    .collect()
+    .item()
+)
+```
+
+```{python}
+#| include: false
 apple_rets = (
     dsf
     .join(dsi.select("date", "vwretd"),
@@ -106,7 +110,10 @@ apple_rets = (
     .with_columns(ret_mkt=pl.col("ret") - pl.col("vwretd"))
     .select("permno", "date", "ret", "ret_mkt", "vol")
 )
+```
 
+```{python}
+#| include: false
 trading_dates = get_trading_dates(dsi)
 
 apple_event_dates = get_event_dates(
@@ -118,7 +125,10 @@ apple_event_dates = get_event_dates(
     win_start=-1,
     win_end=1,
 )
+```
 
+```{python}
+#| include: false
 event_calendar = (
     trading_dates
     .join(
@@ -134,11 +144,15 @@ event_calendar = (
 apple_data = (
     apple_rets
     .join(event_calendar,
-          on=["permno", "date"], how="left")
+          on=["permno", "date"], how="left",
+    )
     .with_columns(pl.col("is_event").fill_null(False))
     .select("permno", "date", "ret", "ret_mkt", "vol", "is_event")
 )
+```
 
+```{python}
+#| include: false
 plot_df = (
     apple_data
     .sort("date")
@@ -156,18 +170,31 @@ plot_df = (
     )
     .collect()
 )
+```
 
-def ols_fit(formula, data):
-    data = data.with_columns(pl.col("is_event").cast(pl.Int32))
-    return smf.ols(formula, data=data.to_pandas()).fit()
-
-fms = [ols_fit(formula, plot_df)
-       for formula in
-            ["ret_mkt ~ is_event",
-             "I(abs(ret)) ~ is_event",
-             "I(vol / vol.mean()) ~ is_event"]
+```{python}
+#| include: false
+apple_reg_data = plot_df.with_columns(pl.col("is_event").cast(pl.Int32))
+fms = [
+    sp.regress(formula, data=apple_reg_data, robust="nonrobust")
+    for formula in [
+        "ret_mkt ~ is_event",
+        "I(abs(ret)) ~ is_event",
+        "I(vol / vol.mean()) ~ is_event",
     ]
+]
+sp.regtable(
+    *fms,
+    column_spanners=[("ret_mkt", 1), ("abs(ret)", 1), ("Volume", 1)],
+    order=["is_event", "Intercept"],
+    fmt=3,
+    stats=["N", "R2"],
+    stats_fmt=6,
+)
+```
 
+```{python}
+#| include: false
 apple_rets_td = apple_rets.join(trading_dates, on="date", how="inner")
 
 rets_apple = (
@@ -185,7 +212,6 @@ rets_apple = (
 
 ```{python}
 #| include: false
-#| eval: true
 can_rets = (
     idx_daily
     .filter(pl.col("gvkeyx") == "000193")
@@ -206,7 +232,10 @@ can_rets = (
     .select(pl.col("datadate").alias("date"),
             "ret_can")
 )
+```
 
+```{python}
+#| include: false
 reg_data = (
     dsi
     .select("date", "vwretd", "ewretd")
@@ -216,20 +245,28 @@ reg_data = (
     .limit(100)
     .collect()
 )
+```
 
-fm_vw = smf.ols("vwretd ~ ret_can", data=reg_data.to_pandas()).fit()
-fm_ew = smf.ols("ewretd ~ ret_can", data=reg_data.to_pandas()).fit()
+```{python}
+#| include: false
+fm_vw = sp.regress("vwretd ~ ret_can", data=reg_data, robust="nonrobust")
+fm_ew = sp.regress("ewretd ~ ret_can", data=reg_data, robust="nonrobust")
+```
 
+```{python}
+#| include: false
 dsi_merged = (
     dsi
     .select("date", "vwretd", "ewretd")
     .join(can_rets, on="date", how="inner")
     .collect()
-    .pipe(
-        lambda df: df.with_columns(
-            pl.Series("fit_vw", fm_vw.predict(df.to_pandas())),
-            pl.Series("fit_ew", fm_ew.predict(df.to_pandas())),
-        )
+)
+prediction_data = dsi_merged.select("ret_can")
+dsi_merged = (
+    dsi_merged
+    .with_columns(
+        pl.Series("fit_vw", fm_vw.predict(prediction_data)),
+        pl.Series("fit_ew", fm_ew.predict(prediction_data)),
     )
     .with_columns(
         abret_vw=pl.col("vwretd") - pl.col("fit_vw"),
@@ -237,7 +274,10 @@ dsi_merged = (
     )
     .drop("ret_can", "fit_vw", "fit_ew")
 )
+```
 
+```{python}
+#| include: false
 sd_ret = (
     dsi
     .filter(pl.col("date") < pl.date(2001, 12, 28))
@@ -247,8 +287,13 @@ sd_ret = (
     .collect()
     .item()
 )
+```
 
+```{python}
+#| include: false
 zhang_2007_windows = load_data("zhang_2007_windows")
+sd_abret_vw = fm_vw.residuals().std(ddof=1)
+sd_abret_ew = fm_ew.residuals().std(ddof=1)
 
 zhang_2007_rets = (
     zhang_2007_windows
@@ -273,12 +318,15 @@ zhang_2007_rets = (
         ew_t=pl.col("ewretd") /
                 (pl.col("sqrt_n") * sd_ret),
         abret_vw_t=pl.col("abret_vw") /
-                        (pl.col("sqrt_n") * fm_vw.resid.std()),
+                        (pl.col("sqrt_n") * sd_abret_vw),
         abret_ew_t=pl.col("abret_ew") /
-                        (pl.col("sqrt_n") * fm_ew.resid.std()),
+                        (pl.col("sqrt_n") * sd_abret_ew),
     )
 )
+```
 
+```{python}
+#| include: false
 zhang_2007_res = (
     zhang_2007_rets
     .filter(pl.col("vw_t").abs() > abs(norm.ppf(0.05)))
@@ -291,12 +339,15 @@ zhang_2007_res = (
         ew_t=pl.col("ewretd") /
                 (pl.col("sqrt_n") * sd_ret),
         abret_vw_t=pl.col("abret_vw") /
-                (pl.col("sqrt_n") * fm_vw.resid.std()),
+                (pl.col("sqrt_n") * sd_abret_vw),
         abret_ew_t=pl.col("abret_ew") /
-                (pl.col("sqrt_n") * fm_ew.resid.std())
+                (pl.col("sqrt_n") * sd_abret_ew)
     )
 )
+```
 
+```{python}
+#| include: false
 vwret_pct = f"{zhang_2007_res['vwretd'].item() * 100:.2f}"
 vw_t = f"{zhang_2007_res['vw_t'].item():.2f}"
 abret_vw_pct = f"{zhang_2007_res['abret_vw'].item() * 100:.2f}"
@@ -397,7 +448,7 @@ Do you agree with the assessment by @Leuz:2007tj [p. 150] that @Zhang:2007tv is 
 
 ```
 
-3. Describe in detail how you might conduct statistical inference using **randomization inference** in the setting of @Zhang:2007tv (see [the book’s section](https://iangow.github.io/era_pl_book/natural-revisited.html#sec-fhk-inference) for more on this approach)?
+3. Describe in detail how you might conduct statistical inference using **randomization inference** in the setting of @Zhang:2007tv (see [the book’s section](https://iangow.github.io/era_statpai/natural-revisited.html#sec-fhk-inference) for more on this approach)?
 What are the challenges faced and design choices you need to make in applying this approach?
 Does your approach differ from the bootstrapping approach used in @Zhang:2007tv?
 
